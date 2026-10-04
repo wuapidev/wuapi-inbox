@@ -1,0 +1,53 @@
+# Search as you type, for docs/media/clips.sh.
+until chats 10000
+size 880 560            # a smaller window: frames this size can be saved 20 times a second
+wait 2500
+click 200 311
+wait 1500
+click 845 491           # the keyboard tip: "Got it"
+wait 400
+move 600 300
+record search 20
+wait 600
+click 214 171           # the search field
+wait 500
+type T
+wait 140
+type h
+wait 140
+type u
+wait 140
+type r
+wait 140
+type s
+wait 140
+type d
+wait 140
+type a
+wait 140
+type y
+wait 1600
+click 150 312           # the message that matches
+wait 2000
+click 214 171           # the search field again: another word
+wait 300
+key cmd-a
+wait 100
+key backspace
+wait 500
+type p
+wait 140
+type a
+wait 140
+type c
+wait 140
+type k
+wait 140
+type a
+wait 140
+type g
+wait 140
+type e
+wait 2200
+stop
+quit

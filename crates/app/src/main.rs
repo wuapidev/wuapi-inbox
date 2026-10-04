@@ -53,6 +53,10 @@ use gpui_kit::{
 use ui::AppView;
 
 fn main() {
+    #[cfg(feature = "capture")]
+    if capture::running() {
+        capture::at("main");
+    }
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| {
@@ -198,7 +202,7 @@ fn main() {
             // `--features capture`: frames of the window for the
             // documentation, when a script asks for them.
             #[cfg(feature = "capture")]
-            capture::start(window.0, cx);
+            capture::start(window.0, window.1, cx);
             #[cfg(not(feature = "capture"))]
             let _ = window;
 

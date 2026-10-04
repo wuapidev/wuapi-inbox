@@ -61,6 +61,9 @@ pub fn launch(options: &Options, runtime: &Handle) -> Result<Launch, String> {
         // messages would only pile up stale ones. An explicit `--data-dir`
         // still gets a real file, to exercise the store.
         (ProviderKind::Mock, None) => None,
+        // The example's world is in memory too, and new at every start.
+        #[cfg(feature = "provider-example")]
+        (ProviderKind::Example, _) => None,
         (ProviderKind::Mock, Some(dir)) => Some(database_in(dir, "mock")?),
         (ProviderKind::Wuapi, dir) => Some(database_in(
             &dir.clone().unwrap_or_else(product::data_dir),
@@ -259,6 +262,21 @@ fn launch_on(
                 storage_note,
             })
         }
+        // A provider that needs no sign-in is this much: build it, start
+        // an engine on it, say what kind of session it is.
+        #[cfg(feature = "provider-example")]
+        ProviderKind::Example => Ok(Launch::Chats {
+            engine: start_engine(
+                Arc::new(provider_example::EchoProvider::default()),
+                &storage,
+                history,
+                runtime,
+            )?,
+            session: SessionKind::Demo,
+            login: None,
+            identity: None,
+            storage_note,
+        }),
         ProviderKind::Wuapi => {
             let login = Arc::new(WuapiLogin::new(options, storage, home, runtime)?);
             // A key in the environment wins and is never stored.

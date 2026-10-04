@@ -11,7 +11,9 @@ set -euo pipefail
 root=$(cd "$(dirname "$0")/../.." && pwd)
 out=${1:-$root/target/capture/raw}
 scripts=$root/docs/media/capture
-cargo build --release -p wuapi-inbox --features capture --manifest-path "$root/Cargo.toml"
+# Its own target directory: target/release keeps the binary as it ships.
+cargo build --release -p wuapi-inbox --features capture --manifest-path "$root/Cargo.toml" \
+  --target-dir "$root/target/capture-build"
 scratch=$root/target/capture/tmp
 mkdir -p "$out" "$scratch"
 for theme in light dark; do
@@ -21,7 +23,7 @@ for theme in light dark; do
     if [ "$script" = welcome ]; then flags+=(--welcome); else flags+=(--open-chat 1); fi
     frames=$(mktemp -d "$scratch/XXXXXX")
     WUAPI_INBOX_CAPTURE_SCRIPT=$scripts/$script.txt WUAPI_INBOX_CAPTURE_DIR=$frames \
-      "$root/target/release/wuapi-inbox" "${flags[@]}" 2>&1 | grep '^capture' || true
+      "$root/target/capture-build/release/wuapi-inbox" "${flags[@]}" 2>&1 | grep '^capture' || true
     for frame in "$frames"/*.png; do
       mv "$frame" "$out/$(basename "$frame" .png)-$theme.png"
     done

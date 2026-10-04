@@ -12,6 +12,8 @@ client-core.workspace = true
 client-provider.workspace = true
 provider-mock.workspace = true
 provider-wuapi.workspace = true
+# The worked example of docs/PROVIDERS.md, only with `--features provider-example`.
+provider-example = { workspace = true, optional = true }
 # Updates: checked for, downloaded and verified in the background, and
 # installed at the next start.
 updater.workspace = true
@@ -49,6 +51,11 @@ sys-locale = "0.3"
 # PNG files, drawn by the application itself (see `src/capture.rs`). Not part
 # of a release build.
 capture = ["gpui-kit/test-support"]
+# Development aid: adds `--provider example`, the worked example of
+# docs/PROVIDERS.md (an in-memory backend that says back what it is sent).
+# Every line a new provider adds to this crate is marked with this feature.
+# Not part of a release build.
+provider-example = ["dep:provider-example"]
 
 [dev-dependencies]
 tempfile = "3"

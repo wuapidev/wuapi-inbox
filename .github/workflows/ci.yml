@@ -102,7 +102,10 @@ jobs:
 
       - name: Clippy
         if: matrix.clippy
-        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+        run: |
+          cargo clippy --workspace --all-targets --locked -- -D warnings
+          # The development features of the app, which a default build leaves out.
+          cargo clippy -p wuapi-inbox --all-targets --features capture,provider-example --locked -- -D warnings
 
       # The window tests run without a display: the toolkit's test
       # platform draws nothing, on every system.

@@ -3,6 +3,7 @@ resolver = "2"
 members = [
     "crates/client-provider",
     "crates/provider-mock",
+    "crates/provider-example",
     "crates/client-core",
     "crates/provider-wuapi",
     "crates/app",
@@ -22,6 +23,7 @@ publish = false
 client-provider = { path = "crates/client-provider" }
 client-core = { path = "crates/client-core" }
 provider-mock = { path = "crates/provider-mock" }
+provider-example = { path = "crates/provider-example" }
 provider-wuapi = { path = "crates/provider-wuapi" }
 brand-mark = { path = "crates/brand-mark" }
 updater = { path = "crates/updater" }

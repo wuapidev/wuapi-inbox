@@ -1,0 +1,41 @@
+# Opening chats and reading back through one, for docs/media/clips.sh.
+until chats 10000
+size 880 560            # a smaller window: frames this size can be saved 20 times a second
+wait 2500
+# Each chat once, off the record: the demo provider hands over the history
+# the first time, as a backend would.
+click 200 252
+wait 600
+click 200 311
+wait 600
+click 200 370
+wait 600
+click 200 429
+wait 600
+click 200 488
+wait 600
+click 200 547
+wait 600
+click 838 491           # the keyboard tip: "Got it"
+wait 400
+move 600 300
+record chats 20
+wait 600
+click 200 252
+wait 700
+click 200 311
+wait 700
+click 200 370
+wait 700
+click 200 429
+wait 700
+click 200 488
+wait 700
+click 200 252
+wait 700
+glide 600 300 -2600 2200
+wait 500
+glide 600 300 2600 1600
+wait 700
+stop
+quit

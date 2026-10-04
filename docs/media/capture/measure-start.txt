@@ -1,0 +1,5 @@
+# The start, for docs/media/measure.sh: the application prints when `main`
+# began, when the window had its first frame and when the chat list was
+# drawn, and leaves.
+until chats 10000
+quit
