@@ -195,7 +195,7 @@ fn wallpaper_name(wallpaper: WallpaperChoice) -> &'static str {
 
 fn media_name(media: MediaChoice) -> &'static str {
     match media {
-        MediaChoice::Images => "Images and stickers",
+        MediaChoice::Images => "Images, stickers and GIFs",
         MediaChoice::Never => "Nothing",
         MediaChoice::Everything => "Everything",
     }

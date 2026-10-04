@@ -214,8 +214,12 @@ pub(super) struct StatusUi {
     pub(super) clock: Option<Task<()>>,
     /// The search field of the audience's list of people.
     pub(super) query: Entity<InputState>,
-    /// A video that was asked to be opened outside, waiting for its file.
+    /// A story video whose file was asked for and is not here yet.
     pub(super) video_pending: Option<(MessageId, String)>,
+    /// The story playing in the app, and its decoder.
+    pub(super) clip: Option<(MessageId, std::sync::Arc<crate::video::Clip>)>,
+    /// Why that story could not be played, in the viewer's words.
+    pub(super) video_error: Option<(MessageId, SharedString)>,
     _subs: Vec<Subscription>,
 }
 
@@ -302,6 +306,8 @@ impl StatusUi {
             clock: None,
             query,
             video_pending: None,
+            clip: None,
+            video_error: None,
             _subs: subs,
         }
     }
@@ -386,11 +392,10 @@ impl Shell {
     }
 
     /// While Status is on screen, fetches ahead the first story not seen of each author who has
-    /// one, when it is a picture and the media policy fetches pictures by
-    /// itself (the shelf asks the policy; "Nothing" fetches nothing). Never
-    /// a video, never more than a dozen authors, and never anything that
-    /// counts as seeing: a picture that is here before the viewer opens
-    /// is only a picture that is here.
+    /// one, when it is a picture, a sticker or a GIF and the media policy
+    /// fetches those by itself ("Nothing" fetches nothing). Never a video
+    /// that is not a GIF, never more than a dozen authors, and never
+    /// anything that counts as seeing.
     fn prefetch_stories(&self, account: &AccountId, cx: &Context<Self>) {
         // Only for somebody who is looking at Status: the dot and the
         // rings need the list of stories, never their pictures.
@@ -402,10 +407,23 @@ impl Shell {
             let Some(item) = author.stories.iter().find(|item| !item.viewed) else {
                 continue;
             };
-            if let client_provider::StoryBody::Media(media) = &item.story.body {
-                if media.kind == client_provider::MediaKind::Image {
+            let client_provider::StoryBody::Media(media) = &item.story.body else {
+                continue;
+            };
+            match media.kind {
+                client_provider::MediaKind::Image | client_provider::MediaKind::Sticker => {
                     let _ = self.media.visual(account, media);
                 }
+                client_provider::MediaKind::Video if self.media.fetches_gif_unasked(media) => {
+                    if let Some(source) = media.source.as_ref() {
+                        if self.media.file_state(source.as_str())
+                            == super::media::FileState::NotFetched
+                        {
+                            self.media.prefetch(account, source.as_str());
+                        }
+                    }
+                }
+                _ => {}
             }
         }
     }

@@ -64,8 +64,8 @@ pub enum HistoryChoice {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum MediaChoice {
-    /// Images and stickers, as they scroll into view. Other files wait
-    /// for a click.
+    /// Images, stickers and GIFs, as they scroll into view. Other files
+    /// wait for a click.
     #[default]
     Images,
     /// Nothing: every image and file waits for a click.

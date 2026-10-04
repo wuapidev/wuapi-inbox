@@ -5488,3 +5488,185 @@ fn what_loads_by_itself_shows_a_ring_and_a_file_tile_shows_the_button(cx: &mut T
     assert!(cx.opened_url().is_none(), "nothing was opened");
     assert!(shows(harness.window, "media-open", cx));
 }
+
+#[gpui_kit::test]
+fn a_gif_downloads_by_itself_like_a_sticker_and_a_video_waits(cx: &mut TestAppContext) {
+    use client_provider::MediaKind;
+    let harness = open_chat_with_policy(cx, crate::settings::MediaChoice::Images);
+
+    let sticker = "https://media.example/auto-sticker.png";
+    harness.mock.set_media(sticker, png(64, 64), "image/png");
+    push_described_media(
+        &harness,
+        cx,
+        "m-stk",
+        MediaKind::Sticker,
+        sticker,
+        |media| {
+            media.mime_type = Some("image/png".into());
+            media.size_bytes = Some(64);
+        },
+    );
+
+    let gif = "https://media.example/auto-loop.mp4";
+    harness
+        .mock
+        .set_media(gif, b"gif-mp4".to_vec(), "video/mp4");
+    push_described_media(&harness, cx, "m-gif", MediaKind::Video, gif, |media| {
+        media.mime_type = Some("video/mp4".into());
+        media.gif = true;
+        media.size_bytes = Some(7);
+    });
+
+    let video = "https://media.example/auto-clip.mp4";
+    harness.mock.set_media(video, b"clip".to_vec(), "video/mp4");
+    push_described_media(&harness, cx, "m-vid", MediaKind::Video, video, |media| {
+        media.mime_type = Some("video/mp4".into());
+        media.size_bytes = Some(4);
+    });
+
+    let huge = "https://media.example/auto-huge.mp4";
+    push_described_media(&harness, cx, "m-huge", MediaKind::Video, huge, |media| {
+        media.mime_type = Some("video/mp4".into());
+        media.gif = true;
+        media.size_bytes = Some(client_core::AUTO_MEDIA_LIMIT + 1);
+    });
+
+    let cached = |url: &str| {
+        harness
+            .engine
+            .store()
+            .media(
+                &client_core::file_key(url),
+                client_provider::Timestamp::now(),
+            )
+            .unwrap()
+            .is_some()
+    };
+    let mut sticker_here = false;
+    let mut gif_here = false;
+    for _ in 0..200 {
+        harness.settle(cx);
+        sticker_here = harness
+            .engine
+            .store()
+            .media_size(&client_core::thumbnail_key(sticker))
+            .unwrap()
+            .is_some();
+        gif_here = cached(gif);
+        if sticker_here && gif_here {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(3));
+    }
+    assert!(sticker_here, "a sticker downloads without a click");
+    assert!(gif_here, "a gif downloads without a click");
+    assert!(
+        cx.opened_url().is_none(),
+        "downloading does not open the system player"
+    );
+    assert!(!cached(video), "a video still waits for a click");
+    assert_eq!(
+        harness.engine.media_state(&client_core::file_key(video)),
+        client_core::MediaState::Idle
+    );
+    assert!(!cached(huge), "a gif over the automatic limit waits");
+    assert_eq!(
+        harness.engine.media_state(&client_core::file_key(huge)),
+        client_core::MediaState::Idle
+    );
+}
+
+#[gpui_kit::test]
+fn stopping_an_automatic_gif_does_not_start_it_again(cx: &mut TestAppContext) {
+    use client_provider::MediaKind;
+    let harness = open_chat_with_policy(cx, crate::settings::MediaChoice::Images);
+    for _ in 0..100 {
+        harness.settle(cx);
+        if !shows(harness.window, "media-progress", cx) {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    harness.mock.set_media_latency(Duration::from_secs(2));
+    let gif = "https://media.example/stop-loop.mp4";
+    harness
+        .mock
+        .set_media(gif, b"gif-mp4".to_vec(), "video/mp4");
+    push_described_media(&harness, cx, "m-stop", MediaKind::Video, gif, |media| {
+        media.mime_type = Some("video/mp4".into());
+        media.gif = true;
+        media.size_bytes = Some(7);
+    });
+    let mut loading = false;
+    for _ in 0..50 {
+        harness.settle(cx);
+        loading = matches!(
+            harness.engine.media_state(&client_core::file_key(gif)),
+            client_core::MediaState::Loading
+        );
+        if loading {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    assert!(loading, "the gif started on its own");
+    let calls = harness.mock.media_calls();
+    click(harness.window, "media-progress", cx);
+    for _ in 0..30 {
+        harness.settle(cx);
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    assert_eq!(
+        harness.engine.media_state(&client_core::file_key(gif)),
+        client_core::MediaState::Idle
+    );
+    assert_eq!(
+        harness.mock.media_calls(),
+        calls,
+        "stopping it does not ask again"
+    );
+    assert!(cx.opened_url().is_none());
+}
+
+#[gpui_kit::test]
+fn with_automatic_downloads_off_a_gif_and_a_sticker_wait(cx: &mut TestAppContext) {
+    use client_provider::MediaKind;
+    let harness = open_chat_with_policy(cx, crate::settings::MediaChoice::Never);
+    let sticker = "https://media.example/later-sticker.png";
+    let gif = "https://media.example/later-loop.mp4";
+    harness.mock.set_media(sticker, png(64, 64), "image/png");
+    harness
+        .mock
+        .set_media(gif, b"gif-mp4".to_vec(), "video/mp4");
+    push_described_media(
+        &harness,
+        cx,
+        "m-stk",
+        MediaKind::Sticker,
+        sticker,
+        |media| {
+            media.mime_type = Some("image/png".into());
+        },
+    );
+    push_described_media(&harness, cx, "m-gif", MediaKind::Video, gif, |media| {
+        media.gif = true;
+        media.mime_type = Some("video/mp4".into());
+    });
+    for _ in 0..20 {
+        harness.settle(cx);
+        std::thread::sleep(Duration::from_millis(3));
+    }
+    assert_eq!(
+        harness
+            .engine
+            .media_state(&client_core::thumbnail_key(sticker)),
+        client_core::MediaState::Idle
+    );
+    assert_eq!(
+        harness.engine.media_state(&client_core::file_key(gif)),
+        client_core::MediaState::Idle
+    );
+    assert!(shows(harness.window, "media-download", cx));
+    assert!(cx.opened_url().is_none());
+}

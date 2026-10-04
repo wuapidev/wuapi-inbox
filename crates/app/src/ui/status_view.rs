@@ -10,8 +10,8 @@
 //! Seeing is behaviour toward other people. A story counts as seen, and
 //! its author is owed a view receipt when receipts are on, only when it was
 //! drawn in this viewer: never because it was listed, prefetched or
-//! downloaded. A video is a labelled tile here (no decoder), so it counts
-//! when it is opened in the system's player.
+//! downloaded. A video counts when a frame of it is on screen here. Until
+//! its file is here it is only a tile, and the tile is not a view.
 
 use super::shell::Shell;
 use super::status::{tooltip_with_keys, Main, Part};
@@ -37,7 +37,11 @@ use gpui_kit::{
     SharedString, Stateful, StrikethroughStyle, StyledImage, StyledText, UnderlineStyle, Window,
 };
 use std::collections::HashMap;
+use std::sync::Arc;
 use std::time::Duration;
+
+/// What the viewer says when a story's video cannot be played here.
+const VIDEO_FAILED: &str = "This video can't be played in the app.";
 
 /// How often the viewer's clock ticks.
 pub(super) const TICK: Duration = Duration::from_millis(40);
@@ -229,6 +233,9 @@ impl Shell {
         self.pane_list = false;
         self.start_story_clock(cx);
         self.ask_viewers_of_current(cx);
+        // A GIF on screen is fetched now, the way a picture is. The clock
+        // waits for the file; nothing is handed to the system player.
+        self.ensure_story_video(cx);
         cx.notify();
     }
 
@@ -237,6 +244,8 @@ impl Shell {
         if self.status.viewing.take().is_some() {
             self.status.clock = None;
             self.status.video_pending = None;
+            self.status.video_error = None;
+            self.retire_story_video(cx);
             if self.status.main == Main::Viewing {
                 self.status.main = Main::Empty;
             }
@@ -352,18 +361,56 @@ impl Shell {
         if self.status.viewing.is_none() {
             return false;
         }
+        self.ensure_story_video(cx);
+        let user_paused = self.story_paused_by_user();
+        if let Some((_, clip)) = &self.status.clip {
+            clip.set_paused(user_paused);
+            clip.poll(by);
+        }
         let ready = self.story_content_ready();
+        let video = self.current_slide_kind() == Some(SlideKind::Video);
+        let report = self.current_video_report();
         let moments = {
             let viewing = self.status.viewing.as_mut().expect("checked above");
             let mut moments = Vec::new();
-            if viewing.player.is_ready() != ready {
-                moments.extend(viewing.player.set_ready(ready));
+            if !video {
+                if viewing.player.is_ready() != ready {
+                    moments.extend(viewing.player.set_ready(ready));
+                }
+                moments.extend(viewing.player.tick(by));
+            } else if let Some(report) = report {
+                if !viewing.player.is_ready() {
+                    moments.extend(viewing.player.set_ready(true));
+                }
+                if report.failure.is_some() {
+                    // The note stays up. The story still moves on, so a
+                    // file that will not play cannot hold the viewer.
+                    moments.extend(viewing.player.tick(by));
+                } else if report.finished {
+                    if report.image.is_some() {
+                        moments.extend(viewing.player.presented());
+                    }
+                    moments.extend(viewing.player.next_story());
+                } else if report.image.is_some() {
+                    moments.extend(viewing.player.presented());
+                    moments.extend(viewing.player.sync(report.position));
+                }
+                // No frame yet: the decoder is working. The clock stays
+                // where it is, and the decoder is not paused for that.
+            } else {
+                if !viewing.player.is_ready() {
+                    moments.extend(viewing.player.set_ready(true));
+                }
+                moments.extend(viewing.player.tick(by));
             }
-            moments.extend(viewing.player.tick(by));
             moments
         };
         if self.apply_moments(moments, cx) {
             cx.notify();
+        }
+        // The story just moved to asks for its file now, not one tick later.
+        if self.status.viewing.is_some() {
+            self.ensure_story_video(cx);
         }
         self.status.viewing.is_some()
     }
@@ -387,6 +434,9 @@ impl Shell {
                         viewing.notice = None;
                         viewing.reply_note = None;
                     }
+                    self.status.video_pending = None;
+                    self.status.video_error = None;
+                    self.retire_story_video(cx);
                     self.drop_story_draft(cx);
                     self.ask_viewers_of_current(cx);
                 }
@@ -575,8 +625,8 @@ impl Shell {
         }
     }
 
-    /// A video in the system's player, a voice note in the speakers. Only
-    /// then does it count as seen.
+    /// A video in this viewer, a voice note in the speakers. A video counts
+    /// as seen when a frame is on screen, a voice note when it plays.
     pub(super) fn open_current_media(&mut self, cx: &mut Context<Self>) {
         let Some((id, media)) = self.current_media() else {
             return;
@@ -597,20 +647,20 @@ impl Shell {
             }
             SlideKind::Video => {
                 let ready = self.media.file_state(&url) == super::media::FileState::Ready;
-                self.open_file(media, cx);
                 if ready {
-                    let moments = self
-                        .status
-                        .viewing
-                        .as_mut()
-                        .map(|viewing| viewing.player.opened_externally())
-                        .unwrap_or_default();
-                    self.apply_moments(moments, cx);
-                } else {
-                    // Counts when the file has arrived and was opened.
+                    // A retry after a failure starts again. The file is
+                    // already here: nothing is handed to the system.
+                    self.status.video_error = None;
+                    self.retire_story_video(cx);
+                    self.play_story_video(id, &url, cx);
+                    self.present_story_video(cx);
+                } else if let Some(account) = self.account.clone() {
+                    // Ask for the file without marking it as something the
+                    // system player is about to open.
+                    self.engine.want_file(&account, &url);
                     self.status.video_pending = Some((id, url));
                     if let Some(viewing) = self.status.viewing.as_mut() {
-                        viewing.player.holds.external = true;
+                        viewing.player.holds.loading = true;
                     }
                 }
             }
@@ -619,31 +669,209 @@ impl Shell {
         cx.notify();
     }
 
-    /// A file arrived: a video that was waited for is open now, and seen.
+    /// A file arrived. A story video that was waited for starts here, and
+    /// counts as seen once a frame is up. It is never opened outside.
     pub(super) fn status_media_arrived(&mut self, key: &str, cx: &mut Context<Self>) {
-        let Some((id, url)) = self.status.video_pending.clone() else {
-            return;
+        let url = if let Some((_, url)) = self.status.video_pending.clone() {
+            url
+        } else {
+            let Some((_, media)) = self.current_media() else {
+                return;
+            };
+            if SlideKind::of(&StoryBody::Media(media.clone())) != SlideKind::Video {
+                return;
+            }
+            let Some(url) = media.source.as_ref().map(|source| source.to_string()) else {
+                return;
+            };
+            url
         };
         if key != client_core::file_key(&url) {
             return;
         }
-        self.status.video_pending = None;
-        let on_screen = self
+        self.ensure_story_video(cx);
+        self.present_story_video(cx);
+        cx.notify();
+    }
+
+    /// The kind of the story on screen.
+    fn current_slide_kind(&self) -> Option<SlideKind> {
+        self.status
+            .viewing
+            .as_ref()
+            .and_then(|viewing| viewing.player.current())
+            .map(|slide| slide.kind)
+    }
+
+    /// Holds that are the person's, not the decoder's. Pausing for a
+    /// download or for the first frame would stop the decoder before a
+    /// frame existed.
+    fn story_paused_by_user(&self) -> bool {
+        self.status.viewing.as_ref().is_some_and(|viewing| {
+            let holds = &viewing.player.holds;
+            holds.pointer || holds.paused || holds.typing || holds.external || holds.panel
+        })
+    }
+
+    /// The frame of the clip that belongs to the story on screen.
+    fn current_video_report(&self) -> Option<crate::video::Report> {
+        let id = self
             .status
             .viewing
             .as_ref()
             .and_then(|viewing| viewing.player.current())
-            .is_some_and(|slide| slide.id == id);
-        if on_screen {
-            let moments = self
-                .status
-                .viewing
-                .as_mut()
-                .map(|viewing| viewing.player.opened_externally())
-                .unwrap_or_default();
-            self.apply_moments(moments, cx);
+            .map(|slide| slide.id.clone())?;
+        let (clip_id, clip) = self.status.clip.as_ref()?;
+        (clip_id == &id).then(|| clip.report())
+    }
+
+    /// Starts playback when the story on screen is a video whose file is
+    /// already cached. A failure stays failed until the person tries again.
+    fn ensure_story_video(&mut self, cx: &mut Context<Self>) {
+        let Some((id, media)) = self.current_media() else {
+            self.retire_story_video(cx);
+            return;
+        };
+        if SlideKind::of(&StoryBody::Media(media.clone())) != SlideKind::Video {
+            self.status.video_error = None;
+            self.retire_story_video(cx);
+            return;
         }
-        cx.notify();
+        if self
+            .status
+            .clip
+            .as_ref()
+            .is_some_and(|(clip_id, _)| clip_id == &id)
+        {
+            return;
+        }
+        if self
+            .status
+            .video_error
+            .as_ref()
+            .is_some_and(|(err_id, _)| err_id == &id)
+        {
+            return;
+        }
+        let Some(url) = media.source.as_ref().map(|source| source.to_string()) else {
+            return;
+        };
+        if self.media.file_state(&url) != super::media::FileState::Ready {
+            self.ask_for_story_gif(&id, &media, &url);
+            return;
+        }
+        self.play_story_video(id, &url, cx);
+    }
+
+    /// A GIF the policy fetches by itself: ask for the file and hold the
+    /// clock. A video that is not a GIF still waits for the Play button.
+    /// Neither path marks the file as something the system player will open.
+    fn ask_for_story_gif(&mut self, id: &MessageId, media: &Media, url: &str) {
+        if !self.media.fetches_gif_unasked(media) {
+            return;
+        }
+        if self
+            .status
+            .video_error
+            .as_ref()
+            .is_some_and(|(err_id, _)| err_id == id)
+        {
+            return;
+        }
+        if self
+            .status
+            .video_pending
+            .as_ref()
+            .is_some_and(|(pending, _)| pending == id)
+        {
+            if let Some(viewing) = self.status.viewing.as_mut() {
+                viewing.player.holds.loading = true;
+            }
+            return;
+        }
+        let Some(account) = self.account.clone() else {
+            return;
+        };
+        self.engine.want_file(&account, url);
+        self.status.video_pending = Some((id.clone(), url.to_owned()));
+        if let Some(viewing) = self.status.viewing.as_mut() {
+            viewing.player.holds.loading = true;
+        }
+    }
+
+    /// Opens `url` in the in-app player. The clock restarts: time spent on
+    /// the tile is not time in the video.
+    fn play_story_video(&mut self, id: MessageId, url: &str, cx: &mut Context<Self>) {
+        self.retire_story_video(cx);
+        let Some((bytes, _)) = self.media.file(url) else {
+            return;
+        };
+        if bytes.is_empty() {
+            tracing::warn!("the video file is empty");
+            self.story_video_failed(id);
+            return;
+        }
+        match crate::video::Clip::open(Arc::<[u8]>::from(bytes)) {
+            Ok(clip) => {
+                self.status.clip = Some((id, Arc::new(clip)));
+                self.status.video_error = None;
+                self.status.video_pending = None;
+                if let Some(viewing) = self.status.viewing.as_mut() {
+                    viewing.player.holds.loading = false;
+                    viewing.player.rewind();
+                }
+            }
+            Err(error) => {
+                tracing::warn!(%error, "story video could not be opened");
+                self.story_video_failed(id);
+            }
+        }
+    }
+
+    fn story_video_failed(&mut self, id: MessageId) {
+        self.status.video_error = Some((id, VIDEO_FAILED.into()));
+        self.status.video_pending = None;
+        if let Some(viewing) = self.status.viewing.as_mut() {
+            viewing.player.holds.loading = false;
+        }
+    }
+
+    /// A frame is up: the story counts as seen. The clock follows playback
+    /// on the next tick, not here, so arriving at the start does not skip
+    /// the story.
+    fn present_story_video(&mut self, cx: &mut Context<Self>) {
+        let Some(report) = self.current_video_report() else {
+            return;
+        };
+        if report.image.is_none() || report.failure.is_some() {
+            return;
+        }
+        let moments = self
+            .status
+            .viewing
+            .as_mut()
+            .map(|viewing| viewing.player.presented())
+            .unwrap_or_default();
+        self.apply_moments(moments, cx);
+    }
+
+    /// Stops the decoder and gives its frames back to the window.
+    fn retire_story_video(&mut self, cx: &mut Context<Self>) {
+        let Some((_, clip)) = self.status.clip.take() else {
+            return;
+        };
+        let mut images = clip.take_stale();
+        if let Some(image) = clip.report().image {
+            images.push(image);
+        }
+        let window = self.status.window;
+        cx.defer(move |cx| {
+            let _ = window.update(cx, |_, window, _| {
+                for image in images {
+                    let _ = window.drop_image(image);
+                }
+            });
+        });
     }
 
     // ----- answering ---------------------------------------------------------------------------
@@ -1074,9 +1302,8 @@ impl Shell {
                 let kind = SlideKind::of(&item.story.body);
                 let body: gpui_kit::AnyElement = match kind {
                     SlideKind::Image => self.render_story_picture(media, palette, cx),
-                    SlideKind::Video | SlideKind::Voice => {
-                        self.render_story_tile(viewing, media, kind, palette, cx)
-                    }
+                    SlideKind::Video => self.render_story_video(viewing, media, palette, cx),
+                    SlideKind::Voice => self.render_story_tile(viewing, media, kind, palette, cx),
                     SlideKind::Text => div().into_any_element(),
                 };
                 card.child(body).children(
@@ -1191,9 +1418,119 @@ impl Shell {
         }
     }
 
-    /// A video or a voice note: a labelled tile. The video's first frame
-    /// is not shown: the provider gives none and nothing here decodes
-    /// video.
+    /// A story video: the frame when there is one, a failure the person
+    /// can retry, or the tile that asks for the file.
+    fn render_story_video(
+        &self,
+        viewing: &Viewing,
+        media: &Media,
+        palette: &Palette,
+        cx: &mut Context<Self>,
+    ) -> gpui_kit::AnyElement {
+        let id = viewing.player.current().map(|slide| slide.id.clone());
+        let failed = self
+            .status
+            .video_error
+            .as_ref()
+            .is_some_and(|(err_id, _)| Some(err_id) == id.as_ref())
+            || self
+                .current_video_report()
+                .is_some_and(|report| report.failure.is_some());
+        if failed {
+            return div()
+                .size_full()
+                .flex()
+                .flex_col()
+                .items_center()
+                .justify_center()
+                .gap_3()
+                .p_4()
+                .child(
+                    div()
+                        .debug_selector(|| "story-video-note".into())
+                        .px_4()
+                        .text_center()
+                        .text_size(metrics::TEXT_SMALL())
+                        .text_color(story::on_background())
+                        .child(VIDEO_FAILED),
+                )
+                .child(
+                    text_button(
+                        "story-open-video",
+                        "Try again",
+                        Some(IconName::Play),
+                        true,
+                        palette,
+                    )
+                    .on_click(cx.listener(|this, _, _, cx| this.open_current_media(cx))),
+                )
+                .into_any_element();
+        }
+        if let Some((clip, image, width, height)) =
+            self.status.clip.as_ref().and_then(|(clip_id, clip)| {
+                if Some(clip_id) != id.as_ref() {
+                    return None;
+                }
+                let report = clip.report();
+                let image = report.image?;
+                Some((Arc::clone(clip), image, report.width, report.height))
+            })
+        {
+            return self.render_story_video_frame(clip, image, width, height);
+        }
+        self.render_story_tile(viewing, media, SlideKind::Video, palette, cx)
+    }
+
+    /// The current frame, contained in the card. Frames the decoder has
+    /// replaced are given back to the window here.
+    fn render_story_video_frame(
+        &self,
+        clip: Arc<crate::video::Clip>,
+        image: Arc<gpui_kit::RenderImage>,
+        width: u32,
+        height: u32,
+    ) -> gpui_kit::AnyElement {
+        let width = width.max(1) as f32;
+        let height = height.max(1) as f32;
+        div()
+            .debug_selector(|| "story-video".into())
+            .size_full()
+            .child(
+                gpui_kit::canvas(
+                    |_, _, _| {},
+                    move |bounds, _, window, _| {
+                        for stale in clip.take_stale() {
+                            let _ = window.drop_image(stale);
+                        }
+                        let scale = (bounds.size.width.as_f32() / width)
+                            .min(bounds.size.height.as_f32() / height);
+                        let size = gpui_kit::size(
+                            gpui_kit::px(width * scale),
+                            gpui_kit::px(height * scale),
+                        );
+                        let fitted = gpui_kit::Bounds {
+                            origin: gpui_kit::point(
+                                bounds.origin.x + (bounds.size.width - size.width) / 2.,
+                                bounds.origin.y + (bounds.size.height - size.height) / 2.,
+                            ),
+                            size,
+                        };
+                        let _ = window.paint_image(
+                            fitted,
+                            fitted,
+                            gpui_kit::Corners::all(px(0.)),
+                            Arc::clone(&image),
+                            0,
+                            false,
+                        );
+                    },
+                )
+                .size_full(),
+            )
+            .into_any_element()
+    }
+
+    /// A video that is not playing yet, or a voice note: a labelled tile.
     fn render_story_tile(
         &self,
         viewing: &Viewing,
@@ -1208,9 +1545,14 @@ impl Shell {
             .or_else(|| media.size_bytes.map(file_size))
             .unwrap_or_default();
         let opened = viewing.player.holds.external;
-        let (glyph, title, action) = match kind {
-            SlideKind::Voice => (IconName::Mic, "Voice message", "Play"),
-            _ => (IconName::Video, "Video", "Open externally"),
+        let (glyph, title, action, button_icon) = match kind {
+            SlideKind::Voice => (
+                IconName::Mic,
+                "Voice message",
+                "Play",
+                IconName::ExternalLink,
+            ),
+            _ => (IconName::Video, "Video", "Play", IconName::Play),
         };
         div()
             .debug_selector(|| "story-tile".into())
@@ -1240,23 +1582,11 @@ impl Shell {
                 text_button(
                     "story-open-video",
                     if opened { "Playing outside" } else { action },
-                    Some(IconName::ExternalLink),
+                    Some(button_icon),
                     true,
                     palette,
                 )
                 .on_click(cx.listener(|this, _, _, cx| this.open_current_media(cx))),
-            )
-            .child(
-                div()
-                    .debug_selector(|| "story-tile-note".into())
-                    .text_size(metrics::TEXT_SMALL())
-                    .text_center()
-                    .text_color(story::on_background().opacity(0.7))
-                    .child(if kind == SlideKind::Video {
-                        "Videos play in your system's player."
-                    } else {
-                        ""
-                    }),
             )
             .into_any_element()
     }
