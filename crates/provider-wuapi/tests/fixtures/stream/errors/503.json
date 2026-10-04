@@ -1,0 +1,4 @@
+{
+  "code": "service_unavailable",
+  "message": "The event stream is temporarily unavailable. Retry shortly."
+}

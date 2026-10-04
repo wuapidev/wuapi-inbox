@@ -1,0 +1,49 @@
+{
+  "object": "message",
+  "id": "m_contacts",
+  "projectId": null,
+  "accountId": "k57a8m2x9d3f0q1wjh6ypc4n2d7s0vbr",
+  "chatId": "+584245550199",
+  "chatType": "direct",
+  "direction": "inbound",
+  "source": "contact",
+  "from": "+584245550199",
+  "to": "+584121234567",
+  "profileName": "Maria",
+  "username": null,
+  "type": "contacts",
+  "text": null,
+  "media": null,
+  "location": null,
+  "contact": {
+    "name": "Sales",
+    "phone": "+584121111111"
+  },
+  "contacts": [
+    {
+      "name": "Sales",
+      "phone": "+584121111111"
+    },
+    {
+      "name": "Support",
+      "phone": "+584122222222"
+    }
+  ],
+  "poll": null,
+  "calendarEvent": null,
+  "mentions": [],
+  "forwarded": false,
+  "viewOnce": false,
+  "starred": false,
+  "replyToMessageId": null,
+  "status": "received",
+  "error": null,
+  "metadata": {},
+  "sentAt": "2026-09-24T08:10:00.000Z",
+  "editedAt": null,
+  "deletedAt": null,
+  "createdAt": "2026-09-24T08:10:00.000Z",
+  "updatedAt": "2026-09-24T08:10:00.000Z",
+  "forwardedManyTimes": false,
+  "replyToStoryId": null
+}

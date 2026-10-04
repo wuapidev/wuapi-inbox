@@ -1,0 +1,12 @@
+/target
+*.db
+*.db-wal
+*.db-shm
+.DS_Store
+
+# graft's local graph cache — regenerable, not committed (run `graft build`).
+/graft/
+
+# Local agent tooling, not part of the project.
+/.atl/
+/.ignore

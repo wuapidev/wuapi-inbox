@@ -1,0 +1,55 @@
+{
+  "object": "message",
+  "id": "m_poll",
+  "projectId": null,
+  "accountId": "k57a8m2x9d3f0q1wjh6ypc4n2d7s0vbr",
+  "chatId": "120363041234567890@g.us",
+  "chatType": "group",
+  "direction": "inbound",
+  "source": "contact",
+  "from": "+584245550199",
+  "to": "120363041234567890@g.us",
+  "profileName": "Maria",
+  "username": null,
+  "type": "poll",
+  "text": null,
+  "media": null,
+  "location": null,
+  "contact": null,
+  "contacts": null,
+  "poll": {
+    "name": "Lunch?",
+    "options": [
+      {
+        "name": "Pizza",
+        "voteCount": 1
+      },
+      {
+        "name": "Sushi",
+        "voteCount": 2
+      },
+      {
+        "name": "Tacos",
+        "voteCount": 0
+      }
+    ],
+    "selectableCount": 1,
+    "voterCount": 3
+  },
+  "calendarEvent": null,
+  "mentions": [],
+  "forwarded": false,
+  "viewOnce": false,
+  "starred": false,
+  "replyToMessageId": null,
+  "status": "received",
+  "error": null,
+  "metadata": {},
+  "sentAt": "2026-09-24T08:10:00.000Z",
+  "editedAt": null,
+  "deletedAt": null,
+  "createdAt": "2026-09-24T08:10:00.000Z",
+  "updatedAt": "2026-09-24T08:10:00.000Z",
+  "forwardedManyTimes": false,
+  "replyToStoryId": null
+}

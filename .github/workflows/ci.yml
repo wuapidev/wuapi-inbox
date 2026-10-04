@@ -1,0 +1,110 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: "0"
+  RUST_BACKTRACE: "1"
+
+jobs:
+  fmt:
+    name: Format
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - run: cargo fmt --all --check
+
+  test:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Clippy builds the workspace a second time, in another profile.
+          # It runs where that is cheap; the two slow runners only test.
+          - name: Linux x86_64
+            os: ubuntu-latest
+            clippy: true
+          - name: macOS aarch64
+            os: macos-latest
+            clippy: true
+          - name: macOS x86_64
+            os: macos-15-intel
+          # The standard Windows runner has two cores in a private repository,
+          # and a build from nothing takes about an hour there. Set the
+          # repository variable WINDOWS_RUNNER to the label of a larger
+          # runner of the organization to use it; unset, the standard one.
+          - name: Windows x86_64
+            os: ${{ vars.WINDOWS_RUNNER || 'windows-latest' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # What the toolkit and the audio output link against. Everything
+      # else (SQLCipher, OpenSSL) is built from source by cargo, except
+      # OpenSSL on Windows (below).
+      - name: Install the system libraries (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y \
+            libasound2-dev libfontconfig1-dev libwayland-dev \
+            libxkbcommon-dev libxkbcommon-x11-dev libxcb1-dev libx11-xcb-dev
+
+      # Building OpenSSL from source is the slowest single piece of a
+      # Windows build. The runner image ships OpenSSL, so the tests link
+      # that one; a release still builds its own (no OPENSSL_NO_VENDOR
+      # there). If the image stops shipping it, nothing is set and cargo
+      # builds it from source as before.
+      - name: Use the runner's OpenSSL (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $root = 'C:\Program Files\OpenSSL'
+          $lib = @("$root\lib\VC\x64\MD", "$root\lib") |
+            Where-Object { Test-Path "$_\libcrypto.lib" } | Select-Object -First 1
+          if ($lib -and (Test-Path "$root\include\openssl\ssl.h")) {
+            "OPENSSL_NO_VENDOR=1" >> $env:GITHUB_ENV
+            "OPENSSL_DIR=$root" >> $env:GITHUB_ENV
+            "OPENSSL_LIB_DIR=$lib" >> $env:GITHUB_ENV
+            "OPENSSL_INCLUDE_DIR=$root\include" >> $env:GITHUB_ENV
+            "$root\bin" >> $env:GITHUB_PATH
+            Write-Host "Linking the runner's OpenSSL from $lib"
+          } else {
+            Write-Host "No OpenSSL on this image: cargo builds it from source"
+          }
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      # Kept after a failed run too: a build from nothing takes most of
+      # the time this job has, on Windows.
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: ci
+          cache-on-failure: true
+
+      - name: Clippy
+        if: matrix.clippy
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+
+      # The window tests run without a display: the toolkit's test
+      # platform draws nothing, on every system.
+      - name: Test
+        run: cargo test --workspace --locked --no-fail-fast

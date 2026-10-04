@@ -1,0 +1,18 @@
+{
+  "object": "list",
+  "items": [
+    {
+      "object": "subgroup",
+      "id": "120363055512345678@g.us",
+      "name": "Announcements",
+      "default": true
+    },
+    {
+      "object": "subgroup",
+      "id": "120363055512345679@g.us",
+      "name": "Volunteers",
+      "default": false
+    }
+  ],
+  "nextCursor": null
+}

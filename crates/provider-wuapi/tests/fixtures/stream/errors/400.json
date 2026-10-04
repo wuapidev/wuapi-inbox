@@ -1,0 +1,7 @@
+{
+  "code": "invalid_request",
+  "message": "types must not name a presence event.",
+  "details": {
+    "field": "types"
+  }
+}

@@ -1,0 +1,43 @@
+{
+  "object": "account",
+  "id": "k57a8m2x9d3f0q1wjh6ypc4n2d7s0vbr",
+  "projectId": null,
+  "name": "Support line",
+  "status": "ready",
+  "reconnecting": false,
+  "phone": "+584121234567",
+  "profileName": "Acme Support",
+  "proxyLocation": {
+    "country": "VE",
+    "city": "caracas",
+    "strictCity": false
+  },
+  "qrCodeUrl": null,
+  "pairingCode": null,
+  "pairingCodeExpiresAt": null,
+  "billable": true,
+  "disconnectReason": null,
+  "lastError": null,
+  "rejectCalls": false,
+  "rejectCallsMessage": null,
+  "pacing": {
+    "messagesPerMinute": 0,
+    "firstContactPerMinute": 0,
+    "typing": {
+      "enabled": false,
+      "minMs": 800,
+      "maxMs": 6000,
+      "charsPerSecond": 25
+    },
+    "queueTimeoutMinutes": 60,
+    "custom": false
+  },
+  "historySync": "none",
+  "mediaAutoDownload": "all",
+  "metadata": {},
+  "linkedAt": "2026-09-20T14:02:11.000Z",
+  "lastConnectedAt": "2026-09-24T08:15:40.000Z",
+  "createdAt": "2026-09-20T14:00:03.000Z",
+  "updatedAt": "2026-09-24T08:15:40.000Z",
+  "imageQuality": "standard"
+}

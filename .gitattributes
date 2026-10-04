@@ -1,0 +1,3 @@
+# The recorded streams are read byte for byte, and their blank lines are
+# what ends an event: the same line endings on every system.
+*.sse text eol=lf

@@ -1,0 +1,37 @@
+[package]
+name = "updater"
+description = "Signed, resumable, recoverable self-update for wuapi Inbox"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+base64.workspace = true
+# The manifest's signature: Ed25519 over the BLAKE2b-512 of the file, in
+# minisign's format, so `minisign -V` verifies what this crate signs.
+blake2 = "0.10"
+ed25519-dalek = { version = "2", default-features = false, features = ["std"] }
+flate2 = "1"
+futures.workspace = true
+getrandom.workspace = true
+reqwest.workspace = true
+semver = { version = "1", features = ["serde"] }
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+tar = { version = "0.4", default-features = false }
+thiserror.workspace = true
+tokio = { workspace = true, features = ["fs", "io-util"] }
+tracing.workspace = true
+
+[target.'cfg(target_os = "macos")'.dependencies]
+libc = "0.2"
+
+[dev-dependencies]
+# An independent implementation of minisign's verification, to hold the
+# signatures made here to the format.
+minisign-verify = "0.2"
+tempfile = "3"
+tokio = { workspace = true, features = ["test-util"] }
+wiremock.workspace = true

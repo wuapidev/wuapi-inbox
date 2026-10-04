@@ -1,0 +1,79 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/client-provider",
+    "crates/provider-mock",
+    "crates/client-core",
+    "crates/provider-wuapi",
+    "crates/app",
+    "crates/brand-mark",
+    "crates/updater",
+    "crates/xtask",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+rust-version = "1.85"
+publish = false
+
+[workspace.dependencies]
+client-provider = { path = "crates/client-provider" }
+client-core = { path = "crates/client-core" }
+provider-mock = { path = "crates/provider-mock" }
+provider-wuapi = { path = "crates/provider-wuapi" }
+brand-mark = { path = "crates/brand-mark" }
+updater = { path = "crates/updater" }
+
+async-trait = "0.1"
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+futures = "0.3"
+keyring = "4"
+reqwest = { version = "0.13", default-features = false, features = ["json", "rustls", "stream"] }
+# SQLite with SQLCipher: the database on disk is encrypted. The vendored
+# OpenSSL supplies the cipher, so nothing has to be installed on Linux,
+# macOS or Windows (building it needs perl and make).
+rusqlite = { version = "0.40", features = ["bundled-sqlcipher-vendored-openssl", "cache"] }
+getrandom = "0.3"
+# Audio: containers and codecs in pure Rust (symphonia), Opus for voice
+# notes in pure Rust (opus-decoder), and the system's audio output (cpal;
+# on Linux it needs the ALSA development headers at build time).
+symphonia = { version = "0.5", default-features = false, features = ["aac", "isomp4", "mp3", "ogg", "pcm", "vorbis", "wav"] }
+opus-decoder = "0.1"
+# Encodes the voice notes recorded here: a Rust port of libopus, no C
+# toolchain. BSD-3-Clause, like libopus.
+ropus = "0.12"
+cpal = "0.18"
+# Decodes profile pictures and message images, and makes their thumbnails.
+image = { version = "0.25", default-features = false, features = ["gif", "jpeg", "png", "webp"] }
+# Names a sticker or GIF by its content, so that the same file is one.
+sha2 = "0.10"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "time"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+uuid = { version = "1", features = ["v4"] }
+wiremock = "0.6"
+
+# The wuapi Rust SDK, generated from the OpenAPI spec.
+# Source: https://github.com/wuapidev/wuapi-rust
+wuapi = "0.12.0"
+base64 = "0.22"
+
+# UI. gpui-kit pins the matching GPUI snapshot (gpui-pre) and re-exports it
+# together with gpui-component; see docs/ARCHITECTURE.md.
+gpui-kit = "=0.7.0"
+
+[profile.dev]
+# GPUI's text shaping and layout are painfully slow unoptimised.
+opt-level = 1
+
+[profile.dev.package."*"]
+opt-level = 2
+
+[profile.release]
+lto = "thin"
+codegen-units = 1

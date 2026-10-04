@@ -1,0 +1,7 @@
+{
+  "code": "invalid_request",
+  "message": "text must not be blank.",
+  "details": {
+    "field": "text"
+  }
+}

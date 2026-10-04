@@ -1,0 +1,29 @@
+{
+  "object": "group",
+  "id": "120363041234567890@g.us",
+  "accountId": "k57a8m2x9d3f0q1wjh6ypc4n2d7s0vbr",
+  "name": "Neighbours",
+  "description": "Coordination for the September launch.",
+  "ownerId": "+584121234567",
+  "community": true,
+  "locked": false,
+  "announce": true,
+  "participants": [
+    {
+      "contactId": "+584121234567",
+      "name": "Acme Support",
+      "role": "owner"
+    },
+    {
+      "contactId": "+584245550199",
+      "name": "Maria",
+      "role": "member"
+    },
+    {
+      "contactId": "lid:200055501000001",
+      "name": null,
+      "role": "member"
+    }
+  ],
+  "createdAt": "2026-09-01T12:00:00.000Z"
+}

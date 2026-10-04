@@ -1,0 +1,22 @@
+{
+  "object": "business_profile",
+  "contactId": "+584245550199",
+  "address": "Av. Principal 12, Caracas",
+  "email": "hola@example.com",
+  "categories": [
+    {
+      "id": "133436743388217",
+      "name": "Shopping & retail"
+    }
+  ],
+  "profileOptions": {},
+  "timeZone": "America/Caracas",
+  "businessHours": [
+    {
+      "dayOfWeek": "mon",
+      "mode": "specific_hours",
+      "openTime": "09:00",
+      "closeTime": "18:00"
+    }
+  ]
+}

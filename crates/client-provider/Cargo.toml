@@ -1,0 +1,16 @@
+[package]
+name = "client-provider"
+description = "The provider extension point: the trait a WhatsApp backend implements and the neutral model it speaks"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+async-trait.workspace = true
+futures.workspace = true
+serde.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true

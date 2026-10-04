@@ -1,0 +1,8 @@
+{
+  "deviceCode": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "userCode": "WXYZ-1234",
+  "verificationUri": "https://wuapi.dev/app/cli",
+  "verificationUriComplete": "https://wuapi.dev/app/cli?user_code=WXYZ-1234",
+  "expiresIn": 600,
+  "interval": 5
+}

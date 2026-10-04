@@ -1,0 +1,53 @@
+{
+  "object": "list",
+  "items": [
+    {
+      "object": "story_group",
+      "accountId": "k57a8m2x9d3f0q1wjh6ypc4n2d7s0vbr",
+      "contactId": "+584245550199",
+      "profileName": "Maria G.",
+      "username": null,
+      "muted": false,
+      "storyCount": 1,
+      "unviewedCount": 1,
+      "lastPostedAt": "2026-09-24T08:15:40.000Z",
+      "stories": [
+        {
+          "object": "story",
+          "id": "s97fd2k4w8qc1n5x7v3b9yt6r0hjm2ea",
+          "projectId": null,
+          "accountId": "k57a8m2x9d3f0q1wjh6ypc4n2d7s0vbr",
+          "contactId": "+584245550199",
+          "own": false,
+          "profileName": "Maria G.",
+          "username": null,
+          "type": "image",
+          "text": "New menu this week",
+          "backgroundColor": null,
+          "font": null,
+          "media": {
+            "url": "https://api.wuapi.dev/v1/accounts/k57a8m2x9d3f0q1wjh6ypc4n2d7s0vbr/stories/s97fd2k4w8qc1n5x7v3b9yt6r0hjm2ea/media",
+            "mimeType": "image/jpeg",
+            "filename": null,
+            "size": 184320,
+            "width": 1080,
+            "height": 1920,
+            "durationSeconds": null,
+            "gifPlayback": false,
+            "downloaded": false
+          },
+          "status": "received",
+          "viewedAt": null,
+          "authorNotified": null,
+          "reaction": null,
+          "viewCount": null,
+          "postedAt": "2026-09-24T08:15:40.000Z",
+          "expiresAt": "2026-09-25T08:15:40.000Z",
+          "deletedAt": null,
+          "createdAt": "2026-09-24T08:15:41.000Z"
+        }
+      ]
+    }
+  ],
+  "nextCursor": null
+}

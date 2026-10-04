@@ -1,0 +1,49 @@
+{
+  "object": "list",
+  "items": [
+    {
+      "object": "account",
+      "id": "acc_two",
+      "projectId": null,
+      "name": null,
+      "status": "disconnected",
+      "reconnecting": false,
+      "phone": "+14155550142",
+      "profileName": "Second",
+      "proxyLocation": {
+        "country": "VE",
+        "city": "caracas",
+        "strictCity": false
+      },
+      "qrCodeUrl": null,
+      "pairingCode": null,
+      "pairingCodeExpiresAt": null,
+      "billable": true,
+      "disconnectReason": "logged_out",
+      "lastError": null,
+      "rejectCalls": false,
+      "rejectCallsMessage": null,
+      "pacing": {
+        "messagesPerMinute": 0,
+        "firstContactPerMinute": 0,
+        "typing": {
+          "enabled": false,
+          "minMs": 800,
+          "maxMs": 6000,
+          "charsPerSecond": 25
+        },
+        "queueTimeoutMinutes": 60,
+        "custom": false
+      },
+      "historySync": "none",
+      "mediaAutoDownload": "all",
+      "metadata": {},
+      "linkedAt": "2026-09-20T14:02:11.000Z",
+      "lastConnectedAt": "2026-09-24T08:15:40.000Z",
+      "createdAt": "2026-09-20T14:00:03.000Z",
+      "updatedAt": "2026-09-24T08:15:40.000Z",
+      "imageQuality": "standard"
+    }
+  ],
+  "nextCursor": null
+}

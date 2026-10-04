@@ -1,0 +1,96 @@
+id: c1.mfx2ke001
+event: message.received
+data: {"id":"evt_mix01","object":"event","type":"message.received","createdAt":"2026-09-24T08:16:00.000Z","organizationId":"org_acme","projectId":null,"data":{"object":{"object":"message","id":"m_mix_recv","projectId":null,"accountId":"k57a8m2x9d3f0q1wjh6ypc4n2d7s0vbr","chatId":"+584245550199","chatType":"direct","direction":"inbound","source":"contact","from":"+584245550199","to":"+584121234567","profileName":"Maria","username":null,"type":"text","text":"Thanks!","media":null,"location":null,"contact":null,"contacts":null,"poll":null,"calendarEvent":null,"mentions":[],"forwarded":false,"viewOnce":false,"starred":false,"replyToMessageId":null,"status":"received","error":null,"metadata":{},"sentAt":"2026-09-24T08:10:00.000Z","editedAt":null,"deletedAt":null,"createdAt":"2026-09-24T08:10:00.000Z","updatedAt":"2026-09-24T08:10:00.000Z","forwardedManyTimes":false,"replyToStoryId":null}}}
+
+id: c1.mfx2ke002
+event: message.sent
+data: {"id":"evt_mix02","object":"event","type":"message.sent","createdAt":"2026-09-24T08:16:00.000Z","organizationId":"org_acme","projectId":null,"data":{"object":{"object":"message","id":"m_mix_sent","projectId":null,"accountId":"k57a8m2x9d3f0q1wjh6ypc4n2d7s0vbr","chatId":"+584245550199","chatType":"direct","direction":"outbound","source":"api","from":"+584121234567","to":"+584245550199","profileName":null,"username":null,"type":"text","text":"Your order has shipped.","media":null,"location":null,"contact":null,"contacts":null,"poll":null,"calendarEvent":null,"mentions":[],"forwarded":false,"viewOnce":false,"starred":false,"replyToMessageId":null,"status":"sent","error":null,"metadata":{"orderId":"A-1042"},"sentAt":null,"editedAt":null,"deletedAt":null,"createdAt":"2026-09-24T08:15:40.000Z","updatedAt":"2026-09-24T08:16:00.000Z","forwardedManyTimes":false,"replyToStoryId":null}}}
+
+id: c1.mfx2ke003
+event: message.delivered
+data: {"id":"evt_mix03","object":"event","type":"message.delivered","createdAt":"2026-09-24T08:16:00.000Z","organizationId":"org_acme","projectId":null,"data":{"object":{"object":"message","id":"m_mix_sent","projectId":null,"accountId":"k57a8m2x9d3f0q1wjh6ypc4n2d7s0vbr","chatId":"+584245550199","chatType":"direct","direction":"outbound","source":"api","from":"+584121234567","to":"+584245550199","profileName":null,"username":null,"type":"text","text":"Your order has shipped.","media":null,"location":null,"contact":null,"contacts":null,"poll":null,"calendarEvent":null,"mentions":[],"forwarded":false,"viewOnce":false,"starred":false,"replyToMessageId":null,"status":"delivered","error":null,"metadata":{"orderId":"A-1042"},"sentAt":null,"editedAt":null,"deletedAt":null,"createdAt":"2026-09-24T08:15:40.000Z","updatedAt":"2026-09-24T08:16:02.000Z","forwardedManyTimes":false,"replyToStoryId":null}}}
+
+id: c1.mfx2ke004
+event: message.read
+data: {"id":"evt_mix04","object":"event","type":"message.read","createdAt":"2026-09-24T08:16:00.000Z","organizationId":"org_acme","projectId":null,"data":{"object":{"object":"message","id":"m_mix_sent","projectId":null,"accountId":"k57a8m2x9d3f0q1wjh6ypc4n2d7s0vbr","chatId":"+584245550199","chatType":"direct","direction":"outbound","source":"api","from":"+584121234567","to":"+584245550199","profileName":null,"username":null,"type":"text","text":"Your order has shipped.","media":null,"location":null,"contact":null,"contacts":null,"poll":null,"calendarEvent":null,"mentions":[],"forwarded":false,"viewOnce":false,"starred":false,"replyToMessageId":null,"status":"read","error":null,"metadata":{"orderId":"A-1042"},"sentAt":null,"editedAt":null,"deletedAt":null,"createdAt":"2026-09-24T08:15:40.000Z","updatedAt":"2026-09-24T08:16:05.000Z","forwardedManyTimes":false,"replyToStoryId":null}}}
+
+id: c1.mfx2ke005
+event: message.failed
+data: {"id":"evt_mix05","object":"event","type":"message.failed","createdAt":"2026-09-24T08:16:00.000Z","organizationId":"org_acme","projectId":null,"data":{"object":{"object":"message","id":"m_mix_failed","projectId":null,"accountId":"k57a8m2x9d3f0q1wjh6ypc4n2d7s0vbr","chatId":"+584245550199","chatType":"direct","direction":"outbound","source":"api","from":"+584121234567","to":"+584245550199","profileName":null,"username":null,"type":"text","text":"Your order has shipped.","media":null,"location":null,"contact":null,"contacts":null,"poll":null,"calendarEvent":null,"mentions":[],"forwarded":false,"viewOnce":false,"starred":false,"replyToMessageId":null,"status":"failed","error":{"code":"not_on_whatsapp","message":"The recipient has no WhatsApp."},"metadata":{},"sentAt":null,"editedAt":null,"deletedAt":null,"createdAt":"2026-09-24T08:15:40.000Z","updatedAt":"2026-09-24T08:16:00.000Z","forwardedManyTimes":false,"replyToStoryId":null}}}
+
+id: c1.mfx2ke006
+event: message.deleted
+data: {"id":"evt_mix06","object":"event","type":"message.deleted","createdAt":"2026-09-24T08:16:00.000Z","organizationId":"org_acme","projectId":null,"data":{"object":{"object":"message","id":"m_mix_deleted","projectId":null,"accountId":"k57a8m2x9d3f0q1wjh6ypc4n2d7s0vbr","chatId":"+584245550199","chatType":"direct","direction":"inbound","source":"contact","from":"+584245550199","to":"+584121234567","profileName":"Maria","username":null,"type":"text","text":"Thanks!","media":null,"location":null,"contact":null,"contacts":null,"poll":null,"calendarEvent":null,"mentions":[],"forwarded":false,"viewOnce":false,"starred":false,"replyToMessageId":null,"status":"received","error":null,"metadata":{},"sentAt":"2026-09-24T08:10:00.000Z","editedAt":null,"deletedAt":"2026-09-24T08:30:00.000Z","createdAt":"2026-09-24T08:10:00.000Z","updatedAt":"2026-09-24T08:30:00.000Z","forwardedManyTimes":false,"replyToStoryId":null}}}
+
+id: c1.mfx2ke007
+event: message.media_downloaded
+data: {"id":"evt_mix07","object":"event","type":"message.media_downloaded","createdAt":"2026-09-24T08:16:00.000Z","organizationId":"org_acme","projectId":null,"data":{"object":{"object":"message","id":"m_mix_media","projectId":null,"accountId":"k57a8m2x9d3f0q1wjh6ypc4n2d7s0vbr","chatId":"120363041234567890@g.us","chatType":"group","direction":"inbound","source":"contact","from":"+584245550199","to":"120363041234567890@g.us","profileName":"Maria","username":null,"type":"image","text":"Launch day","media":{"url":"https://api.wuapi.dev/v1/media/abc123","mimeType":"image/jpeg","filename":null,"size":null,"downloaded":true,"gifPlayback":false},"location":null,"contact":null,"contacts":null,"poll":null,"calendarEvent":null,"mentions":[],"forwarded":false,"viewOnce":false,"starred":false,"replyToMessageId":null,"status":"received","error":null,"metadata":{},"sentAt":"2026-09-24T09:00:00.000Z","editedAt":null,"deletedAt":null,"createdAt":"2026-09-24T09:00:01.000Z","updatedAt":"2026-09-24T09:00:05.000Z","forwardedManyTimes":false,"replyToStoryId":null}}}
+
+id: c1.mfx2ke008
+event: message.edited
+data: {"id":"evt_mix08","object":"event","type":"message.edited","createdAt":"2026-09-24T08:16:00.000Z","organizationId":"org_acme","projectId":null,"data":{"object":{"object":"message","id":"m_mix_edited","projectId":null,"accountId":"k57a8m2x9d3f0q1wjh6ypc4n2d7s0vbr","chatId":"+584245550199","chatType":"direct","direction":"inbound","source":"contact","from":"+584245550199","to":"+584121234567","profileName":"Maria","username":null,"type":"text","text":"Fixed text","media":null,"location":null,"contact":null,"contacts":null,"poll":null,"calendarEvent":null,"mentions":[],"forwarded":false,"viewOnce":false,"starred":false,"replyToMessageId":null,"status":"received","error":null,"metadata":{},"sentAt":"2026-09-24T08:10:00.000Z","editedAt":"2026-09-24T08:31:00.000Z","deletedAt":null,"createdAt":"2026-09-24T08:10:00.000Z","updatedAt":"2026-09-24T08:31:00.000Z","forwardedManyTimes":false,"replyToStoryId":null},"previousAttributes":{"text":"Old text"}}}
+
+id: c1.mfx2ke009
+event: account.disconnected
+data: {"id":"evt_mix09","object":"event","type":"account.disconnected","createdAt":"2026-09-24T08:16:00.000Z","organizationId":"org_acme","projectId":null,"data":{"object":{"object":"account","id":"k57a8m2x9d3f0q1wjh6ypc4n2d7s0vbr","projectId":null,"name":"Support line","status":"disconnected","reconnecting":false,"phone":"+584121234567","profileName":"Acme Support","proxyLocation":{"country":"VE","city":"caracas","strictCity":false},"qrCodeUrl":null,"pairingCode":null,"pairingCodeExpiresAt":null,"billable":true,"disconnectReason":null,"lastError":null,"rejectCalls":false,"rejectCallsMessage":null,"pacing":{"messagesPerMinute":0,"firstContactPerMinute":0,"typing":{"enabled":false,"minMs":800,"maxMs":6000,"charsPerSecond":25},"queueTimeoutMinutes":60,"custom":false},"historySync":"none","mediaAutoDownload":"all","metadata":{},"linkedAt":"2026-09-20T14:02:11.000Z","lastConnectedAt":"2026-09-24T08:15:40.000Z","createdAt":"2026-09-20T14:00:03.000Z","updatedAt":"2026-09-24T08:15:40.000Z","imageQuality":"standard"}}}
+
+id: c1.mfx2ke010
+event: account.connected
+data: {"id":"evt_mix10","object":"event","type":"account.connected","createdAt":"2026-09-24T08:16:00.000Z","organizationId":"org_acme","projectId":null,"data":{"object":{"object":"account","id":"k57a8m2x9d3f0q1wjh6ypc4n2d7s0vbr","projectId":null,"name":"Support line","status":"ready","reconnecting":false,"phone":"+584121234567","profileName":"Acme Support","proxyLocation":{"country":"VE","city":"caracas","strictCity":false},"qrCodeUrl":null,"pairingCode":null,"pairingCodeExpiresAt":null,"billable":true,"disconnectReason":null,"lastError":null,"rejectCalls":false,"rejectCallsMessage":null,"pacing":{"messagesPerMinute":0,"firstContactPerMinute":0,"typing":{"enabled":false,"minMs":800,"maxMs":6000,"charsPerSecond":25},"queueTimeoutMinutes":60,"custom":false},"historySync":"none","mediaAutoDownload":"all","metadata":{},"linkedAt":"2026-09-20T14:02:11.000Z","lastConnectedAt":"2026-09-24T08:15:40.000Z","createdAt":"2026-09-20T14:00:03.000Z","updatedAt":"2026-09-24T08:15:40.000Z","imageQuality":"standard"}}}
+
+id: c1.mfx2ke011
+event: story.received
+data: {"id":"evt_mix11","object":"event","type":"story.received","createdAt":"2026-09-24T08:16:00.000Z","organizationId":"org_acme","projectId":null,"data":{"object":{"object":"story","id":"m17d0a9w2sqc7k3v8x1n5ybr6t4hjp2e","projectId":null,"accountId":"k57a8m2x9d3f0q1wjh6ypc4n2d7s0vbr","contactId":"+584121234567","own":true,"profileName":null,"username":null,"type":"text","text":"New hours from Monday: 8 to 18.","backgroundColor":"#0F766E","font":1,"media":null,"status":"sent","viewedAt":null,"authorNotified":null,"reaction":null,"viewCount":12,"postedAt":"2026-09-24T08:15:40.000Z","expiresAt":"2026-09-25T08:15:40.000Z","deletedAt":null,"createdAt":"2026-09-24T08:15:38.000Z"}}}
+
+id: c1.mfx2ke012
+event: story.viewed
+data: {"id":"evt_mix12","object":"event","type":"story.viewed","createdAt":"2026-09-24T08:16:00.000Z","organizationId":"org_acme","projectId":null,"data":{"object":{"object":"story_viewer","accountId":"k57a8m2x9d3f0q1wjh6ypc4n2d7s0vbr","storyId":"m17d0a9w2sqc7k3v8x1n5ybr6t4hjp2e","contactId":"+584245550199","viewedAt":"2026-09-24T09:10:00.000Z","reaction":null,"reactedAt":null}}}
+
+id: c1.mfx2ke013
+event: story.reacted
+data: {"id":"evt_mix13","object":"event","type":"story.reacted","createdAt":"2026-09-24T08:16:00.000Z","organizationId":"org_acme","projectId":null,"data":{"object":{"object":"story_viewer","accountId":"k57a8m2x9d3f0q1wjh6ypc4n2d7s0vbr","storyId":"m17d0a9w2sqc7k3v8x1n5ybr6t4hjp2e","contactId":"+584245550199","viewedAt":"2026-09-24T09:10:00.000Z","reaction":"❤️","reactedAt":"2026-09-24T09:11:00.000Z"}}}
+
+id: c1.mfx2ke014
+event: story.deleted
+data: {"id":"evt_mix14","object":"event","type":"story.deleted","createdAt":"2026-09-24T08:16:00.000Z","organizationId":"org_acme","projectId":null,"data":{"object":{"object":"story","id":"m17d0a9w2sqc7k3v8x1n5ybr6t4hjp2e","projectId":null,"accountId":"k57a8m2x9d3f0q1wjh6ypc4n2d7s0vbr","contactId":"+584121234567","own":true,"profileName":null,"username":null,"type":"text","text":"New hours from Monday: 8 to 18.","backgroundColor":"#0F766E","font":1,"media":null,"status":"sent","viewedAt":null,"authorNotified":null,"reaction":null,"viewCount":12,"postedAt":"2026-09-24T08:15:40.000Z","expiresAt":"2026-09-25T08:15:40.000Z","deletedAt":"2026-09-24T10:00:00.000Z","createdAt":"2026-09-24T08:15:38.000Z"}}}
+
+id: c1.mfx2ke015
+event: contact.updated
+data: {"id":"evt_mix15","object":"event","type":"contact.updated","createdAt":"2026-09-24T08:16:00.000Z","organizationId":"org_acme","projectId":null,"data":{"object":{"object":"contact","id":"+584245550199","accountId":"k57a8m2x9d3f0q1wjh6ypc4n2d7s0vbr","phone":"+584245550199","lid":"lid:200055501000001","savedName":null,"profileName":null,"username":"maria.g","about":"Available","pictureId":"1727164540","businessName":"Acme Bakery","deviceCount":2}}}
+
+id: c1.mfx2ke016
+event: group.updated
+data: {"id":"evt_mix16","object":"event","type":"group.updated","createdAt":"2026-09-24T08:16:00.000Z","organizationId":"org_acme","projectId":null,"data":{"object":{"object":"group_change","accountId":"k57a8m2x9d3f0q1wjh6ypc4n2d7s0vbr","groupId":"120363041234567890@g.us","actorId":"+584121234567","added":[],"removed":[],"promoted":[],"demoted":[],"name":"Launch crew","description":null,"locked":null,"announce":null,"changes":[],"changedAt":"2026-09-24T09:20:00.000Z"}}}
+
+id: c1.mfx2ke017
+event: chat.updated
+data: {"id":"evt_mix17","object":"event","type":"chat.updated","createdAt":"2026-09-24T08:16:00.000Z","organizationId":"org_acme","projectId":null,"data":{"object":{"object":"chat_change","accountId":"k57a8m2x9d3f0q1wjh6ypc4n2d7s0vbr","chatId":"+584245550199","change":"pinned","value":true,"messageId":null,"muteExpiresAt":null}}}
+
+id: c1.mfx2ke018
+event: contact.picture_updated
+data: {"id":"evt_mix18","object":"event","type":"contact.picture_updated","createdAt":"2026-09-24T08:16:00.000Z","organizationId":"org_acme","projectId":null,"data":{"object":{"object":"picture_change","accountId":"k57a8m2x9d3f0q1wjh6ypc4n2d7s0vbr","chatId":"+584245550199","pictureId":"1727999999","removed":false,"changedBy":null,"changedAt":"2026-09-24T09:30:00.000Z"}}}
+
+id: c1.mfx2ke019
+event: group.joined
+data: {"id":"evt_mix19","object":"event","type":"group.joined","createdAt":"2026-09-24T08:16:00.000Z","organizationId":"org_acme","projectId":null,"data":{"object":{"object":"group","id":"120363041234567890@g.us","accountId":"k57a8m2x9d3f0q1wjh6ypc4n2d7s0vbr","name":"Launch team","description":"Coordination for the September launch.","ownerId":"+584121234567","community":false,"locked":false,"announce":false,"participants":[{"contactId":"+584121234567","name":"Acme Support","role":"owner"},{"contactId":"+584245550199","name":"Maria","role":"member"},{"contactId":"lid:200055501000001","name":null,"role":"member"}],"createdAt":"2026-09-01T12:00:00.000Z"}}}
+
+id: c1.mfx2ke020
+event: history.synced
+data: {"id":"evt_mix20","object":"event","type":"history.synced","createdAt":"2026-09-24T08:16:00.000Z","organizationId":"org_acme","projectId":null,"data":{"object":{"object":"history_sync","accountId":"k57a8m2x9d3f0q1wjh6ypc4n2d7s0vbr","chunk":1,"syncType":"recent","progress":50,"part":0,"conversationCount":10,"messageCount":120,"duplicateCount":0}}}
+
+id: c1.mfx2ke021
+event: poll.voted
+data: {"id":"evt_mix21","object":"event","type":"poll.voted","createdAt":"2026-09-24T08:16:00.000Z","organizationId":"org_acme","projectId":null,"data":{"object":{"object":"poll_vote","accountId":"k57a8m2x9d3f0q1wjh6ypc4n2d7s0vbr","chatId":"120363041234567890@g.us","messageId":"m_poll","voterId":"+584245550199","options":["Tuesday"],"votedAt":"2026-09-24T09:40:00.000Z","poll":{"object":"message","id":"m_poll","projectId":null,"accountId":"k57a8m2x9d3f0q1wjh6ypc4n2d7s0vbr","chatId":"120363041234567890@g.us","chatType":"group","direction":"inbound","source":"contact","from":"+584245550199","to":"120363041234567890@g.us","profileName":"Maria","username":null,"type":"poll","text":null,"media":null,"location":null,"contact":null,"contacts":null,"poll":{"name":"Lunch?","options":[{"name":"Pizza","voteCount":1},{"name":"Sushi","voteCount":2},{"name":"Tacos","voteCount":0}],"selectableCount":1,"voterCount":3},"calendarEvent":null,"mentions":[],"forwarded":false,"viewOnce":false,"starred":false,"replyToMessageId":null,"status":"received","error":null,"metadata":{},"sentAt":"2026-09-24T08:10:00.000Z","editedAt":null,"deletedAt":null,"createdAt":"2026-09-24T08:10:00.000Z","updatedAt":"2026-09-24T09:40:00.000Z","forwardedManyTimes":false,"replyToStoryId":null}}}}
+
+id: c1.mfx2ke022
+event: poll.voted
+data: {"id":"evt_mix22","object":"event","type":"poll.voted","createdAt":"2026-09-24T08:16:00.000Z","organizationId":"org_acme","projectId":null,"data":{"object":{"object":"poll_vote","accountId":"k57a8m2x9d3f0q1wjh6ypc4n2d7s0vbr","chatId":"120363041234567890@g.us","messageId":"m_poll","voterId":"+584245550199","options":["Tuesday"],"votedAt":"2026-09-24T09:41:00.000Z","poll":null}}}
+
+id: c1.mfx2ke023
+event: call.received
+data: {"id":"evt_mix23","object":"event","type":"call.received","createdAt":"2026-09-24T08:16:00.000Z","organizationId":"org_acme","projectId":null,"data":{"object":{"object":"call","id":"call_1","accountId":"k57a8m2x9d3f0q1wjh6ypc4n2d7s0vbr","from":"+584245550199","video":false,"groupId":null,"endReason":null,"startedAt":"2026-09-24T09:50:00.000Z","endedAt":null}}}
+
+id: c1.mfx2ke024
+event: widget.exploded
+data: {"id":"evt_mix24","object":"event","type":"widget.exploded","createdAt":"2026-09-24T08:16:00.000Z","organizationId":"org_acme","projectId":null,"data":{"object":"widget","colour":"red"},"novelField":{"nested":[1,2,3]}}
+

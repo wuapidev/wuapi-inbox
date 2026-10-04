@@ -1,0 +1,46 @@
+{
+  "object": "list",
+  "items": [
+    {
+      "object": "chat",
+      "id": "+584149998877",
+      "projectId": null,
+      "accountId": "k57a8m2x9d3f0q1wjh6ypc4n2d7s0vbr",
+      "type": "direct",
+      "name": null,
+      "savedName": null,
+      "profileName": null,
+      "username": null,
+      "lastMessage": null,
+      "lastMessageAt": "2026-09-20T10:00:00.000Z",
+      "unread": null,
+      "unreadCount": null,
+      "pinned": null,
+      "archived": null,
+      "muted": null,
+      "muteExpiresAt": null,
+      "pinnedAt": null
+    },
+    {
+      "object": "chat",
+      "id": "lid:98765432101234",
+      "projectId": null,
+      "accountId": "k57a8m2x9d3f0q1wjh6ypc4n2d7s0vbr",
+      "type": "direct",
+      "name": "Pedro",
+      "savedName": null,
+      "profileName": "Pedro",
+      "username": null,
+      "lastMessage": null,
+      "lastMessageAt": "2026-09-20T10:00:00.000Z",
+      "unread": false,
+      "unreadCount": 0,
+      "pinned": null,
+      "archived": true,
+      "muted": null,
+      "muteExpiresAt": null,
+      "pinnedAt": null
+    }
+  ],
+  "nextCursor": null
+}

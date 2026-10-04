@@ -1,0 +1,340 @@
+name: Release
+
+# Builds, packages, signs and publishes a release. docs/RELEASING.md is
+# the manual: what the files are, which secrets do what, and how the
+# application finds and verifies them.
+#
+# It fails closed: without a manifest signed by UPDATE_SIGNING_KEY, with a
+# key the application embeds, nothing is published.
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: Build, package and sign, and publish nothing
+        type: boolean
+        default: true
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: "0"
+
+jobs:
+  prepare:
+    name: Version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
+      channel: ${{ steps.version.outputs.channel }}
+      publish: ${{ steps.version.outputs.publish }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      # The version is the workspace's, in Cargo.toml, and nowhere else.
+      - name: Read the version and hold the tag to it
+        id: version
+        env:
+          EVENT: ${{ github.event_name }}
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          version="$(cargo metadata --no-deps --format-version 1 --locked |
+            jq -r '.packages[] | select(.name == "wuapi-inbox") | .version')"
+          test -n "$version"
+          tag="v$version"
+          publish=false
+          if [ "$REF_TYPE" = "tag" ]; then
+            if [ "$REF_NAME" != "$tag" ]; then
+              echo "::error::The tag is $REF_NAME and the workspace's version is $version: the tag of this release is $tag."
+              exit 1
+            fi
+            if [ "$EVENT" = "push" ] || [ "$DRY_RUN" = "false" ]; then
+              publish=true
+            fi
+          elif [ "$DRY_RUN" = "false" ]; then
+            echo "::error::A release is published from its tag ($tag). Run this from the tag, or as a dry run."
+            exit 1
+          fi
+          channel=stable
+          case "$version" in *-*) channel=beta ;; esac
+          {
+            echo "version=$version"
+            echo "tag=$tag"
+            echo "channel=$channel"
+            echo "publish=$publish"
+          } >> "$GITHUB_OUTPUT"
+          echo "Version $version ($channel), publish: $publish" >> "$GITHUB_STEP_SUMMARY"
+
+  build:
+    name: ${{ matrix.platform }}
+    needs: prepare
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 120
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          # The oldest Ubuntu on offer: the binary then runs on any
+          # distribution whose C library is at least that old.
+          - platform: linux-x86_64
+            os: ubuntu-22.04
+          - platform: macos-aarch64
+            os: macos-latest
+          - platform: macos-x86_64
+            os: macos-15-intel
+          - platform: windows-x86_64
+            os: windows-latest
+    env:
+      VERSION: ${{ needs.prepare.outputs.version }}
+      PLATFORM: ${{ matrix.platform }}
+      HAS_MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE_P12 != '' }}
+      HAS_APPLE_NOTARY: ${{ secrets.APPLE_ID != '' && secrets.APPLE_APP_PASSWORD != '' && secrets.APPLE_TEAM_ID != '' }}
+      HAS_WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE_PFX != '' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install the system libraries (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y \
+            libasound2-dev libfontconfig1-dev libwayland-dev \
+            libxkbcommon-dev libxkbcommon-x11-dev libxcb1-dev libx11-xcb-dev
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: release
+
+      - name: Build
+        run: cargo build --release --locked --package wuapi-inbox --package xtask
+
+      # ----- Linux: the binary, with what a desktop needs to list it.
+      - name: Package (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          mkdir -p dist work
+          cp crates/app/assets/icons/app-icon-256.png work/dev.wuapi.inbox.png
+          target/release/xtask package --platform "$PLATFORM" --out-dir dist \
+            --input target/release/wuapi-inbox \
+            --input crates/app/assets/linux/dev.wuapi.inbox.desktop \
+            --input work/dev.wuapi.inbox.png \
+            --input LICENSE
+
+      # ----- macOS: the bundle; signed and notarized when the secrets are there.
+      - name: Bundle (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          mkdir -p dist work
+          packaging/macos/bundle.sh target/release/wuapi-inbox "$VERSION" work
+
+      - name: Sign with the Developer ID (macOS)
+        if: runner.os == 'macOS' && env.HAS_MACOS_CERTIFICATE == 'true'
+        env:
+          MACOS_CERTIFICATE_P12: ${{ secrets.MACOS_CERTIFICATE_P12 }}
+          MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          MACOS_SIGNING_IDENTITY: ${{ secrets.MACOS_SIGNING_IDENTITY }}
+        run: |
+          keychain="$RUNNER_TEMP/signing.keychain-db"
+          keychain_password="$(uuidgen)"
+          security create-keychain -p "$keychain_password" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "$keychain_password" "$keychain"
+          printf '%s' "$MACOS_CERTIFICATE_P12" | base64 --decode > "$RUNNER_TEMP/certificate.p12"
+          security import "$RUNNER_TEMP/certificate.p12" -P "$MACOS_CERTIFICATE_PASSWORD" \
+            -A -t cert -f pkcs12 -k "$keychain"
+          rm "$RUNNER_TEMP/certificate.p12"
+          security set-key-partition-list -S apple-tool:,apple: -k "$keychain_password" "$keychain" >/dev/null
+          security list-keychain -d user -s "$keychain"
+          codesign --force --options runtime --timestamp \
+            --entitlements packaging/macos/entitlements.plist \
+            --sign "$MACOS_SIGNING_IDENTITY" "work/wuapi Inbox.app"
+          codesign --verify --deep --strict --verbose=2 "work/wuapi Inbox.app"
+
+      - name: Say that the bundle is not signed (macOS)
+        if: runner.os == 'macOS' && env.HAS_MACOS_CERTIFICATE != 'true'
+        run: echo "::notice::No Developer ID certificate (MACOS_CERTIFICATE_P12). The bundle is signed ad hoc and macOS will warn before it opens."
+
+      - name: Notarize the bundle (macOS)
+        if: runner.os == 'macOS' && env.HAS_MACOS_CERTIFICATE == 'true' && env.HAS_APPLE_NOTARY == 'true'
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          ditto -c -k --keepParent "work/wuapi Inbox.app" "$RUNNER_TEMP/notarize.zip"
+          xcrun notarytool submit "$RUNNER_TEMP/notarize.zip" \
+            --apple-id "$APPLE_ID" --password "$APPLE_APP_PASSWORD" --team-id "$APPLE_TEAM_ID" --wait
+          xcrun stapler staple "work/wuapi Inbox.app"
+
+      - name: Say that the bundle is not notarized (macOS)
+        if: runner.os == 'macOS' && !(env.HAS_MACOS_CERTIFICATE == 'true' && env.HAS_APPLE_NOTARY == 'true')
+        run: echo "::notice::Not notarized (APPLE_ID, APPLE_APP_PASSWORD and APPLE_TEAM_ID, with the certificate). Gatekeeper will refuse the download until the user allows it."
+
+      # The archive the updater installs from, and the disk image people
+      # download. Both hold the bundle as it was signed.
+      - name: Package (macOS)
+        if: runner.os == 'macOS'
+        env:
+          MACOS_SIGNING_IDENTITY: ${{ secrets.MACOS_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          target/release/xtask package --platform "$PLATFORM" --out-dir dist \
+            --input "work/wuapi Inbox.app"
+          mkdir work/image
+          cp -R "work/wuapi Inbox.app" work/image/
+          ln -s /Applications work/image/Applications
+          image="dist/wuapi-inbox-$VERSION-$PLATFORM.dmg"
+          hdiutil create -volname "wuapi Inbox" -srcfolder work/image -ov -format UDZO "$image"
+          if [ "$HAS_MACOS_CERTIFICATE" = "true" ]; then
+            codesign --force --timestamp --sign "$MACOS_SIGNING_IDENTITY" "$image"
+            if [ "$HAS_APPLE_NOTARY" = "true" ]; then
+              xcrun notarytool submit "$image" \
+                --apple-id "$APPLE_ID" --password "$APPLE_APP_PASSWORD" --team-id "$APPLE_TEAM_ID" --wait
+              xcrun stapler staple "$image"
+            fi
+          fi
+
+      # ----- Windows: the executable (a window, no console); signed when
+      # the certificate is there.
+      - name: Sign with Authenticode (Windows)
+        if: runner.os == 'Windows' && env.HAS_WINDOWS_CERTIFICATE == 'true'
+        shell: pwsh
+        env:
+          WINDOWS_CERTIFICATE_PFX: ${{ secrets.WINDOWS_CERTIFICATE_PFX }}
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+        run: |
+          $pfx = Join-Path $env:RUNNER_TEMP "certificate.pfx"
+          [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:WINDOWS_CERTIFICATE_PFX))
+          $signtool = Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\bin\*\x64\signtool.exe" |
+            Sort-Object FullName | Select-Object -Last 1
+          & $signtool.FullName sign /fd SHA256 /td SHA256 /tr http://timestamp.digicert.com `
+            /f $pfx /p $env:WINDOWS_CERTIFICATE_PASSWORD target\release\wuapi-inbox.exe
+          $code = $LASTEXITCODE
+          Remove-Item $pfx
+          if ($code -ne 0) { exit $code }
+          & $signtool.FullName verify /pa target\release\wuapi-inbox.exe
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Say that the executable is not signed (Windows)
+        if: runner.os == 'Windows' && env.HAS_WINDOWS_CERTIFICATE != 'true'
+        shell: bash
+        run: echo "::notice::No Authenticode certificate (WINDOWS_CERTIFICATE_PFX). The executable is not signed and SmartScreen will warn before it runs."
+
+      - name: Package (Windows)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          mkdir -p dist
+          target/release/xtask.exe package --platform "$PLATFORM" --out-dir dist \
+            --input target/release/wuapi-inbox.exe
+          mkdir -p "work/wuapi-inbox-$VERSION-$PLATFORM"
+          cp target/release/wuapi-inbox.exe LICENSE "work/wuapi-inbox-$VERSION-$PLATFORM/"
+          (cd work && 7z a -tzip "../dist/wuapi-inbox-$VERSION-$PLATFORM.zip" "wuapi-inbox-$VERSION-$PLATFORM")
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-${{ matrix.platform }}
+          path: dist/
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    name: Manifest and release
+    needs: [prepare, build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      VERSION: ${{ needs.prepare.outputs.version }}
+      TAG: ${{ needs.prepare.outputs.tag }}
+      CHANNEL: ${{ needs.prepare.outputs.channel }}
+      PUBLISH: ${{ needs.prepare.outputs.publish }}
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: release-tools
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: dist-*
+          path: dist
+          merge-multiple: true
+
+      - name: Build the release tooling
+        run: cargo build --locked --package xtask
+
+      - name: Write the notes
+        run: |
+          if [ "$PUBLISH" = "true" ]; then
+            gh api "repos/$GH_REPO/releases/generate-notes" -f tag_name="$TAG" --jq .body > notes.md
+          else
+            echo "A dry run of $VERSION." > notes.md
+          fi
+
+      # Every platform's archive must be there: a release that leaves one
+      # out would strand that platform's installs without saying so.
+      - name: Write the manifest
+        run: |
+          target/debug/xtask manifest --dir dist --channel "$CHANNEL" --notes-file notes.md \
+            --require linux-x86_64,macos-aarch64,macos-x86_64,windows-x86_64
+          cat "dist/$(target/debug/xtask manifest-name --channel "$CHANNEL")"
+
+      - name: Sign the manifest
+        env:
+          UPDATE_SIGNING_KEY: ${{ secrets.UPDATE_SIGNING_KEY }}
+        run: |
+          manifest="dist/$(target/debug/xtask manifest-name --channel "$CHANNEL")"
+          if [ -z "$UPDATE_SIGNING_KEY" ] && [ "$PUBLISH" != "true" ]; then
+            echo "::warning::UPDATE_SIGNING_KEY is not set: this dry run stops short of signing. A release would have failed here."
+            exit 0
+          fi
+          target/debug/xtask sign --file "$manifest"
+          target/debug/xtask verify --file "$manifest" --dir dist
+
+      - name: Write the checksums
+        working-directory: dist
+        run: |
+          sha256sum -- * > ../SHA256SUMS
+          mv ../SHA256SUMS SHA256SUMS
+          cat SHA256SUMS
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ needs.prepare.outputs.version }}
+          path: dist/
+          if-no-files-found: error
+          retention-days: 7
+
+      # Nothing is published unless the signed manifest is there and reads
+      # as good with the keys the application embeds.
+      - name: Publish the release
+        if: needs.prepare.outputs.publish == 'true'
+        run: |
+          manifest="dist/$(target/debug/xtask manifest-name --channel "$CHANNEL")"
+          test -s "$manifest.sig"
+          target/debug/xtask verify --file "$manifest" --dir dist
+          flags=()
+          if [ "$CHANNEL" != "stable" ]; then
+            flags+=(--prerelease)
+          fi
+          gh release create "$TAG" dist/* --verify-tag --title "wuapi Inbox $VERSION" \
+            --notes-file notes.md "${flags[@]}"

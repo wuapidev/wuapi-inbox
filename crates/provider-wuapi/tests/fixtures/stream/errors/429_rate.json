@@ -1,0 +1,4 @@
+{
+  "code": "rate_limited",
+  "message": "Too many stream connection attempts for this organization. Wait for Retry-After and reconnect."
+}

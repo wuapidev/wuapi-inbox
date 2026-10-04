@@ -1,0 +1,4 @@
+{
+  "code": "stream_connection_limit",
+  "message": "This organization has reached its limit of open stream connections. Close one and reconnect."
+}

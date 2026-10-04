@@ -1,0 +1,13 @@
+{
+  "object": "list",
+  "items": [
+    {
+      "object": "group_join_request",
+      "accountId": "k57a8m2x9d3f0q1wjh6ypc4n2d7s0vbr",
+      "groupId": "120363041234567890@g.us",
+      "contactId": "+584245550199",
+      "requestedAt": "2026-09-24T08:15:40.000Z"
+    }
+  ],
+  "nextCursor": null
+}

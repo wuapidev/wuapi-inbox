@@ -1,0 +1,7 @@
+{
+  "code": "account_not_ready",
+  "message": "The account is not connected.",
+  "details": {
+    "status": "disconnected"
+  }
+}

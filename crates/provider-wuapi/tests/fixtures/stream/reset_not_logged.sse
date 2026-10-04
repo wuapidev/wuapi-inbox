@@ -1,0 +1,9 @@
+retry: 3000
+
+event: reset
+data: {"reason":"not_logged"}
+
+id: c1.mfx2kb001
+event: message.received
+data: {"id":"evt_res4","object":"event","type":"message.received","createdAt":"2026-09-24T08:20:04.000Z","organizationId":"org_acme","projectId":null,"data":{"object":{"object":"message","id":"m_res_4","projectId":null,"accountId":"k57a8m2x9d3f0q1wjh6ypc4n2d7s0vbr","chatId":"+584245550199","chatType":"direct","direction":"inbound","source":"contact","from":"+584245550199","to":"+584121234567","profileName":"Maria","username":null,"type":"text","text":"Thanks!","media":null,"location":null,"contact":null,"contacts":null,"poll":null,"calendarEvent":null,"mentions":[],"forwarded":false,"viewOnce":false,"starred":false,"replyToMessageId":null,"status":"received","error":null,"metadata":{},"sentAt":"2026-09-24T08:20:04.000Z","editedAt":null,"deletedAt":null,"createdAt":"2026-09-24T08:20:04.000Z","updatedAt":"2026-09-24T08:20:04.000Z","forwardedManyTimes":false,"replyToStoryId":null}}}
+

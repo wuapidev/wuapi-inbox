@@ -1,0 +1,24 @@
+{
+  "object": "list",
+  "items": [
+    {
+      "object": "participant_result",
+      "contactId": "+584245550199",
+      "error": null,
+      "inviteCode": null
+    },
+    {
+      "object": "participant_result",
+      "contactId": "+584140000002",
+      "error": "privacy_restricted",
+      "inviteCode": "AbCdEf123456"
+    },
+    {
+      "object": "participant_result",
+      "contactId": "lid:200055501000001",
+      "error": "already_member",
+      "inviteCode": null
+    }
+  ],
+  "nextCursor": null
+}

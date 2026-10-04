@@ -1,0 +1,30 @@
+{
+  "object": "list",
+  "items": [
+    {
+      "object": "story",
+      "id": "m17d0a9w2sqc7k3v8x1n5ybr6t4hjp2e",
+      "projectId": null,
+      "accountId": "k57a8m2x9d3f0q1wjh6ypc4n2d7s0vbr",
+      "contactId": "+584121234567",
+      "own": true,
+      "profileName": null,
+      "username": null,
+      "type": "text",
+      "text": "New hours from Monday: 8 to 18.",
+      "backgroundColor": "#0F766E",
+      "font": 1,
+      "media": null,
+      "status": "sent",
+      "viewedAt": null,
+      "authorNotified": null,
+      "reaction": null,
+      "viewCount": 12,
+      "postedAt": "2026-09-24T08:15:40.000Z",
+      "expiresAt": "2026-09-25T08:15:40.000Z",
+      "deletedAt": null,
+      "createdAt": "2026-09-24T08:15:38.000Z"
+    }
+  ],
+  "nextCursor": null
+}

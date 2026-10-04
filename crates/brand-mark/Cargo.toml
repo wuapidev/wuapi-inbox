@@ -1,0 +1,10 @@
+[package]
+name = "brand-mark"
+description = "The animated wuapi mark for GPUI: it blinks and looks around as it does on the wuapi site"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+gpui-kit.workspace = true

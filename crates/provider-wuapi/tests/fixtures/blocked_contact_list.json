@@ -1,0 +1,18 @@
+{
+  "object": "list",
+  "items": [
+    {
+      "object": "blocked_contact",
+      "contactId": "lid:200055501000001",
+      "phone": "+584245550199",
+      "lid": "lid:200055501000001"
+    },
+    {
+      "object": "blocked_contact",
+      "contactId": "+584140000009",
+      "phone": "+584140000009",
+      "lid": null
+    }
+  ],
+  "nextCursor": null
+}

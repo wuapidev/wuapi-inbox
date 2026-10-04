@@ -1,0 +1,97 @@
+{
+  "object": "list",
+  "items": [
+    {
+      "object": "message",
+      "id": "m_failed",
+      "projectId": null,
+      "accountId": "k57a8m2x9d3f0q1wjh6ypc4n2d7s0vbr",
+      "chatId": "+584245550199",
+      "chatType": "direct",
+      "direction": "outbound",
+      "source": "api",
+      "from": "+584121234567",
+      "to": "+584245550199",
+      "profileName": null,
+      "username": null,
+      "type": "text",
+      "text": "Your order has shipped.",
+      "media": null,
+      "location": null,
+      "contact": null,
+      "contacts": null,
+      "poll": null,
+      "calendarEvent": null,
+      "mentions": [],
+      "forwarded": false,
+      "viewOnce": false,
+      "starred": false,
+      "replyToMessageId": null,
+      "status": "failed",
+      "error": {
+        "code": "not_on_whatsapp",
+        "message": "The recipient has no WhatsApp."
+      },
+      "metadata": {},
+      "sentAt": null,
+      "editedAt": null,
+      "deletedAt": null,
+      "createdAt": "2026-09-24T08:15:40.000Z",
+      "updatedAt": "2026-09-24T08:16:00.000Z",
+      "forwardedManyTimes": false,
+      "replyToStoryId": null
+    },
+    {
+      "object": "message",
+      "id": "m_poll",
+      "projectId": null,
+      "accountId": "k57a8m2x9d3f0q1wjh6ypc4n2d7s0vbr",
+      "chatId": "+584245550199",
+      "chatType": "direct",
+      "direction": "inbound",
+      "source": "contact",
+      "from": "+584121234567",
+      "to": "+584245550199",
+      "profileName": null,
+      "username": null,
+      "type": "poll",
+      "text": null,
+      "media": null,
+      "location": null,
+      "contact": null,
+      "contacts": null,
+      "poll": {
+        "name": "Lunch?",
+        "options": [
+          {
+            "name": "Arepas",
+            "voteCount": 2
+          },
+          {
+            "name": "Empanadas",
+            "voteCount": 1
+          }
+        ],
+        "selectableCount": 1,
+        "voterCount": 3
+      },
+      "calendarEvent": null,
+      "mentions": [],
+      "forwarded": false,
+      "viewOnce": false,
+      "starred": false,
+      "replyToMessageId": null,
+      "status": "received",
+      "error": null,
+      "metadata": {},
+      "sentAt": null,
+      "editedAt": null,
+      "deletedAt": null,
+      "createdAt": "2026-09-24T08:15:40.000Z",
+      "updatedAt": "2026-09-24T08:15:40.000Z",
+      "forwardedManyTimes": false,
+      "replyToStoryId": null
+    }
+  ],
+  "nextCursor": null
+}

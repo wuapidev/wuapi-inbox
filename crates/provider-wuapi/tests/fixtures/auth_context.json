@@ -1,0 +1,33 @@
+{
+  "object": "auth_context",
+  "organization": {
+    "object": "organization",
+    "id": "w82t6y1u5i9o3p7a2s6d0f4g8h2j6k1l",
+    "name": "Acme"
+  },
+  "apiKey": {
+    "object": "api_key",
+    "id": "j48c2d5e8f1g4h7i0k3l6m9n2p5q8r1s",
+    "name": "Production",
+    "projectId": null,
+    "keyPrefix": "wu_live_9c9c",
+    "last4": "9c9c",
+    "createdAt": "2026-09-24T08:15:40.000Z",
+    "lastUsedAt": null,
+    "revokedAt": null
+  },
+  "project": {
+    "object": "project",
+    "id": "p23f9g0h1j2k3l4m5n6o7q8r9s0t1u2v",
+    "name": "Northwind Dental",
+    "externalId": "customer_8812",
+    "metadata": {
+      "plan": "growth"
+    },
+    "status": "active",
+    "maxAccounts": 3,
+    "accountCount": 1,
+    "createdAt": "2026-09-20T14:00:03.000Z",
+    "updatedAt": "2026-09-24T08:15:40.000Z"
+  }
+}

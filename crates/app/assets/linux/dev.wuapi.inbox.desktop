@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=wuapi Inbox
+Comment=Native desktop chat client
+Exec=wuapi-inbox
+Icon=dev.wuapi.inbox
+Terminal=false
+Categories=Network;InstantMessaging;
+StartupWMClass=dev.wuapi.inbox

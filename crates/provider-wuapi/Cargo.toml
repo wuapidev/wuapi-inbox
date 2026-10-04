@@ -1,0 +1,31 @@
+[package]
+name = "provider-wuapi"
+description = "Provider adapter for wuapi (https://wuapi.dev), the reference implementation of the provider trait"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+client-provider.workspace = true
+async-trait.workspace = true
+base64.workspace = true
+chrono.workspace = true
+futures.workspace = true
+keyring.workspace = true
+reqwest.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+wuapi.workspace = true
+
+[dev-dependencies]
+# The sync engine, to check what a whole refresh asks of the API.
+client-core.workspace = true
+# `test-util` pauses the clock so polling and login waits run instantly.
+# `net` and `io-util` serve the local servers that stand in for the stream.
+tokio = { workspace = true, features = ["test-util", "net", "io-util"] }
+# A local mock API for the calls that go through the SDK.
+wiremock.workspace = true
