@@ -1,6 +1,6 @@
 # Changelog
 
-## [0.1.1] — unreleased
+## [0.1.1]
 
 * A number linked from another device appears without restarting.
 * Story videos play in the app. If this build has no video runtime, the story says it cannot be played here and does not open another application.
