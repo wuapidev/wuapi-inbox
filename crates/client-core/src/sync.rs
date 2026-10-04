@@ -184,6 +184,9 @@ struct Inner {
     /// Wakes the preloader: a refresh finished, an account is back, the
     /// mode changed.
     preload_wake: Notify,
+    /// A number appeared elsewhere or became usable: refresh its metadata
+    /// and chats while keeping the event subscription open.
+    refresh_wake: Notify,
     /// When the next preload request may start.
     next_preload: Mutex<Option<tokio::time::Instant>>,
     /// `Some(reason)` once the provider has refused the credentials. From
@@ -265,6 +268,7 @@ impl SyncEngine {
                 history: Mutex::new(config_history),
                 gaps: Mutex::new(Vec::new()),
                 preload_wake: Notify::new(),
+                refresh_wake: Notify::new(),
                 next_preload: Mutex::new(None),
                 auth_lost: tokio::sync::watch::channel(None).0,
                 avatar_due: Mutex::new(HashMap::new()),
@@ -1646,7 +1650,21 @@ impl SyncEngine {
                 state,
             } => self.set_presence(&account_id, &chat_id, &contact_id, state),
             ProviderEvent::ConnectionChanged { account_id, state } => {
+                let known = inner
+                    .store
+                    .accounts()?
+                    .into_iter()
+                    .find(|a| a.id == account_id);
+                let needs_refresh = known.as_ref().is_none_or(|account| {
+                    state.is_connected() && !account.connection.is_connected()
+                });
                 inner.store.set_connection(&account_id, &state)?;
+                if needs_refresh {
+                    // Connection events carry no phone or name, and an
+                    // UPDATE cannot insert a number created on the web.
+                    // Coalesce changes; the event loop owns the refresh.
+                    inner.refresh_wake.notify_one();
+                }
                 if state.is_connected() {
                     // The account is back: send what was waiting for it now.
                     inner
@@ -2109,12 +2127,42 @@ impl SyncEngine {
             match subscription {
                 Ok(mut events) if failures == 0 => {
                     subscribe_failures = 0;
-                    while let Some(event) = events.next().await {
-                        if let Err(error) = self.apply_event(event) {
-                            tracing::error!(%error, "could not store an event");
+                    loop {
+                        tokio::select! {
+                            event = events.next() => match event {
+                                Some(event) => {
+                                    if let Err(error) = self.apply_event(event) {
+                                        tracing::error!(%error, "could not store an event");
+                                    }
+                                }
+                                None => break,
+                            },
+                            _ = self.inner.refresh_wake.notified() => {
+                                // As at startup, events stay queued while
+                                // REST is copied, then apply in order. Do
+                                // not apply events concurrently with an
+                                // older account snapshot from the refresh.
+                                match self.refresh().await {
+                                    Ok(()) => {}
+                                    Err(SyncError::Provider(error)) if self.note_unauthorized(&error) => return,
+                                    Err(error) => {
+                                        if let SyncError::Provider(ProviderError::RateLimited {
+                                            retry_after: Some(wait),
+                                        }) = &error {
+                                            asked_to_wait = (*wait).min(RETRY_AFTER_MAX);
+                                        }
+                                        self.log_failure::<()>("refresh after account connection changed", Err(error));
+                                        // A once-only connection event must
+                                        // not be lost after a failed read:
+                                        // the outer loop retries subscribe
+                                        // and refresh with backoff.
+                                        break;
+                                    }
+                                }
+                            }
                         }
                     }
-                    tracing::debug!("the event stream ended; resubscribing");
+                    tracing::debug!("restarting the event subscription");
                     failures = 1;
                 }
                 Ok(_) => subscribe_failures = 0,

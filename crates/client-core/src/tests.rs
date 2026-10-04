@@ -847,6 +847,133 @@ fn engine_for(mock: &MockProvider) -> SyncEngine {
     )
 }
 
+async fn wait_for_account_sync(condition: impl Fn() -> bool) {
+    for _ in 0..500 {
+        if condition() {
+            return;
+        }
+        tokio::task::yield_now().await;
+    }
+    assert!(
+        condition(),
+        "account sync did not finish while the stream stayed open"
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn an_external_link_appears_without_restarting_an_empty_client() {
+    use client_provider::{HistoryImport, NewAccount};
+    let mock = MockProvider::quiet();
+    for account in mock.list_accounts().await.unwrap() {
+        mock.delete_account(&account.id).await.unwrap();
+    }
+    let engine = engine_for(&mock);
+    let store = engine.store();
+    let before = mock.account_calls();
+    engine.start();
+    wait_for_account_sync(|| mock.account_calls() > before).await;
+    assert!(store.accounts().unwrap().is_empty());
+
+    // The dashboard creates and links a number; the desktop receives only
+    // its live connection event, not the full result of the web request.
+    let linked = mock
+        .create_account(&NewAccount {
+            name: Some("Web support".into()),
+            place: None,
+            pairing_phone: Some("+15550009999".into()),
+            history: HistoryImport::Recent,
+            request_id: "web-link".into(),
+        })
+        .await
+        .unwrap()
+        .account
+        .id;
+    mock.complete_link(&linked);
+    let expected = mock.link_status(&linked).await.unwrap().account;
+    let chat = mock.import_history(&linked, "+15550001111", &["Already on the phone"]);
+    let before = mock.account_calls();
+    for _ in 0..10 {
+        mock.push_event(ProviderEvent::ConnectionChanged {
+            account_id: linked.clone(),
+            state: ConnectionState::Connected,
+        });
+    }
+    wait_for_account_sync(|| store.chat(&linked, &chat).unwrap().is_some()).await;
+    assert_eq!(store.accounts().unwrap(), vec![expected]);
+    assert_eq!(
+        mock.account_calls(),
+        before + 1,
+        "duplicate events share one refresh"
+    );
+    engine.shutdown();
+}
+
+#[tokio::test(start_paused = true)]
+async fn an_external_reconnection_refreshes_metadata_and_missing_chats() {
+    use client_provider::AccountChange;
+    let mock = MockProvider::quiet();
+    let account = mock.list_accounts().await.unwrap()[0].id.clone();
+    mock.push_event(ProviderEvent::ConnectionChanged {
+        account_id: account.clone(),
+        state: ConnectionState::Disconnected { reason: None },
+    });
+    let engine = engine_for(&mock);
+    let store = engine.store();
+    engine.start();
+    wait_for_account_sync(|| !store.accounts().unwrap().is_empty()).await;
+    mock.update_account(&account, AccountChange::Rename("Renamed on the web".into()))
+        .await
+        .unwrap();
+    let chat = mock.import_history(&account, "+15550008888", &["Imported while disconnected"]);
+    assert!(store.chat(&account, &chat).unwrap().is_none());
+    let before = mock.account_calls();
+    mock.push_event(ProviderEvent::ConnectionChanged {
+        account_id: account.clone(),
+        state: ConnectionState::Connected,
+    });
+    wait_for_account_sync(|| store.chat(&account, &chat).unwrap().is_some()).await;
+    let stored = store
+        .accounts()
+        .unwrap()
+        .into_iter()
+        .find(|a| a.id == account)
+        .unwrap();
+    assert_eq!(stored, mock.account(&account).unwrap());
+    assert_eq!(mock.account_calls(), before + 1);
+    engine.shutdown();
+}
+
+#[tokio::test(start_paused = true)]
+async fn external_account_refresh_retries_without_another_connection_event() {
+    let mock = MockProvider::quiet();
+    let engine = engine_for(&mock);
+    engine.start();
+    wait_for_account_sync(|| !engine.store().accounts().unwrap().is_empty()).await;
+    let account = engine.store().accounts().unwrap()[0].id.clone();
+    mock.push_event(ProviderEvent::ConnectionChanged {
+        account_id: account.clone(),
+        state: ConnectionState::Disconnected { reason: None },
+    });
+    wait_for_account_sync(|| {
+        !engine.store().accounts().unwrap()[0]
+            .connection
+            .is_connected()
+    })
+    .await;
+    let chat = mock.import_history(&account, "+15550007777", &["After a failed refresh"]);
+    let before = mock.account_calls();
+    mock.fail_next_account_lists([ProviderError::Transient("offline".into())]);
+    mock.push_event(ProviderEvent::ConnectionChanged {
+        account_id: account.clone(),
+        state: ConnectionState::Connected,
+    });
+    wait_for_account_sync(|| mock.account_calls() > before).await;
+    tokio::time::advance(Duration::from_secs(2)).await;
+    wait_for_account_sync(|| engine.store().chat(&account, &chat).unwrap().is_some()).await;
+    assert_eq!(mock.account_calls(), before + 2);
+    engine.shutdown();
+}
+
 #[tokio::test]
 async fn refresh_copies_the_provider_into_the_store() {
     let mock = MockProvider::quiet();
