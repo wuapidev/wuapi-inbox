@@ -34,7 +34,8 @@ pub enum SlideKind {
     Text,
     /// A picture.
     Image,
-    /// A video: shown as a tile (there is no decoder here).
+    /// A video. The viewer plays it in the app; until its file is here it
+    /// is only a tile, and a tile is not a view.
     Video,
     /// A voice note.
     Voice,
@@ -53,9 +54,9 @@ impl SlideKind {
         }
     }
 
-    /// Whether the story counts as seen when it is drawn. A video is only
-    /// a tile here, and a voice note a play button: the person has not
-    /// seen or heard them until they are opened in a player or played.
+    /// Whether the story counts as seen when it is drawn. A video is not
+    /// seen for the tile that asks for its file, and a voice note is not
+    /// heard for its play button: each counts when it is actually played.
     pub fn seen_when_drawn(self) -> bool {
         !matches!(self, Self::Video | Self::Voice)
     }
@@ -140,8 +141,12 @@ pub struct Holds {
     pub paused: bool,
     /// The reply field has the keyboard.
     pub typing: bool,
-    /// A video was opened in the system's player.
+    /// Playback is happening outside the story's own timer (a voice note
+    /// in the speakers). A video that plays in the app does not use this.
     pub external: bool,
+    /// The video's file has been asked for and is not here yet. The clock
+    /// waits; the story is not seen for it.
+    pub loading: bool,
     /// A panel (who saw it, the menu) is open over the story.
     pub panel: bool,
 }
@@ -149,7 +154,7 @@ pub struct Holds {
 impl Holds {
     /// Nothing holds the clock.
     pub fn none(&self) -> bool {
-        !(self.pointer || self.paused || self.typing || self.external || self.panel)
+        !(self.pointer || self.paused || self.typing || self.external || self.loading || self.panel)
     }
 }
 
@@ -274,6 +279,40 @@ impl Player {
         moments
     }
 
+    /// A frame of the video is on screen, in this application. It counts
+    /// as seen, and the clock keeps running: the picture is here, not in
+    /// another window.
+    pub fn presented(&mut self) -> Vec<Moment> {
+        self.holds.loading = false;
+        let mut moments = Vec::new();
+        if let Some(slide) = self.current().cloned() {
+            self.note_shown(&slide.id, &mut moments);
+        }
+        moments
+    }
+
+    /// Puts the clock where playback is. Past the end, the next story
+    /// starts. Does nothing while the clock is held.
+    pub fn sync(&mut self, at: Duration) -> Vec<Moment> {
+        if !self.running() {
+            return Vec::new();
+        }
+        let Some(slide) = self.current().cloned() else {
+            return vec![Moment::Ended];
+        };
+        self.elapsed = at.min(slide.duration);
+        if self.elapsed >= slide.duration {
+            return self.next_story();
+        }
+        Vec::new()
+    }
+
+    /// The video is starting: the time the tile spent up does not count
+    /// as time in the video.
+    pub fn rewind(&mut self) {
+        self.elapsed = Duration::ZERO;
+    }
+
     fn note_shown(&mut self, id: &MessageId, moments: &mut Vec<Moment>) {
         if !self.shown.contains(id) {
             self.shown.push(id.clone());
@@ -304,6 +343,7 @@ impl Player {
         // The new story's content is not on screen yet.
         self.ready = false;
         self.holds.external = false;
+        self.holds.loading = false;
         vec![Moment::Moved]
     }
 
@@ -776,6 +816,28 @@ mod tests {
         assert!(player.tick(Duration::from_secs(60)).is_empty());
         player.holds.external = false;
         assert!(player.running());
+    }
+
+    #[test]
+    fn a_video_counts_as_seen_when_it_plays_in_the_app() {
+        let mut player = Player::new(
+            vec![reel("a", vec![slide("v", SlideKind::Video, 12)])],
+            0,
+            0,
+        );
+        player.set_ready(true);
+        // The file is on its way: the tile is up, the clock waits, and
+        // nothing has been seen.
+        player.holds.loading = true;
+        assert!(player.tick(Duration::from_secs(30)).is_empty());
+        let moments = player.presented();
+        assert_eq!(moments, vec![Moment::Shown(MessageId::new("v"))]);
+        assert!(player.presented().is_empty());
+        assert!(player.running());
+        assert!(player.sync(Duration::from_secs(4)).is_empty());
+        assert_eq!(player.elapsed(), Duration::from_secs(4));
+        // Playback reached the end: the viewer is done with this story.
+        assert_eq!(player.sync(Duration::from_secs(12)), vec![Moment::Ended]);
     }
 
     #[test]

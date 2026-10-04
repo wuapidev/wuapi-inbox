@@ -194,8 +194,8 @@ impl Shell {
             )
             .child(choice_row(
                 "Download media automatically",
-                "Images load as they come into view (up to 25 MB each). Videos, audio and \
-                 documents wait for a click unless you choose Everything.",
+                "Images, stickers and GIFs load as they come into view (up to 25 MB each). \
+                 Videos, audio and documents wait for a click unless you choose Everything.",
                 segmented(
                     "media",
                     &[

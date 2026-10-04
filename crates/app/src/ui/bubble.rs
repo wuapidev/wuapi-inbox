@@ -1225,8 +1225,10 @@ fn tile_glyph(
         FileState::Unavailable(_) if context.shelf.file_expired(&url) => {
             return icon(IconName::Ban, px(24.), side.meta).into_any_element()
         }
-        // Being fetched ahead, or about to be ("Everything").
-        FileState::NotFetched if context.shelf.fetches_everything() => {
+        // Being fetched ahead: "Everything", or a GIF with the pictures.
+        FileState::NotFetched
+            if context.shelf.fetches_everything() || context.shelf.fetches_gif_unasked(media) =>
+        {
             Transfer::Loading { fraction: None }
         }
         FileState::NotFetched => Transfer::Download {
@@ -1240,6 +1242,10 @@ fn tile_glyph(
     let (view, shelf) = (context.view.clone(), context.shelf.clone());
     let account = message.account_id.clone();
     let stop = matches!(state, Transfer::Loading { .. });
+    // A GIF started by the policy stays stopped. "Everything" keeps the
+    // old meaning of the button: cancel this attempt, and the next draw
+    // may ask again.
+    let hold = media.gif && !context.shelf.fetches_everything();
     transfer_button(
         SharedString::from(format!("transfer-file-{}", message.id)),
         &state,
@@ -1247,7 +1253,11 @@ fn tile_glyph(
         context.still,
         move |_, _, cx| {
             if stop {
-                shelf.cancel_file(&url);
+                if hold {
+                    shelf.decline_file(&url);
+                } else {
+                    shelf.cancel_file(&url);
+                }
             } else {
                 // The file only: opening it is the line below.
                 shelf.retry_file(&account, &url);
@@ -1272,8 +1282,10 @@ fn file_action(media: &Media, message: &Message, side: &Side, context: &RowConte
             .child(mono("NOT AVAILABLE · FROM BEFORE THIS NUMBER WAS LINKED"));
     };
     let state = context.shelf.file_state(source.as_str());
-    if state == FileState::NotFetched && context.shelf.fetches_everything() {
-        // The user asked for everything to be fetched ahead.
+    if state == FileState::NotFetched
+        && (context.shelf.fetches_everything() || context.shelf.fetches_gif_unasked(media))
+    {
+        // "Everything", or a GIF under the same rule as a picture.
         context.shelf.prefetch(&message.account_id, source.as_str());
     }
     let text = match &state {
@@ -1339,8 +1351,8 @@ fn media_block(media: &Media, message: &Message, side: &Side, context: &RowConte
         MediaKind::Image | MediaKind::Sticker => image_block(media, message, side, context, true),
         MediaKind::Video => {
             // A GIF on WhatsApp is a short, silent, looping video. It is
-            // not played here yet: it says what it is, and opens like a
-            // video.
+            // fetched with the pictures. It is not played here: a click
+            // opens it like a video.
             let (kind, title) = if media.gif {
                 ("GIF", "GIF")
             } else {

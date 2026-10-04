@@ -46,6 +46,7 @@ mod stretch;
 mod theme;
 mod ui;
 mod update;
+mod video;
 
 use gpui_kit::{
     px, size, App, AppContext as _, Bounds, TitlebarOptions, WindowBounds, WindowOptions,

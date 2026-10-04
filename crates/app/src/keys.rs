@@ -226,7 +226,7 @@ pub enum Command {
     StoryReply,
     /// Reacts to the story.
     StoryReact,
-    /// Plays the video in the system's player.
+    /// Plays the video in the app.
     StoryOpenVideo,
     /// Takes the story down (the account's own).
     StoryDelete,

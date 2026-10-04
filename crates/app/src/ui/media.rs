@@ -731,13 +731,15 @@ impl MediaShelf {
             .map(|cached| (cached.bytes, cached.mime))
     }
 
-    /// Lets a download that failed be tried again.
+    /// Lets a download that failed be tried again. A file the person had
+    /// stopped is asked for again too: the click is the ask.
     pub fn retry_file(&self, account: &AccountId, url: &str) {
+        self.declined.borrow_mut().remove(url);
         self.engine.retry_media(&file_key(url));
         self.engine.want_file(account, url);
     }
 
-    /// Fetches a whole file ahead of a click ("Everything").
+    /// Fetches a whole file ahead of a click.
     pub fn prefetch(&self, account: &AccountId, url: &str) {
         self.engine.want_file(account, url);
     }
@@ -745,6 +747,21 @@ impl MediaShelf {
     /// Whether files other than images are fetched without being asked.
     pub fn fetches_everything(&self) -> bool {
         self.policy.get() == MediaChoice::Everything
+    }
+
+    /// Whether a GIF is fetched without a click. Same rule as a picture:
+    /// not under "Nothing", not when it is known to be over the automatic
+    /// limit, and not after the person stopped it. A video that is not a
+    /// GIF waits, unless the policy is [`Everything`](MediaChoice::Everything).
+    pub fn fetches_gif_unasked(&self, media: &Media) -> bool {
+        media.gif && self.fetched_unasked(media)
+    }
+
+    /// The person stopped a file the policy had started. Drawing the row
+    /// again does not start it over; a click does.
+    pub fn decline_file(&self, url: &str) {
+        self.declined.borrow_mut().insert(url.to_owned());
+        self.cancel_file(url);
     }
 
     /// Where the whole file at `url` stands.

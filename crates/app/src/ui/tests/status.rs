@@ -658,20 +658,24 @@ fn a_text_story_is_drawn_on_its_colour_in_its_font(cx: &mut TestAppContext) {
 }
 
 #[gpui_kit::test]
-fn a_video_is_a_tile_that_says_so_and_counts_when_it_is_opened(cx: &mut TestAppContext) {
+fn a_video_plays_in_the_app_and_counts_when_a_frame_is_shown(cx: &mut TestAppContext) {
+    let _guard = crate::video::install_opener(Arc::new(|_| {
+        Ok(crate::video::clock(Duration::from_secs(12)))
+    }));
     let harness = open_status(cx);
     go_to_status(&harness, cx);
     watch(&harness, cx, 0);
-    // To Ana's third story, the video.
+    // To Ana's third story, the video. It is not fetched ahead of time.
     press(harness.window, "right", cx);
     press(harness.window, "right", cx);
     tick(&harness, cx, Duration::from_millis(40));
     assert!(shows(harness.window, "story-tile", cx));
     assert!(shows(harness.window, "story-open-video", cx));
+    assert!(!shows(harness.window, "story-video", cx));
     let id = viewing(&harness, cx, |viewing| {
         viewing.player.current().unwrap().id.clone()
     });
-    // It is a tile on screen, not a view.
+    // The tile on screen is not a view.
     harness.settle(cx);
     assert!(
         !harness
@@ -682,10 +686,14 @@ fn a_video_is_a_tile_that_says_so_and_counts_when_it_is_opened(cx: &mut TestAppC
             .unwrap()
             .viewed
     );
-    // Asked to open: the file is fetched first, and the clock waits. It is
-    // not a view until the file is there and has been handed over.
+    // Asked to play: the file is fetched, the clock waits, and nothing is
+    // handed to the system's player.
     click(harness.window, "story-open-video", cx);
     assert!(viewing(&harness, cx, |viewing| viewing
+        .player
+        .holds
+        .loading));
+    assert!(!viewing(&harness, cx, |viewing| viewing
         .player
         .holds
         .external));
@@ -698,17 +706,32 @@ fn a_video_is_a_tile_that_says_so_and_counts_when_it_is_opened(cx: &mut TestAppC
             .unwrap()
             .viewed
     );
-    // The file arrives (the window here cannot hand it to a player): a view.
     let url = viewing(&harness, cx, |viewing| {
         match &viewing.item().unwrap().story.body {
             StoryBody::Media(media) => media.source.clone().unwrap().to_string(),
             other => panic!("{other:?}"),
         }
     });
+    harness
+        .engine
+        .store()
+        .put_media(
+            &client_core::file_key(&url),
+            &client_core::CachedMedia {
+                bytes: b"video-bytes".to_vec(),
+                mime: Some("video/mp4".into()),
+                size: None,
+            },
+            Timestamp::now(),
+            u64::MAX,
+        )
+        .unwrap();
     harness.shell.update(cx, |shell, cx| {
         shell.status_media_arrived(&client_core::file_key(&url), cx)
     });
     cx.run_until_parked();
+    assert!(shows(harness.window, "story-video", cx));
+    assert!(!shows(harness.window, "story-tile", cx));
     assert!(
         harness
             .engine
@@ -718,6 +741,14 @@ fn a_video_is_a_tile_that_says_so_and_counts_when_it_is_opened(cx: &mut TestAppC
             .unwrap()
             .viewed
     );
+    assert!(!viewing(&harness, cx, |viewing| viewing
+        .player
+        .holds
+        .loading));
+    assert!(!viewing(&harness, cx, |viewing| viewing
+        .player
+        .holds
+        .external));
 }
 
 // ----- seeing is behaviour toward people ---------------------------------------
@@ -1690,6 +1721,155 @@ fn the_first_new_picture_of_an_author_is_fetched_ahead_when_the_policy_allows_an
             })
         });
     }
+}
+
+#[gpui_kit::test]
+fn a_gif_and_a_sticker_story_are_fetched_ahead_and_a_video_is_not(cx: &mut TestAppContext) {
+    use client_provider::{Media, MediaRef};
+    let harness = open(cx, ShellOptions::default());
+    let sticker_url = "https://files.example/story-sticker.png";
+    let gif_url = "https://files.example/story-loop.mp4";
+    let video_url = "https://files.example/story-clip.mp4";
+    harness
+        .mock
+        .set_media(sticker_url, super::png(64, 64), "image/png");
+    harness
+        .mock
+        .set_media(gif_url, b"gif-mp4".to_vec(), "video/mp4");
+    harness
+        .mock
+        .set_media(video_url, b"clip".to_vec(), "video/mp4");
+    let posted = |kind: MediaKind, url: &str, gif: bool| {
+        let mut media = Media::new(kind);
+        media.source = Some(MediaRef::new(url));
+        media.mime_type = Some(
+            if kind == MediaKind::Sticker {
+                "image/png"
+            } else {
+                "video/mp4"
+            }
+            .into(),
+        );
+        media.gif = gif;
+        media
+    };
+    let sticker = harness.mock.contact_posts_story(
+        &personal(),
+        &ContactId::new("+15550009111"),
+        "Sticker Person",
+        StoryBody::Media(posted(MediaKind::Sticker, sticker_url, false)),
+    );
+    let gif = harness.mock.contact_posts_story(
+        &personal(),
+        &ContactId::new("+15550009222"),
+        "Gif Person",
+        StoryBody::Media(posted(MediaKind::Video, gif_url, true)),
+    );
+    let video = harness.mock.contact_posts_story(
+        &personal(),
+        &ContactId::new("+15550009333"),
+        "Video Person",
+        StoryBody::Media(posted(MediaKind::Video, video_url, false)),
+    );
+    harness
+        .runtime
+        .block_on(harness.engine.sync_stories(&personal()))
+        .unwrap();
+    harness.settle(cx);
+    assert!(
+        harness
+            .engine
+            .store()
+            .media_size(&client_core::thumbnail_key(sticker_url))
+            .unwrap()
+            .is_none(),
+        "nothing is fetched before Status is open"
+    );
+    go_to_status(&harness, cx);
+    let file_cached = |url: &str| {
+        harness
+            .engine
+            .store()
+            .media(&client_core::file_key(url), Timestamp::now())
+            .unwrap()
+            .is_some()
+    };
+    let mut sticker_here = false;
+    let mut gif_here = false;
+    for _ in 0..200 {
+        harness.settle(cx);
+        sticker_here = harness
+            .engine
+            .store()
+            .media_size(&client_core::thumbnail_key(sticker_url))
+            .unwrap()
+            .is_some();
+        gif_here = file_cached(gif_url);
+        if sticker_here && gif_here {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(3));
+    }
+    assert!(sticker_here, "a sticker story is fetched like a picture");
+    assert!(gif_here, "a gif story is fetched without a click");
+    assert_eq!(
+        harness
+            .engine
+            .media_state(&client_core::file_key(video_url)),
+        client_core::MediaState::Idle,
+        "a video is not fetched ahead"
+    );
+    assert!(!file_cached(video_url));
+    for id in [&sticker.id, &gif.id, &video.id] {
+        assert!(
+            !harness
+                .engine
+                .store()
+                .story(&personal(), id)
+                .unwrap()
+                .unwrap()
+                .viewed,
+            "fetching ahead is not seeing"
+        );
+    }
+    assert!(harness.mock.story_views().is_empty());
+
+    let _guard = crate::video::install_opener(Arc::new(|_| {
+        Ok(crate::video::clock(Duration::from_secs(12)))
+    }));
+    let index = cx.update(|cx| {
+        harness
+            .shell
+            .read(cx)
+            .status
+            .feed
+            .recent
+            .iter()
+            .position(|author| author.stories.iter().any(|item| item.story.id == gif.id))
+            .expect("the gif author")
+    });
+    watch(&harness, cx, index);
+    tick(&harness, cx, Duration::from_millis(40));
+    assert!(shows(harness.window, "story-video", cx));
+    assert!(!shows(harness.window, "story-tile", cx));
+    assert!(
+        harness
+            .engine
+            .store()
+            .story(&personal(), &gif.id)
+            .unwrap()
+            .unwrap()
+            .viewed
+    );
+    assert!(!viewing(&harness, cx, |viewing| viewing
+        .player
+        .holds
+        .external));
+    assert!(!viewing(&harness, cx, |viewing| viewing
+        .player
+        .holds
+        .loading));
+    assert!(cx.opened_url().is_none(), "the gif stays in the app");
 }
 
 #[gpui_kit::test]
