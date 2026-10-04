@@ -44,6 +44,12 @@ tracing-subscriber.workspace = true
 flate2 = "1"
 sys-locale = "0.3"
 
+[features]
+# Development aid: `WUAPI_INBOX_CAPTURE_SCRIPT` saves frames of the window as
+# PNG files, drawn by the application itself (see `src/capture.rs`). Not part
+# of a release build.
+capture = ["gpui-kit/test-support"]
+
 [dev-dependencies]
 tempfile = "3"
 # The online GIF search's service, played locally.

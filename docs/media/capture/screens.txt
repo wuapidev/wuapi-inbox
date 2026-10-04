@@ -1,0 +1,67 @@
+# The screens of docs/media, on the demo data. Run by ../capture.sh, once
+# per theme, in a 1240 x 800 window. Chats are opened by name through the
+# palette, because the demo's live messages reorder the list.
+wait 3500
+click 1198 731          # the keyboard tip: "Got it"
+wait 300
+move 25 400
+shot chats
+
+click 214 171           # the search field
+type Thursday
+wait 1200
+move 25 400
+shot search
+click 347 171           # clear it
+key escape
+
+key cmd-p
+wait 700
+shot palette
+key escape
+
+key cmd-p
+type Design team
+wait 500
+key enter
+wait 1300
+scroll 800 400 -640
+wait 700
+move 25 400
+shot group
+
+key cmd-p
+type Lucas Ferreira
+wait 500
+key enter
+wait 1300
+scroll 800 400 -640
+wait 700
+move 25 400
+shot media
+
+key cmd-p
+type Lisbon trip
+wait 500
+key enter
+wait 1300
+scroll 800 400 -750
+wait 700
+move 25 400
+shot polls
+
+click 25 98             # Status, in the rail
+wait 900
+click 190 238           # the second update
+wait 1300
+move 25 400
+shot status
+key escape
+
+key cmd-,
+wait 600
+click 382 223           # Appearance
+wait 500
+move 25 400
+shot settings
+quit
