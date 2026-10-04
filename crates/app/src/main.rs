@@ -19,6 +19,8 @@ mod attach;
 mod audio;
 mod brand;
 mod calendar;
+#[cfg(feature = "capture")]
+mod capture;
 mod cli;
 mod clipboard;
 mod emoji;
@@ -189,10 +191,16 @@ fn main() {
                 icon: brand::window_icon(),
                 ..Default::default()
             };
-            gpui_kit::open_window(window, cx, |window, cx| {
+            let window = gpui_kit::open_window(window, cx, |window, cx| {
                 cx.new(|cx| AppView::new(launch, open_chat, welcome, window, cx))
             })
             .expect("the main window opens");
+            // `--features capture`: frames of the window for the
+            // documentation, when a script asks for them.
+            #[cfg(feature = "capture")]
+            capture::start(window.0, cx);
+            #[cfg(not(feature = "capture"))]
+            let _ = window;
 
             // The window is up: a version that was just installed has
             // started, and the one before it is no longer kept. From here

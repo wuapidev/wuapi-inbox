@@ -241,6 +241,10 @@ fn launch_on(
     let history = saved_settings(options).history_mode();
     match options.provider {
         ProviderKind::Mock => {
+            // Frames for the documentation are taken without a keychain
+            // (see `capture`), and show the window as it is with one.
+            #[cfg(feature = "capture")]
+            let storage_note = storage_note.filter(|_| !crate::capture::running());
             let engine = start_engine(
                 Arc::new(MockProvider::default()),
                 &storage,

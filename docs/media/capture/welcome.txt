@@ -1,0 +1,5 @@
+# The welcome screen (`--welcome`).
+wait 3000
+move 25 400
+shot welcome
+quit
