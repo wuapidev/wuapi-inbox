@@ -10,7 +10,7 @@
 //! context to hand to libmpv. That renderer is CPU-bound; the cap is the
 //! bound on it.
 //!
-//! Tests install [`install_opener`] and never need the native library.
+//! Tests install an opener and never need the native library.
 
 use std::ffi::{CStr, CString};
 use std::path::{Component, Path, PathBuf};
@@ -120,6 +120,7 @@ impl Clip {
 }
 
 /// A clip whose clock is [`Clip::poll`] and whose picture is one solid frame.
+#[cfg(test)]
 pub(crate) fn clock(duration: Duration) -> Clip {
     let image = solid(2, 2, [0x10, 0x20, 0x30, 0xFF]);
     Clip {
@@ -140,30 +141,32 @@ pub(crate) fn clock(duration: Duration) -> Clip {
     }
 }
 
+/// What a test installs in place of libmpv.
+type Opener = Arc<dyn Fn(Arc<[u8]>) -> Result<Clip, String> + Send + Sync>;
+
 thread_local! {
-    static OPENER: std::cell::RefCell<
-        Option<Arc<dyn Fn(Arc<[u8]>) -> Result<Clip, String> + Send + Sync>>,
-    > = std::cell::RefCell::new(None);
+    static OPENER: std::cell::RefCell<Option<Opener>> = std::cell::RefCell::new(None);
 }
 
 /// Installs the opener [`Clip::open`] uses on this thread, until the
 /// guard is dropped.
-pub(crate) fn install_opener(
-    open: Arc<dyn Fn(Arc<[u8]>) -> Result<Clip, String> + Send + Sync>,
-) -> OpenerGuard {
+#[cfg(test)]
+pub(crate) fn install_opener(open: Opener) -> OpenerGuard {
     OPENER.with(|slot| *slot.borrow_mut() = Some(open));
     OpenerGuard
 }
 
+#[cfg(test)]
 pub(crate) struct OpenerGuard;
 
+#[cfg(test)]
 impl Drop for OpenerGuard {
     fn drop(&mut self) {
         OPENER.with(|slot| *slot.borrow_mut() = None);
     }
 }
 
-fn opener() -> Option<Arc<dyn Fn(Arc<[u8]>) -> Result<Clip, String> + Send + Sync>> {
+fn opener() -> Option<Opener> {
     OPENER.with(|slot| slot.borrow().clone())
 }
 
@@ -173,9 +176,10 @@ fn lock(shared: &Mutex<Shared>) -> std::sync::MutexGuard<'_, Shared> {
         .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
+#[cfg(test)]
 fn solid(width: u32, height: u32, bgra: [u8; 4]) -> Arc<gpui_kit::RenderImage> {
     let mut bytes = vec![0u8; (width * height * 4) as usize];
-    for pixel in bytes.chunks_exact_mut(4) {
+    for pixel in bytes.chunks_mut(4) {
         pixel.copy_from_slice(&bgra);
     }
     let image = image::RgbaImage::from_raw(width, height, bytes).expect("the frame's size matches");
@@ -279,11 +283,11 @@ fn is_library(path: &Path) -> bool {
     #[cfg(target_os = "windows")]
     {
         let name = name.to_ascii_lowercase();
-        return name == "libmpv-2.dll" || name == "libmpv.dll" || name == "mpv-2.dll";
+        name == "libmpv-2.dll" || name == "libmpv.dll" || name == "mpv-2.dll"
     }
     #[cfg(target_os = "macos")]
     {
-        return name == "libmpv.dylib" || (name.starts_with("libmpv") && name.ends_with(".dylib"));
+        name == "libmpv.dylib" || (name.starts_with("libmpv") && name.ends_with(".dylib"))
     }
     #[cfg(all(unix, not(target_os = "macos")))]
     {
