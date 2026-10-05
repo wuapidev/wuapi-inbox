@@ -5840,6 +5840,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "provider-example"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "client-provider",
+ "futures",
+ "tokio",
+]
+
+[[package]]
 name = "provider-mock"
 version = "0.1.1"
 dependencies = [
@@ -9751,6 +9761,7 @@ dependencies = [
  "keyring",
  "libloading",
  "opus-decoder",
+ "provider-example",
  "provider-mock",
  "provider-wuapi",
  "reqwest",

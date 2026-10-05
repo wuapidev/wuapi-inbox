@@ -1748,11 +1748,15 @@ impl Store {
             return Ok(Vec::new());
         };
         self.read(|conn| {
+            // CROSS JOIN keeps the order as written: the index is asked
+            // once and its matches looked up. Left to choose, SQLite walks
+            // the messages by time and asks the index again for each one,
+            // which takes seconds over a few thousand messages.
             let sql = format!(
                 "SELECT {MESSAGE_COLUMNS}, c.title
                  FROM messages_fts f
-                 JOIN messages m ON m.pk = f.rowid
-                 JOIN chats c ON c.account_id = m.account_id AND c.id = m.chat_id
+                 CROSS JOIN messages m ON m.pk = f.rowid
+                 CROSS JOIN chats c ON c.account_id = m.account_id AND c.id = m.chat_id
                  WHERE messages_fts MATCH ?1 AND m.account_id = ?2 AND m.deleted = 0
                  ORDER BY m.ts DESC LIMIT ?3"
             );

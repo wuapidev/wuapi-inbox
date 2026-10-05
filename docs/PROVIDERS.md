@@ -2,10 +2,13 @@
 
 A provider connects the client to a WhatsApp backend: a hosted REST API, a self-hosted gateway, a library that speaks the protocol. You implement one trait, `Provider`, from the [`client-provider`](../crates/client-provider) crate. The client does the rest: storage, search, retries, the outbox, the UI.
 
-Two complete providers are in the repository. Read them alongside this page.
+Three providers are in the repository. Read them alongside this page.
 
-- [`provider-mock`](../crates/provider-mock): in memory, about 500 lines. The easiest place to see the contract honoured, including idempotent sends.
-- [`provider-wuapi`](../crates/provider-wuapi): a real HTTP API, reached through its generated SDK. Copy this one to start your own.
+- [`provider-example`](../crates/provider-example): one file, about 320 lines, over an in-memory backend that says back what it is sent. The worked example of this page: copy it to start your own.
+- [`provider-mock`](../crates/provider-mock): the demo data, in memory, built on `Capabilities::all()`. The place to see an optional method honoured.
+- [`provider-wuapi`](../crates/provider-wuapi): a real HTTP API, reached through its generated SDK. The place to see timeouts, error mapping, paging and live updates over a network.
+
+On this page: [a walkthrough](#write-a-provider-in-15-minutes), [every method](#every-method), [the rules](#the-trait), [the model](#the-model), [testing](#testing-a-provider), [wiring it in](#wiring-it-in), [a checklist for a pull request](#checklist-for-a-pull-request), and how the wuapi adapter is built.
 
 ## What a provider is, and is not
 
@@ -16,6 +19,96 @@ your backend  ◄──►  your Provider  ◄──►  sync engine  ──► 
 ```
 
 The UI never calls a provider. It reads a local database that the engine fills from your answers. So a provider can be slow, and it can fail, as long as it says truthfully how it failed.
+
+## Write a provider in 15 minutes
+
+The steps below are the ones `provider-example` took. Follow them with your own name where it says `example`.
+
+**1. A crate.** Copy `crates/provider-example` to `crates/provider-yours`:
+
+```text
+crates/provider-yours/
+  Cargo.toml          client-provider, async-trait, futures (and tokio, reqwest: what your backend needs)
+  src/lib.rs          the provider: `impl Provider for YourProvider`
+  tests/contract.rs   what the client relies on, as tests
+```
+
+Add it to the workspace in the root `Cargo.toml`: a line in `members` and a line in `[workspace.dependencies]` (`provider-yours = { path = "crates/provider-yours" }`).
+
+**2. The nine required methods.** `id`, `capabilities`, `list_accounts`, `list_chats`, `fetch_messages`, `send`, `mark_read`, `download_media` and `subscribe`. The crate documentation of `provider-example` has the smallest implementation that compiles (it is a doc-test), and `EchoProvider` below it is one that does something. Map your backend's objects to the neutral model ([the model](#the-model)), and its failures to `ProviderError` ([rule 2](#2-errors-say-whether-to-retry)).
+
+**3. Capabilities.** Start from `Capabilities::none()` and turn on only what is true. `provider-example` turns on two: `chat_list` (its listing is the real one) and `realtime_push` (its events are pushed). Everything else stays off, so the window offers no reactions, no attachments, no groups. Add a flag when you implement what it gates ([every method](#every-method)).
+
+**4. Register it in the application.** Three places in `crates/app`, each marked `provider-example` for the example ([wiring it in](#wiring-it-in) has them line by line): the dependency in `Cargo.toml`, the `--provider` value in `src/cli.rs`, and the construction in `src/providers.rs`.
+
+**5. Run it.**
+
+```sh
+cargo run -p wuapi-inbox --features provider-example -- --provider example
+```
+
+One number, one chat; what you write comes back.
+
+**6. Test it.** `cargo test -p provider-yours`. Start from `crates/provider-example/tests/contract.rs` ([testing](#testing-a-provider)).
+
+## Every method
+
+`Provider` has 69 methods: 9 are required and 60 have defaults. The engine calls an optional method only when the flag beside it is on, so an adapter implements what its backend has and leaves the rest alone. The doc comment of each method in [`provider.rs`](../crates/client-provider/src/provider.rs) is its reference.
+
+| Method | Required | Called when |
+|---|---|---|
+| `id` | yes | always: a short, stable, lowercase name, stored next to each account |
+| `capabilities` | yes | always: cheap, no network |
+| `list_accounts` | yes | at startup and on every refresh |
+| `list_chats` | yes | always; `chat_list` says the listing is the real one and not a reconstruction |
+| `fetch_messages` | yes | always: newest first, a page at a time |
+| `send` | yes | always: idempotent on `client_id` |
+| `mark_read` | yes | always; `read_receipts` says the other side is told |
+| `download_media` | yes | `media_download`; answer `Unsupported` without it |
+| `subscribe` | yes | always; `realtime_push` says events are pushed and not polled for |
+| `unavailable`, `recheck` | no | always: what the capabilities promise and the backend does not have right now |
+| `live_updates` | no | always: for the diagnostics, when there is more than one transport |
+| `mention_handle` | no | `mentions` |
+| `mark_read_quietly` | no | `quiet_read` |
+| `update_chat` | no | `chat_state` |
+| `start_chat` | no | `start_chat` |
+| `fetch_media`, `fetch_media_reporting` | no | `media_download`: the defaults wrap `download_media` |
+| `fetch_avatar` | no | `avatars` |
+| `upload_media`, `media_upload_limit`, `media_upload_ready` | no | `media_upload` |
+| `vote_poll` | no | `poll_votes` |
+| `edit_message` | no | `edits` |
+| `delete_message` | no | `deletes`, `delete_for_me`, `delete_received` |
+| `star_message` | no | `stars` |
+| `forward_messages` | no | `forward_any` (with `forward_polls`, `forward_events`) |
+| `list_favorite_stickers`, `add_favorite_sticker`, `remove_favorite_sticker` | no | `sticker_favorites` |
+| `list_contacts` | no | `contacts` |
+| `check_numbers` | no | `number_check` |
+| `lookup_contact` | no | `contact_lookup` |
+| `business_profile` | no | `business_profiles` |
+| `list_blocked`, `set_blocked` | no | `blocking` |
+| `own_profile`, `update_profile`, `set_profile_picture` | no | `profile_edit` |
+| `list_groups`, `fetch_group` | no | `group_info` |
+| `create_group` | no | `group_create` |
+| `update_group`, `change_participants`, `set_group_picture` | no | `group_manage` |
+| `group_invite_link` | no | `group_invites` |
+| `join_requests`, `answer_join_requests` | no | `group_join_requests` |
+| `leave_group` | no | `group_leave` |
+| `list_stories` | no | `story_list` |
+| `post_story` | no | `story_post` |
+| `delete_story` | no | `story_delete` |
+| `view_story` | no | `story_view` |
+| `story_viewers` | no | `story_viewers` |
+| `reply_to_story` | no | `story_reply` |
+| `react_to_story` | no | `story_react` |
+| `muted_story_authors`, `set_story_muted` | no | `story_mute` |
+| `story_privacy` | no | `story_privacy` |
+| `set_story_privacy` | no | `story_privacy_edit` |
+| `link_places`, `create_account`, `link_status` | no | `link_accounts` |
+| `pairing_code` | no | `link_by_code` |
+| `scan_instead` | no | `link_back_to_scan` |
+| `update_account`, `reconnect_account`, `unlink_account`, `delete_account` | no | `manage_accounts` (`history_import` for that setting) |
+
+The flags that gate no method describe what the required ones carry: `groups` (group chats are listed and can be sent to), `contact_names` (names are the address book's), `replies`, `reactions`, `forwards` and `polls` (what `send` takes), `presence` (typing is pushed), `incremental_sync`, `story_contacts`.
 
 ## The trait
 
@@ -193,47 +286,66 @@ All types are in [`model.rs`](../crates/client-provider/src/model.rs) and docume
 - **A poll's `chosen`** is the account's own vote. Say `None` when your backend's tally does not tell: the client then keeps the vote it cast through you, and takes only the counts from your copy.
 - **Things you cannot model** go in `MessageContent::Unsupported { description }`, with the type's name as your backend gives it in `description`: it is shown as a neutral "Unsupported message" tile that names the type. Do not drop them: a gap in a conversation is worse than a placeholder.
 
-## Skeleton
+## What a provider must produce
 
-```rust
-use async_trait::async_trait;
-use client_provider::*;
+| Type | From | What must be right |
+|---|---|---|
+| `Account` | `list_accounts` | a stable `id`, a `display_name`, the `connection` state as it is now, `self_contact` when you know the account's own id |
+| `Chat` | `list_chats`, `ChatUpdated` | a stable `id`, `kind`, `title`; `last_message` when the listing has it; `unknown` for the flags your backend does not tell |
+| `Message` | `fetch_messages`, `MessageUpserted` | a stable `id`, the `client_id` of a message sent from here, `direction`, `timestamp`, `content`, `status` |
+| `SendReceipt` | `send` | the same `message_id` for the same `client_id`; `Accepted` or `Sent`, never `Pending` |
+| `Page<T>` | the listings | `next_cursor` set until there is nothing more, whatever the length of a page |
+| `ProviderEvent` | `subscribe` | full objects, not differences; delivering one twice is fine |
+| `ProviderError` | every call | `Transient` or `RateLimited` only when repeating the same request can work |
 
-pub struct MyProvider { /* an HTTP client, credentials */ }
+## The example
 
-#[async_trait]
-impl Provider for MyProvider {
-    fn id(&self) -> &'static str { "my-backend" }
-
-    fn capabilities(&self) -> Capabilities {
-        Capabilities { groups: true, replies: true, ..Capabilities::none() }
-    }
-
-    async fn list_accounts(&self) -> ProviderResult<Vec<Account>> {
-        // GET your accounts, map each one.
-        todo!()
-    }
-
-    async fn send(&self, message: OutgoingMessage) -> ProviderResult<SendReceipt> {
-        // Forward message.client_id as the idempotency key.
-        // Map network errors to ProviderError::Transient,
-        // refusals to ProviderError::Rejected.
-        todo!()
-    }
-
-    // ... the other methods
-}
-```
+[`crates/provider-example/src/lib.rs`](../crates/provider-example/src/lib.rs) is the skeleton to copy, and it is built and tested with the workspace, so it cannot fall behind the trait. Its crate documentation holds the smallest provider that compiles (the one the README shows, as a doc-test); `EchoProvider` is the same nine methods over a backend that keeps messages: a send that is idempotent, history paged newest first with a cursor, a refusal as `Rejected`, and a reply pushed through `subscribe`.
 
 ## Testing a provider
 
-Follow `provider-wuapi`: keep the mapping from wire types to the model as pure functions and test them against JSON fixtures; test request building, paging and error mapping against a mock server on localhost (the adapter uses [`wiremock`](https://crates.io/crates/wiremock)), or behind a small transport trait with a fake when you make the requests by hand. No test should need the network.
+No test should need the network or a real account.
 
-Then run the client's own suite against your provider's behaviour in your head, or for real: the tests in [`client-core/src/tests.rs`](../crates/client-core/src/tests.rs) show what the engine expects, in particular `a_lost_answer_never_sends_twice` and `an_event_that_overtakes_the_receipt_does_not_duplicate_the_message`.
+**The contract, against your provider.** [`crates/provider-example/tests/contract.rs`](../crates/provider-example/tests/contract.rs) says what the client relies on as six tests: the account and its chat are listed, a send repeated is one message with one id (and the stored copy carries the `client_id`), an event reaches whoever subscribed, history is newest first and pages back to the start, and what cannot be sent is `Rejected` and not transient. Copy the file and change the constructor. There is no shared conformance suite that takes any `Provider` yet; this file is the closest thing, and it is short on purpose.
+
+**The mapping, as pure functions.** Follow `provider-wuapi`: keep the mapping from wire types to the model free of I/O and test it against JSON fixtures.
+
+**Requests, paging and errors, against a local server.** The wuapi adapter's tests run it against [`wiremock`](https://crates.io/crates/wiremock) on localhost: request building, cursors, each status code to its `ProviderError`, timeouts. When you make the requests by hand, a small transport trait with a fake does the same.
+
+**The engine's expectations.** The tests in [`client-core/src/tests.rs`](../crates/client-core/src/tests.rs) run the sync engine over `provider-mock` and over providers written for one test. Two to read before trusting your `send`: `a_lost_answer_never_sends_twice` and `an_event_that_overtakes_the_receipt_does_not_duplicate_the_message`.
+
+**In the window.** `--provider yours --no-keychain --data-dir <a scratch directory>` keeps a trial away from your real data.
 
 ## Wiring it in
 
-Providers are constructed in [`crates/app/src/providers.rs`](../crates/app/src/providers.rs) and selected with `--provider`. Add a variant there. Loading providers at runtime, without recompiling the app, is not designed yet.
+Providers are compiled into the application and chosen with `--provider`. There is no registry and nothing is loaded at runtime: adding one means editing an enum and two `match`es in `crates/app`, and rebuilding. These are all the places, with what the example added to each (search the crate for `provider-example` to see them):
+
+| File | What to add |
+|---|---|
+| `Cargo.toml` (root) | the crate in `members`, and `provider-yours = { path = "crates/provider-yours" }` in `[workspace.dependencies]` |
+| `crates/app/Cargo.toml` | `provider-yours.workspace = true` under `[dependencies]`. The example is `optional = true` behind a cargo feature because it must not be in a release build; a real provider is a plain dependency |
+| `crates/app/src/cli.rs` | a variant of `ProviderKind`; its name in the `match` of `"--provider"` in `parse`; the name in the usage text (`--provider <mock|wuapi>`) |
+| `crates/app/src/providers.rs`, `launch` | where its local database goes: an arm in the `match` on `(options.provider, &options.data_dir)`. `Some(database_in(dir, "yours")?)` keeps the chats in an encrypted file named after the provider; `None` keeps them in memory |
+| `crates/app/src/providers.rs`, `launch_on` | an arm that builds the provider and starts an engine on it: `start_engine(Arc::new(YourProvider::new(..)), &storage, history, runtime)?`, returned as `Launch::Chats` |
+
+`Launch::Chats` also says what kind of session it is (`SessionKind`), which decides what Settings offers: `Demo` has nothing to sign out of, `Environment` is a key the application cannot forget. A provider whose credentials come from an environment variable or a file fits one of those. A provider with a sign-in screen of its own needs more: wuapi's is `WuapiLogin` in the same file and the device flow in `crates/app/src/login.rs`, and today that part is written for wuapi, not generic.
+
+Options that only make sense for one provider are refused for the others at the end of `parse` (`--live needs the wuapi provider`); add yours there.
+
+## Checklist for a pull request
+
+- [ ] The crate depends on `client-provider` and not on `client-core` or the application.
+- [ ] `capabilities()` starts from `Capabilities::none()` and every flag that is on has its method implemented.
+- [ ] `send` is idempotent on `client_id` for at least `IDEMPOTENCY_WINDOW`, and the message carries the `client_id` when it comes back in history or in an event. A test sends twice.
+- [ ] Every network request has a timeout, and the backend's own retries are off.
+- [ ] Errors are mapped on purpose: timeouts, dropped connections and 5xx are `Transient`, a 429 is `RateLimited` with its delay, a real 401 is `Unauthorized`, what will stay wrong is `Rejected` with words a person can read. A test per family.
+- [ ] `fetch_messages` is newest first and `next_cursor` is followed to the end in a test.
+- [ ] `subscribe` ends when its transport gives up (the engine subscribes again) and never blocks a call.
+- [ ] No credential is logged, printed or put in a URL.
+- [ ] Tests run without the network: `cargo test -p provider-yours`.
+- [ ] The five places of "Wiring it in" are edited, with a test in `cli.rs` for the new `--provider` value.
+- [ ] `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D warnings` and `cargo test --workspace` pass.
+- [ ] A section in this page for what your backend cannot do yet, as the wuapi adapter has.
 
 ## How the wuapi adapter is built
 

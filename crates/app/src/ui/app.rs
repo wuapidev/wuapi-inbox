@@ -442,3 +442,20 @@ impl Render for AppView {
         }
     }
 }
+
+#[cfg(feature = "capture")]
+impl AppView {
+    /// What a capture script waits for and reports: the rows of the chat
+    /// list, the rows of the open conversation and which chat that is.
+    pub(crate) fn capture_state(&self, cx: &gpui_kit::App) -> (usize, usize, Option<String>) {
+        let Screen::Chats(shell) = &self.screen else {
+            return (0, 0, None);
+        };
+        let open = shell.read(cx).open.as_ref();
+        (
+            shell.read(cx).list_rows.len(),
+            open.map_or(0, |open| open.rows.len()),
+            open.map(|open| open.chat.id.as_str().to_owned()),
+        )
+    }
+}

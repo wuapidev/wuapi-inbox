@@ -1,0 +1,13 @@
+# The start, for docs/media/clips.sh: the chat list as soon as it is drawn,
+# then one chat opened. clips.py puts the time before the first frame in
+# front, as long as it really was.
+until chats 10000
+size 880 560            # a smaller window: frames this size can be saved 20 times a second
+record start 20
+wait 1800
+click 200 311
+wait 2200
+click 200 429
+wait 2200
+stop
+quit

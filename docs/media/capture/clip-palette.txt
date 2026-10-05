@@ -1,0 +1,45 @@
+# The command palette and the two themes, for docs/media/clips.sh.
+until chats 10000
+size 880 560            # a smaller window: frames this size can be saved 20 times a second
+wait 2500
+click 200 311
+wait 1500
+click 845 491           # the keyboard tip: "Got it"
+wait 400
+move 600 300
+record palette 20
+wait 600
+key cmd-p
+wait 700
+type D
+wait 120
+type e
+wait 120
+type s
+wait 120
+type i
+wait 120
+type g
+wait 120
+type n
+wait 800
+key enter
+wait 1500
+click 25 475            # the moon, in the rail: dark
+wait 1800
+key cmd-p
+wait 600
+type L
+wait 120
+type i
+wait 120
+type s
+wait 120
+type b
+wait 800
+key enter
+wait 1500
+click 25 475            # light again
+wait 1500
+stop
+quit

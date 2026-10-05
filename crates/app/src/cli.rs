@@ -11,6 +11,9 @@ pub enum ProviderKind {
     Mock,
     /// wuapi (https://wuapi.dev).
     Wuapi,
+    /// The worked example of `docs/PROVIDERS.md`: says back what it is sent.
+    #[cfg(feature = "provider-example")]
+    Example,
 }
 
 /// What the user asked for.
@@ -149,6 +152,8 @@ pub fn parse(args: impl Iterator<Item = String>) -> Result<Command, String> {
                 options.provider = match value("--provider")?.as_str() {
                     "mock" => ProviderKind::Mock,
                     "wuapi" => ProviderKind::Wuapi,
+                    #[cfg(feature = "provider-example")]
+                    "example" => ProviderKind::Example,
                     other => return Err(format!("unknown provider `{other}`")),
                 }
             }
@@ -260,6 +265,19 @@ mod tests {
     #[test]
     fn the_demo_data_is_asked_for_by_name() {
         assert_eq!(run(&["--provider", "mock"]).provider, ProviderKind::Mock);
+    }
+
+    #[cfg(feature = "provider-example")]
+    #[test]
+    fn the_worked_example_is_asked_for_by_name() {
+        assert_eq!(
+            run(&["--provider", "example"]).provider,
+            ProviderKind::Example
+        );
+        // The options of another provider are refused with it too.
+        assert!(
+            parse(["--provider=example".to_owned(), "--live=auto".to_owned()].into_iter()).is_err()
+        );
     }
 
     #[test]

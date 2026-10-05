@@ -3798,3 +3798,36 @@ async fn a_picture_the_user_asks_for_may_be_larger_than_one_fetched_unasked() {
         "fetched on request: {state:?}"
     );
 }
+
+#[test]
+fn search_stays_quick_over_a_long_history() {
+    let store = Store::open_in_memory().unwrap();
+    seed_account(&store);
+    store.upsert_chat(&chat("chat", "Ana"), false).unwrap();
+    // One word in every message and one in every hundredth.
+    let batch: Vec<_> = (0..20_000)
+        .map(|i| {
+            let body = if i % 100 == 0 {
+                format!("common rare number{i}")
+            } else {
+                format!("common number{i}")
+            };
+            text(&format!("m{i}"), "chat", i, &body, Direction::Incoming)
+        })
+        .collect();
+    store.upsert_messages(&batch).unwrap();
+
+    let start = std::time::Instant::now();
+    let common = store.search_messages(&account(), "comm", 40).unwrap();
+    let rare = store.search_messages(&account(), "rare", 40).unwrap();
+    let took = start.elapsed();
+    assert_eq!(common.len(), 40);
+    assert_eq!(common[0].message.id.as_str(), "m19999", "newest first");
+    assert_eq!(rare.len(), 40);
+    // Tens of milliseconds when the index is asked once; several seconds
+    // when it is asked once per message.
+    assert!(
+        took < std::time::Duration::from_secs(1),
+        "two searches took {took:?}"
+    );
+}

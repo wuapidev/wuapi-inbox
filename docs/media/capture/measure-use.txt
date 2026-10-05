@@ -1,0 +1,76 @@
+# Opening chats, scrolling and searching, timed, for docs/media/measure.sh.
+# A 1240 x 800 window on the demo data; the rows of the chat list are 59
+# points apart, the first at y = 252.
+until chats 10000
+wait 2500
+
+# Each chat once: the first time, the demo provider is asked for the
+# history, which arrives after the frame.
+time first click 200 252
+wait 700
+time first click 200 311
+wait 700
+time first click 200 370
+wait 700
+time first click 200 429
+wait 700
+time first click 200 488
+wait 700
+time first click 200 547
+wait 700
+
+# And again, now that the history is in the local database.
+time open click 200 252
+wait 300
+time open click 200 429
+wait 300
+time open click 200 311
+wait 300
+time open click 200 488
+wait 300
+time open click 200 370
+wait 300
+time open click 200 547
+wait 300
+time open click 200 252
+wait 300
+time open click 200 429
+wait 300
+time open click 200 311
+wait 300
+time open click 200 488
+wait 300
+time open click 200 370
+wait 300
+time open click 200 547
+wait 300
+
+# Back through a conversation and down again, a frame at a time.
+click 200 252
+wait 500
+glide 900 400 -2400 2000
+wait 300
+glide 900 400 2400 2000
+wait 300
+
+# Search, a letter at a time: every keystroke searches the chats and the
+# messages and draws the list again.
+click 214 171
+wait 300
+time search type T
+wait 150
+time search type h
+wait 150
+time search type u
+wait 150
+time search type r
+wait 150
+time search type s
+wait 150
+time search type d
+wait 150
+time search type a
+wait 150
+time search type y
+wait 300
+quit
