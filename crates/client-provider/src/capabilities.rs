@@ -144,6 +144,17 @@ pub struct Capabilities {
     pub group_join_requests: bool,
     /// The account can leave a group.
     pub group_leave: bool,
+    /// An admin can link a group to a community and take one out of it,
+    /// create a group inside a community, and create a community
+    /// ([`Provider::link_subgroup`](crate::Provider::link_subgroup),
+    /// [`Provider::unlink_subgroup`](crate::Provider::unlink_subgroup),
+    /// [`NewGroup::community`], [`NewGroup::in_community`]). Creating
+    /// inside a community may still be refused for a number whose engine
+    /// cannot do it.
+    pub community_manage: bool,
+    /// [`Provider::community_participants`](crate::Provider::community_participants)
+    /// lists the people in all of a community's groups.
+    pub community_members: bool,
     /// A sent text can mention people
     /// ([`OutgoingMessage::mentions`](crate::OutgoingMessage)).
     pub mentions: bool,
@@ -235,6 +246,8 @@ impl Capabilities {
             group_invites: false,
             group_join_requests: false,
             group_leave: false,
+            community_manage: false,
+            community_members: false,
             mentions: false,
             sticker_favorites: false,
             forward_any: false,
@@ -297,6 +310,8 @@ impl Capabilities {
             group_invites: true,
             group_join_requests: true,
             group_leave: true,
+            community_manage: true,
+            community_members: true,
             mentions: true,
             sticker_favorites: true,
             forward_any: true,

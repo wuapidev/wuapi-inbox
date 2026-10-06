@@ -9727,9 +9727,9 @@ checksum = "3ad82d2a33cdc9674dc7465672f271e096168fcdbe0f799d9e6db8c5892679dc"
 
 [[package]]
 name = "wuapi"
-version = "0.12.0"
+version = "0.14.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "26148b43fad829e6e1b0df1fb34c7bb9bf106fbb8c9e8f8d5d3cd2bc3d7a6874"
+checksum = "e3ee8ef1818c8b6af7859dee6813a946dd253b3555c1a49a7526d4f43abdaf0d"
 dependencies = [
  "futures-util",
  "hmac 0.13.0",

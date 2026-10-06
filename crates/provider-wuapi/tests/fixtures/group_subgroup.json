@@ -1,15 +1,15 @@
 {
   "object": "group",
-  "id": "120363041234567890@g.us",
+  "id": "120363055512345679@g.us",
   "accountId": "k57a8m2x9d3f0q1wjh6ypc4n2d7s0vbr",
-  "name": "Neighbours",
-  "description": "Coordination for the September launch.",
+  "name": "Volunteers",
+  "description": null,
   "ownerId": "+584121234567",
-  "community": true,
-  "communityId": null,
+  "community": false,
+  "communityId": "120363041234567890@g.us",
   "default": false,
   "locked": false,
-  "announce": true,
+  "announce": false,
   "participants": [
     {
       "contactId": "+584121234567",
@@ -19,11 +19,6 @@
     {
       "contactId": "+584245550199",
       "name": "Maria",
-      "role": "member"
-    },
-    {
-      "contactId": "lid:200055501000001",
-      "name": null,
       "role": "member"
     }
   ],

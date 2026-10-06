@@ -32,6 +32,10 @@ fn said(changes: &mut ChangeListener) -> Vec<String> {
     messages
 }
 
+/// Longer than a group's details are taken to be current: what a refresh
+/// listed is read again after it.
+const STALE: std::time::Duration = std::time::Duration::from_secs(6 * 60);
+
 /// An engine over the mock's world, with the account and one of its
 /// groups.
 async fn with_group(mock: &MockProvider) -> (SyncEngine, AccountId, ChatId) {
@@ -84,6 +88,8 @@ fn a_group(account: &AccountId) -> Group {
         owner: Some(ContactId::new("+5841")),
         created_at: Some(Timestamp::from_millis(1_700_000_000_000)),
         community: false,
+        community_id: None,
+        announcements: false,
         announce: false,
         locked: true,
         join_approval: None,
@@ -347,17 +353,23 @@ async fn a_group_is_read_when_it_is_opened_and_again_when_it_changes() {
     let mock = MockProvider::quiet();
     let (engine, account, group) = with_group(&mock).await;
     let store = engine.store().clone();
-    assert!(store.group(&account, &group).unwrap().is_none());
-
-    // Opening the chat reads the group, behind the messages.
-    engine.open_chat(&account, &group);
-    settle().await;
+    // The refresh listed every group: this one is held, and opening its
+    // chat reads nothing while that copy is fresh.
     let stored = store
         .group(&account, &group)
         .unwrap()
-        .expect("the group was read");
+        .expect("the group was listed");
     assert_eq!(stored.my_role, Some(GroupRole::Admin));
     assert!(stored.participant_count >= 3);
+    engine.open_chat(&account, &group);
+    settle().await;
+    assert_eq!(mock.social_call_count("fetch_group"), 0);
+
+    // Once it is not, opening the chat reads the group, behind the
+    // messages.
+    tokio::time::sleep(STALE).await;
+    engine.open_chat(&account, &group);
+    settle().await;
     assert_eq!(mock.social_call_count("fetch_group"), 1);
 
     // Looking again does not ask again while the copy is fresh.
@@ -427,14 +439,17 @@ async fn a_read_that_drops_is_tried_again_and_a_group_left_elsewhere_is_marked()
     let mock = MockProvider::quiet();
     let (engine, account, group) = with_group(&mock).await;
     let store = engine.store().clone();
+    // What the refresh listed is no longer fresh.
+    tokio::time::sleep(STALE).await;
 
     mock.fail_next_social([dropped()]);
     engine.want_group(&account, &group);
     settle().await;
-    assert!(store.group(&account, &group).unwrap().is_none());
+    assert_eq!(mock.social_call_count("fetch_group"), 1);
     // Not fresh: the next look asks again.
     engine.want_group(&account, &group);
     settle().await;
+    assert_eq!(mock.social_call_count("fetch_group"), 2);
     assert!(store.group(&account, &group).unwrap().is_some());
 
     // The account was removed from the group on a phone.
@@ -457,21 +472,19 @@ async fn groups_in_common_come_from_one_listing_of_every_group() {
     let (engine, account, group) = with_group(&mock).await;
     let store = engine.store().clone();
     let someone = member(&mock, &account, &group, GroupRole::Member);
-    assert!(!engine.groups_listed(&account));
-    assert!(store
-        .groups_in_common(&account, &someone)
-        .unwrap()
-        .is_empty());
+    // The refresh listed the groups of each number, once.
+    let numbers = store.accounts().unwrap().len();
+    assert_eq!(mock.social_call_count("list_groups"), numbers);
+    assert!(engine.groups_listed(&account));
 
     engine.want_groups(&account);
     engine.want_groups(&account);
     settle().await;
     assert_eq!(
         mock.social_call_count("list_groups"),
-        1,
-        "once, not per look"
+        numbers,
+        "not again per look while that is fresh"
     );
-    assert!(engine.groups_listed(&account));
     let common = store.groups_in_common(&account, &someone).unwrap();
     assert!(common.iter().any(|(id, _)| id == &group));
     // Each group was just read: opening one does not read it again.

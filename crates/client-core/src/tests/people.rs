@@ -144,6 +144,8 @@ fn a_name_is_taken_in_one_order_everywhere() {
                 owner: None,
                 created_at: None,
                 community: false,
+                community_id: None,
+                announcements: false,
                 announce: false,
                 locked: false,
                 join_approval: None,

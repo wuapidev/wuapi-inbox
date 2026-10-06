@@ -6,6 +6,8 @@
   "description": "Coordination for the September launch.",
   "ownerId": "+584121234567",
   "community": false,
+  "communityId": null,
+  "default": false,
   "locked": false,
   "announce": false,
   "participants": [

@@ -315,6 +315,11 @@ impl Provider for WuapiProvider {
             group_invites: true,
             group_join_requests: true,
             group_leave: true,
+            // `POST`/`DELETE …/groups/{groupId}/subgroups`, `community` and
+            // `communityId` on `POST …/groups`, and
+            // `GET …/groups/{groupId}/community-participants`.
+            community_manage: true,
+            community_members: true,
             // `mentions` on `POST /v1/messages`: contact ids.
             mentions: true,
             // `GET/POST/DELETE …/stickers/favorites`. Turned on in the
@@ -1046,6 +1051,35 @@ impl Provider for WuapiProvider {
         self.client
             .answer_join_requests(account, group, approve, contacts, request_id)
             .await
+    }
+
+    async fn link_subgroup(
+        &self,
+        account: &AccountId,
+        community: &ChatId,
+        group: &ChatId,
+        request_id: &str,
+    ) -> ProviderResult<()> {
+        self.client
+            .link_subgroup(account, community, group, request_id)
+            .await
+    }
+
+    async fn unlink_subgroup(
+        &self,
+        account: &AccountId,
+        community: &ChatId,
+        group: &ChatId,
+    ) -> ProviderResult<()> {
+        self.client.unlink_subgroup(account, community, group).await
+    }
+
+    async fn community_participants(
+        &self,
+        account: &AccountId,
+        community: &ChatId,
+    ) -> ProviderResult<Vec<ContactId>> {
+        self.client.community_participants(account, community).await
     }
 
     async fn leave_group(

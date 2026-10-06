@@ -1,5 +1,9 @@
 # Changelog
 
+## [Unreleased]
+
+* Communities. A "Communities" filter above the chat list groups the chats of each community under its name, the announcement group first. A group's details say which community it is in. A click on a community opens it: the groups it links (the ones you have not joined are marked), its members, and, for an admin, adding an existing group, making a new group inside it and taking a group out. "New community" in the chat list's menu makes a community.
+
 ## [0.1.1]
 
 * A number linked from another device appears without restarting.

@@ -1,6 +1,7 @@
 //! The chat list pane: title, search, filters and the virtualised list.
 
 use super::shell::{ChatFilter, ListRow, Overlay, Shell};
+use super::social::Target;
 use super::widgets::{
     avatar_or, icon_button, label, mono, status_tick, unavailable_button, AvatarKind,
 };
@@ -17,6 +18,16 @@ use gpui_kit::{
     div, uniform_list, AnyElement, ClickEvent, Context, FontWeight, MouseButton, MouseDownEvent,
     SharedString,
 };
+
+/// The second line of a community's row: how many groups it links, when
+/// that is known.
+pub(super) fn community_subtitle(groups: Option<usize>) -> String {
+    match groups {
+        Some(1) => "Community · 1 group".to_owned(),
+        Some(count) => format!("Community · {count} groups"),
+        None => "Community".to_owned(),
+    }
+}
 
 impl Shell {
     pub(super) fn render_chat_list(
@@ -311,10 +322,12 @@ impl Shell {
             (ChatFilter::All, "All"),
             (ChatFilter::Unread, "Unread"),
             (ChatFilter::Groups, "Groups"),
+            (ChatFilter::Communities, "Communities"),
             (ChatFilter::Archived, "Archived"),
         ]
         .into_iter()
         .enumerate()
+        .filter(|(_, (filter, _))| *filter != ChatFilter::Communities || self.has_communities)
         {
             let active = self.filter == filter;
             let (hover, hover_text) = (palette.hover, palette.text);
@@ -402,8 +415,138 @@ impl Shell {
                 .items_end()
                 .child(label(name, palette))
                 .into_any_element(),
+            Some(ListRow::Community(community)) => self.render_community_row(
+                index,
+                community,
+                cursor == Some(&community.id),
+                palette,
+                cx,
+            ),
             None => div().h(metrics::CHAT_ROW_HEIGHT()).into_any_element(),
         }
+    }
+
+    /// A community's row in the Communities view: a row like a chat's,
+    /// with the community's picture, its name, how many groups it links
+    /// and a chevron. It opens the community itself, which has no chat.
+    fn render_community_row(
+        &self,
+        index: usize,
+        community: &super::shell::CommunityHeading,
+        focused: bool,
+        palette: &Palette,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let account = self.account.clone();
+        let active = self.overlay == Overlay::ContactInfo
+            && matches!(
+                self.social.target(),
+                Some(Target::Group { group, .. }) if *group == community.id
+            );
+        let groups = account
+            .as_ref()
+            .and_then(|account| {
+                self.engine
+                    .store()
+                    .group(account, &community.id)
+                    .ok()
+                    .flatten()
+            })
+            .map(|stored| stored.group.subgroups.len())
+            .filter(|count| *count > 0);
+        let subtitle: SharedString = community_subtitle(groups).into();
+        let face = avatar_or(
+            account
+                .as_ref()
+                .and_then(|account| self.media.avatar(account, &community.id)),
+            &community.name,
+            AvatarKind::Group,
+            metrics::AVATAR_LARGE(),
+            palette,
+        );
+        let hover = palette.hover;
+        let group = community.id.clone();
+        div()
+            .id(("community", index))
+            .debug_selector(move || format!("community-heading-{index}"))
+            .relative()
+            .w_full()
+            .h(metrics::CHAT_ROW_HEIGHT())
+            .px_4()
+            .flex()
+            .items_center()
+            .gap_3()
+            .cursor_pointer()
+            .map(|this| {
+                if active {
+                    this.bg(palette.muted)
+                } else {
+                    this.hover(move |style| style.bg(hover))
+                }
+            })
+            .when(focused, |this| {
+                this.child(
+                    div()
+                        .debug_selector(|| "list-focus".into())
+                        .absolute()
+                        .top(px(2.))
+                        .bottom(px(2.))
+                        .left(px(4.))
+                        .right(px(4.))
+                        .rounded(metrics::RADIUS())
+                        .border_2()
+                        .border_color(palette.focus_ring),
+                )
+            })
+            .when(active, |this| {
+                this.child(
+                    div()
+                        .debug_selector(move || format!("community-selected-{index}"))
+                        .absolute()
+                        .left_0()
+                        .top_2()
+                        .bottom_2()
+                        .w(px(2.))
+                        .rounded_full()
+                        .bg(palette.text),
+                )
+            })
+            .on_click(cx.listener(move |this, _, window, cx| {
+                if let Some(account) = this.account.clone() {
+                    let group = group.clone();
+                    this.open_info(Target::Group { account, group }, window, cx);
+                }
+            }))
+            .child(div().flex_none().child(face))
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .flex()
+                    .flex_col()
+                    .gap(px(3.))
+                    .child(
+                        div()
+                            .debug_selector(move || format!("community-name-{index}"))
+                            .min_w_0()
+                            .truncate()
+                            .text_size(metrics::TEXT_NAME())
+                            .text_color(palette.text)
+                            .font_weight(FontWeight::MEDIUM)
+                            .child(community.name.clone()),
+                    )
+                    .child(
+                        div()
+                            .debug_selector(move || format!("community-subtitle-{index}"))
+                            .min_w_0()
+                            .truncate()
+                            .text_size(metrics::TEXT_SMALL())
+                            .text_color(palette.text_muted)
+                            .child(subtitle),
+                    ),
+            )
+            .child(icon(IconName::ChevronRight, px(16.), palette.text_faint))
+            .into_any_element()
     }
 
     fn render_chat_row(
@@ -603,6 +746,21 @@ impl Shell {
                                         FontWeight::MEDIUM
                                     })
                                     .child(SharedString::from(chat.title.clone())),
+                            )
+                            // The community's announcement group says so.
+                            .when(
+                                self.filter == ChatFilter::Communities
+                                    && chat.community.as_ref().is_some_and(|c| c.announcements),
+                                |this| {
+                                    this.child(
+                                        div()
+                                            .debug_selector(move || {
+                                                format!("row-announcements-{index}")
+                                            })
+                                            .flex_none()
+                                            .child(label("Announcements", palette)),
+                                    )
+                                },
                             )
                             // The time of an unread chat carries the
                             // accent, like its badge.

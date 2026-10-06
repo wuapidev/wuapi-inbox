@@ -41,7 +41,9 @@ pub use library::{LibraryError, LibrarySend, LIBRARY_BUDGET, RECENT_LIMIT};
 pub use library_index::HEARD_LIMIT;
 mod social;
 mod stories;
-pub use social::{failure_sentence, outcome_sentence, own_picture_subject, CreatedGroup};
+pub use social::{
+    failure_sentence, outcome_sentence, own_picture_subject, CreatedGroup, GroupPlace,
+};
 pub use stories::{
     ReceiptPass, StoryListing, StoryPass, StoryPostError, StoryReplyError, STORIES_FRESH,
     STORIES_OPENED,
@@ -1303,7 +1305,31 @@ impl SyncEngine {
     /// chat. Chats arrive with their last message, so the list is complete
     /// when this returns; history is the preloader's business
     /// ([`preload`](Self::preload)) and the open chat's.
+    ///
+    /// Then the groups of each connected number are listed (one more
+    /// request per number, where the provider gives group details), which
+    /// is how the chat list knows the community a group chat is in.
     pub async fn refresh(&self) -> Result<(), SyncError> {
+        self.refresh_lists().await?;
+        self.refresh_groups().await;
+        Ok(())
+    }
+
+    /// A refresh for the event loop: the accounts and chat lists are
+    /// awaited, and the groups are listed behind it, so that the events
+    /// which queued up meanwhile do not wait for a listing some providers
+    /// read live from WhatsApp.
+    async fn refresh_before_events(&self) -> Result<(), SyncError> {
+        self.refresh_lists().await?;
+        let this = self.clone();
+        self.inner.runtime.spawn(async move {
+            this.refresh_groups().await;
+        });
+        Ok(())
+    }
+
+    /// The accounts and the chat lists of a [`refresh`](Self::refresh).
+    async fn refresh_lists(&self) -> Result<(), SyncError> {
         let inner = &self.inner;
         let accounts = self.bounded(inner.provider.list_accounts()).await?;
         // A number the provider no longer lists was deleted somewhere
@@ -1643,6 +1669,11 @@ impl SyncEngine {
                 account_id,
                 group_id,
             } => self.group_changed(&account_id, &group_id),
+            ProviderEvent::CommunityChanged {
+                account_id,
+                community_id,
+                groups,
+            } => self.community_changed(&account_id, &community_id, &groups),
             ProviderEvent::Presence {
                 account_id,
                 chat_id,
@@ -2116,7 +2147,7 @@ impl SyncEngine {
             if matches!(&subscription, Err(error) if self.note_unauthorized(error)) {
                 return;
             }
-            match self.refresh().await {
+            match self.refresh_before_events().await {
                 Ok(()) => failures = 0,
                 Err(SyncError::Provider(error)) if self.note_unauthorized(&error) => return,
                 Err(error) => {
@@ -2142,7 +2173,7 @@ impl SyncEngine {
                                 // REST is copied, then apply in order. Do
                                 // not apply events concurrently with an
                                 // older account snapshot from the refresh.
-                                match self.refresh().await {
+                                match self.refresh_before_events().await {
                                     Ok(()) => {}
                                     Err(SyncError::Provider(error)) if self.note_unauthorized(&error) => return,
                                     Err(error) => {

@@ -306,6 +306,17 @@ pub struct MessagePreview {
     pub timestamp: Timestamp,
 }
 
+/// The community a group chat belongs to, as the chat list shows it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ChatCommunity {
+    /// The community's group id.
+    pub id: ChatId,
+    /// The community's name. Empty until the community itself was read.
+    pub name: String,
+    /// The chat is the community's announcement group.
+    pub announcements: bool,
+}
+
 /// A chat as the chat list shows it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ChatSummary {
@@ -329,6 +340,9 @@ pub struct ChatSummary {
     pub archived: bool,
     /// The newest message, if any is stored.
     pub last_message: Option<MessagePreview>,
+    /// The community the group is linked to, when it is in one and the
+    /// provider said so.
+    pub community: Option<ChatCommunity>,
 }
 
 /// One person who reacted to a message.
@@ -416,6 +430,22 @@ const MESSAGE_COLUMNS: &str = "m.account_id, m.chat_id, m.id, m.client_id, m.sen
 
 /// How many columns [`MESSAGE_COLUMNS`] selects.
 const MESSAGE_COLUMN_COUNT: usize = 15;
+
+/// What a chat list row selects besides its newest message, from
+/// `chats c`: the chat first, then [`MESSAGE_COLUMNS`], then the
+/// community its group is linked to (`g`) with that community's name
+/// (`p`). Read by [`chat_summary_from_row`].
+const CHAT_COLUMNS: &str = "c.id, c.account_id, c.kind, c.title, c.avatar, c.unread_count, \
+     c.pinned, c.muted, c.archived";
+const COMMUNITY_COLUMNS: &str = "g.community_id, p.subject, g.announcements";
+
+/// The joins a chat list row reads through.
+const SUMMARY_JOINS: &str = "LEFT JOIN messages m ON m.pk = (
+         SELECT pk FROM messages
+         WHERE account_id = c.account_id AND chat_id = c.id
+         ORDER BY ts DESC, pk DESC LIMIT 1)
+     LEFT JOIN groups g ON g.account_id = c.account_id AND g.id = c.id
+     LEFT JOIN groups p ON p.account_id = g.account_id AND p.id = g.community_id";
 
 impl Store {
     /// Opens (creating and migrating as needed) the database at `path`.
@@ -1087,13 +1117,9 @@ impl Store {
         });
         self.read(|conn| {
             let sql = format!(
-                "SELECT c.id, c.account_id, c.kind, c.title, c.avatar, c.unread_count,
-                        c.pinned, c.muted, c.archived, {MESSAGE_COLUMNS}
+                "SELECT {CHAT_COLUMNS}, {MESSAGE_COLUMNS}, {COMMUNITY_COLUMNS}
                  FROM chats c
-                 LEFT JOIN messages m ON m.pk = (
-                     SELECT pk FROM messages
-                     WHERE account_id = c.account_id AND chat_id = c.id
-                     ORDER BY ts DESC, pk DESC LIMIT 1)
+                 {SUMMARY_JOINS}
                  WHERE c.account_id = ?1 AND c.archived = 0
                    AND (?2 IS NULL OR c.title LIKE ?2 ESCAPE '\\')
                  ORDER BY c.pinned DESC,
@@ -1114,13 +1140,9 @@ impl Store {
     pub fn archived_chats(&self, account: &AccountId) -> StoreResult<Vec<ChatSummary>> {
         self.read(|conn| {
             let sql = format!(
-                "SELECT c.id, c.account_id, c.kind, c.title, c.avatar, c.unread_count,
-                        c.pinned, c.muted, c.archived, {MESSAGE_COLUMNS}
+                "SELECT {CHAT_COLUMNS}, {MESSAGE_COLUMNS}, {COMMUNITY_COLUMNS}
                  FROM chats c
-                 LEFT JOIN messages m ON m.pk = (
-                     SELECT pk FROM messages
-                     WHERE account_id = c.account_id AND chat_id = c.id
-                     ORDER BY ts DESC, pk DESC LIMIT 1)
+                 {SUMMARY_JOINS}
                  WHERE c.account_id = ?1 AND c.archived = 1
                  ORDER BY COALESCE(c.last_message_at, 0) DESC, c.title"
             );
@@ -1184,13 +1206,9 @@ impl Store {
     pub fn chat(&self, account: &AccountId, chat: &ChatId) -> StoreResult<Option<ChatSummary>> {
         self.read(|conn| {
             let sql = format!(
-                "SELECT c.id, c.account_id, c.kind, c.title, c.avatar, c.unread_count,
-                        c.pinned, c.muted, c.archived, {MESSAGE_COLUMNS}
+                "SELECT {CHAT_COLUMNS}, {MESSAGE_COLUMNS}, {COMMUNITY_COLUMNS}
                  FROM chats c
-                 LEFT JOIN messages m ON m.pk = (
-                     SELECT pk FROM messages
-                     WHERE account_id = c.account_id AND chat_id = c.id
-                     ORDER BY ts DESC, pk DESC LIMIT 1)
+                 {SUMMARY_JOINS}
                  WHERE c.account_id = ?1 AND c.id = ?2"
             );
             let mut stmt = conn.prepare_cached(&sql)?;
@@ -1977,6 +1995,9 @@ fn message_from_row(row: &Row<'_>, base: usize) -> StoreResult<Message> {
     })
 }
 
+/// Where [`COMMUNITY_COLUMNS`] start in a chat list row.
+const COMMUNITY_AT: usize = 9 + MESSAGE_COLUMN_COUNT;
+
 fn chat_summary_from_row(conn: &Connection, row: &Row<'_>) -> StoreResult<ChatSummary> {
     // The joined message columns are all NULL when the chat has no message.
     let has_message = row.get::<_, Option<String>>(9)?.is_some();
@@ -2007,6 +2028,20 @@ fn chat_summary_from_row(conn: &Connection, row: &Row<'_>) -> StoreResult<ChatSu
         muted: row.get(7)?,
         archived: row.get(8)?,
         last_message,
+        community: row
+            .get::<_, Option<String>>(COMMUNITY_AT)?
+            .map(|id| -> StoreResult<ChatCommunity> {
+                Ok(ChatCommunity {
+                    id: ChatId::new(id),
+                    name: row
+                        .get::<_, Option<String>>(COMMUNITY_AT + 1)?
+                        .unwrap_or_default(),
+                    announcements: row
+                        .get::<_, Option<bool>>(COMMUNITY_AT + 2)?
+                        .unwrap_or(false),
+                })
+            })
+            .transpose()?,
     })
 }
 

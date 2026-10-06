@@ -6,12 +6,13 @@
 //! member is its owner. Tests change that with the helpers here, and can
 //! make the next calls fail.
 
-use crate::seed;
+use crate::{community, seed};
 use crate::{MockProvider, State};
 use client_provider::{
     refusal, AccountId, BusinessProfile, Chat, ChatId, ChatKind, Contact, ContactId, Group,
     GroupChange, GroupParticipant, GroupRole, JoinRequest, NewGroup, OwnProfile, ParticipantChange,
-    ParticipantOutcome, ProfileChange, ProviderError, ProviderEvent, ProviderResult, Timestamp,
+    ParticipantOutcome, ProfileChange, ProviderError, ProviderEvent, ProviderResult, Subgroup,
+    Timestamp,
 };
 use std::collections::{HashMap, VecDeque};
 
@@ -39,6 +40,92 @@ pub(crate) struct Social {
     /// Answers already given, by request id: a repeat gets the same one.
     answered: HashMap<String, Vec<ParticipantOutcome>>,
     next_group: u32,
+    /// The community each linked group is in, and whether the group is
+    /// that community's announcement group.
+    links: HashMap<(AccountId, ChatId), (ChatId, bool)>,
+    /// Groups the listing of every group leaves out.
+    unlisted: Vec<(AccountId, ChatId)>,
+}
+
+impl Social {
+    /// What the demo data starts with: its community and the groups the
+    /// community links.
+    pub(crate) fn seeded() -> Self {
+        let account = AccountId::new(community::COMMUNITY_ACCOUNT);
+        let parent = ChatId::new(community::COMMUNITY);
+        let mut social = Self::default();
+        let mut participants = vec![GroupParticipant {
+            contact: community::me(),
+            name: None,
+            role: GroupRole::Admin,
+        }];
+        for (index, name) in community::MEMBERS.into_iter().enumerate() {
+            participants.push(GroupParticipant {
+                contact: seed::contact_for(name),
+                name: Some(name.to_owned()),
+                role: if index == 0 {
+                    GroupRole::Owner
+                } else {
+                    GroupRole::Member
+                },
+            });
+        }
+        social.groups.insert(
+            (account.clone(), parent.clone()),
+            Group {
+                id: parent.clone(),
+                account_id: account.clone(),
+                subject: community::COMMUNITY_NAME.to_owned(),
+                description: Some("Everything about the school, in one place.".to_owned()),
+                owner: Some(seed::contact_for(community::MEMBERS[0])),
+                created_at: Some(Timestamp::from_millis(1_700_000_000_000)),
+                community: true,
+                community_id: None,
+                announcements: false,
+                announce: true,
+                locked: true,
+                join_approval: Some(false),
+                members_can_add: Some(false),
+                participants,
+                subgroups: Vec::new(),
+            },
+        );
+        let announcements = ChatId::new(community::COMMUNITY_ANNOUNCEMENTS);
+        social
+            .links
+            .insert((account.clone(), announcements), (parent.clone(), true));
+        for group in community::COMMUNITY_GROUPS {
+            social.links.insert(
+                (account.clone(), ChatId::new(group)),
+                (parent.clone(), false),
+            );
+        }
+        // A group the community links that this account is not in: no chat,
+        // and no participants it could see.
+        let unjoined = ChatId::new(community::COMMUNITY_UNJOINED);
+        social.groups.insert(
+            (account.clone(), unjoined.clone()),
+            Group {
+                id: unjoined.clone(),
+                account_id: account.clone(),
+                subject: community::COMMUNITY_UNJOINED_NAME.to_owned(),
+                description: None,
+                owner: Some(seed::contact_for(community::MEMBERS[0])),
+                created_at: Some(Timestamp::from_millis(1_700_000_000_000)),
+                community: false,
+                community_id: Some(parent.clone()),
+                announcements: false,
+                announce: false,
+                locked: false,
+                join_approval: Some(false),
+                members_can_add: Some(false),
+                participants: Vec::new(),
+                subgroups: Vec::new(),
+            },
+        );
+        social.links.insert((account, unjoined), (parent, false));
+        social
+    }
 }
 
 fn rejected(code: &str, message: &str) -> ProviderError {
@@ -101,6 +188,8 @@ fn group_mut<'a>(
             owner: members.first().map(|name| seed::contact_for(name)),
             created_at: Some(Timestamp::from_millis(1_700_000_000_000)),
             community: false,
+            community_id: None,
+            announcements: false,
             announce: false,
             locked: false,
             join_approval: Some(false),
@@ -110,7 +199,49 @@ fn group_mut<'a>(
         };
         state.social.groups.insert(key.clone(), made);
     }
-    Ok(state.social.groups.get_mut(&key).expect("just inserted"))
+    let link = state.social.links.get(&key).cloned();
+    let found = state.social.groups.get_mut(&key).expect("just inserted");
+    found.announcements = link
+        .as_ref()
+        .is_some_and(|(_, announcements)| *announcements);
+    found.community_id = link.map(|(community, _)| community);
+    Ok(found)
+}
+
+/// The groups a community links, its announcement group first, then by
+/// name.
+fn subgroups_of(state: &State, account: &AccountId, community: &ChatId) -> Vec<Subgroup> {
+    let mut linked: Vec<Subgroup> = state
+        .social
+        .links
+        .iter()
+        .filter(|((of, _), (parent, _))| of == account && parent == community)
+        .map(|((_, group), (_, announcements))| Subgroup {
+            id: group.clone(),
+            subject: state
+                .world
+                .chats
+                .iter()
+                .find(|chat| &chat.account_id == account && &chat.id == group)
+                .map(|chat| chat.title.clone())
+                // A group the account is not in has no chat.
+                .or_else(|| {
+                    state
+                        .social
+                        .groups
+                        .get(&(account.clone(), group.clone()))
+                        .map(|found| found.subject.clone())
+                })
+                .unwrap_or_default(),
+            announcements: *announcements,
+        })
+        .collect();
+    linked.sort_by(|a, b| {
+        b.announcements
+            .cmp(&a.announcements)
+            .then_with(|| a.subject.cmp(&b.subject))
+    });
+    linked
 }
 
 fn my_role(group: &Group) -> Option<GroupRole> {
@@ -160,6 +291,20 @@ impl MockProvider {
         group_mut(&mut self.state(), account, group).ok().cloned()
     }
 
+    /// A group as [`Provider::fetch_group`](client_provider::Provider::fetch_group)
+    /// answers it now, without counting as a call: a community with the
+    /// groups it links.
+    pub fn fetch_group_now(&self, account: &AccountId, group: &ChatId) -> Group {
+        let mut state = self.state();
+        let mut found = group_mut(&mut state, account, group)
+            .expect("the group exists")
+            .clone();
+        if found.community {
+            found.subgroups = subgroups_of(&state, account, group);
+        }
+        found
+    }
+
     /// The id the account goes by in its groups.
     pub fn self_contact(&self, account: &AccountId) -> ContactId {
         seed::self_contact(account)
@@ -188,6 +333,47 @@ impl MockProvider {
             account_id: account.clone(),
             group_id: group.clone(),
         });
+    }
+
+    /// Links a group to a community as if it had been done on a phone.
+    /// Announced as a change of the community.
+    pub fn link_on_phone(&self, account: &AccountId, community: &ChatId, group: &ChatId) {
+        self.state()
+            .social
+            .links
+            .insert((account.clone(), group.clone()), (community.clone(), false));
+        self.emit(ProviderEvent::CommunityChanged {
+            account_id: account.clone(),
+            community_id: community.clone(),
+            groups: vec![group.clone()],
+        });
+    }
+
+    /// Leaves a group out of the listing of every group from now on, as
+    /// a backend does with a community this number is not listed in. It
+    /// can still be read on its own.
+    pub fn unlist_group(&self, account: &AccountId, group: &ChatId) {
+        self.state()
+            .social
+            .unlisted
+            .push((account.clone(), group.clone()));
+    }
+
+    /// Takes a group out of its community as if it had been done on a
+    /// phone. Announced as a change of the community it was in.
+    pub fn unlink_on_phone(&self, account: &AccountId, group: &ChatId) {
+        let was = self
+            .state()
+            .social
+            .links
+            .remove(&(account.clone(), group.clone()));
+        if let Some((community, _)) = was {
+            self.emit(ProviderEvent::CommunityChanged {
+                account_id: account.clone(),
+                community_id: community,
+                groups: vec![group.clone()],
+            });
+        }
     }
 
     /// Changes a group's subject as if it had been done on a phone: the
@@ -423,13 +609,25 @@ impl MockProvider {
             .filter(|c| &c.account_id == account && c.kind == ChatKind::Group)
             .map(|c| c.id.clone())
             .collect();
-        let mut groups = Vec::new();
+        // A community has no chat. As with a backend whose listing does
+        // not carry them, the groups it links are left out here: reading
+        // the community on its own gives them.
+        let mut groups: Vec<Group> = state
+            .social
+            .groups
+            .values()
+            .filter(|group| &group.account_id == account && group.community)
+            .cloned()
+            .collect();
+        groups.sort_by(|a, b| a.id.as_str().cmp(b.id.as_str()));
         for id in ids {
             let found = group_mut(&mut state, account, &id)?;
             if my_role(found).is_some() {
                 groups.push(found.clone());
             }
         }
+        let unlisted = &state.social.unlisted;
+        groups.retain(|group| !unlisted.contains(&(group.account_id.clone(), group.id.clone())));
         Ok(groups)
     }
 
@@ -447,7 +645,11 @@ impl MockProvider {
                 "This number is not in the group.",
             ));
         }
-        Ok(found.clone())
+        let mut found = found.clone();
+        if found.community {
+            found.subgroups = subgroups_of(&state, account, group);
+        }
+        Ok(found)
     }
 
     pub(crate) fn mock_create_group(
@@ -460,11 +662,26 @@ impl MockProvider {
         if let Some(existing) = state.social.created.get(&new.request_id).cloned() {
             return group_mut(&mut state, account, &existing).cloned();
         }
-        if new.subject.trim().is_empty() || new.participants.is_empty() {
+        if new.subject.trim().is_empty() || (new.participants.is_empty() && !new.community) {
             return Err(rejected(
                 "invalid_request",
                 "A group needs a name and at least one participant.",
             ));
+        }
+        if new.community && new.in_community.is_some() {
+            return Err(rejected(
+                "invalid_request",
+                "A community cannot be created inside another.",
+            ));
+        }
+        if let Some(parent) = &new.in_community {
+            let found = as_admin(&mut state, account, parent)?;
+            if !found.community {
+                return Err(rejected(
+                    "invalid_request",
+                    "That group is not a community.",
+                ));
+            }
         }
         state.social.next_group += 1;
         let id = ChatId::new(format!("group:new{}", state.social.next_group));
@@ -490,7 +707,9 @@ impl MockProvider {
             description: None,
             owner: Some(seed::self_contact(account)),
             created_at: Some(Timestamp::now()),
-            community: false,
+            community: new.community,
+            community_id: new.in_community.clone(),
+            announcements: false,
             announce: false,
             locked: false,
             join_approval: Some(false),
@@ -498,25 +717,44 @@ impl MockProvider {
             participants,
             subgroups: Vec::new(),
         };
-        state.world.chats.push(Chat {
-            id: id.clone(),
-            account_id: account.clone(),
-            kind: ChatKind::Group,
-            title: new.subject.clone(),
-            avatar: None,
-            unread_count: 0,
-            pinned: false,
-            muted: false,
-            archived: false,
-            last_message: None,
-            unknown: Default::default(),
-            picture_id: None,
-            pinned_at: None,
-        });
-        state
-            .world
-            .messages
-            .insert((account.clone(), id.clone()), Vec::new());
+        // A community has no chat; its announcement group is made with it.
+        let mut chats = vec![(id.clone(), new.subject.clone())];
+        if new.community {
+            chats.clear();
+            let announcements = ChatId::new(format!("{}announcements", id.as_str()));
+            state
+                .social
+                .links
+                .insert((account.clone(), announcements.clone()), (id.clone(), true));
+            chats.push((announcements, "Announcements".to_owned()));
+        }
+        for (chat, title) in chats {
+            state.world.chats.push(Chat {
+                id: chat.clone(),
+                account_id: account.clone(),
+                kind: ChatKind::Group,
+                title,
+                avatar: None,
+                unread_count: 0,
+                pinned: false,
+                muted: false,
+                archived: false,
+                last_message: None,
+                unknown: Default::default(),
+                picture_id: None,
+                pinned_at: None,
+            });
+            state
+                .world
+                .messages
+                .insert((account.clone(), chat), Vec::new());
+        }
+        if let Some(parent) = &new.in_community {
+            state
+                .social
+                .links
+                .insert((account.clone(), id.clone()), (parent.clone(), false));
+        }
         state
             .social
             .created
@@ -524,8 +762,110 @@ impl MockProvider {
         state
             .social
             .groups
-            .insert((account.clone(), id), made.clone());
+            .insert((account.clone(), id.clone()), made.clone());
+        drop(state);
+        if let Some(parent) = &new.in_community {
+            self.emit(ProviderEvent::CommunityChanged {
+                account_id: account.clone(),
+                community_id: parent.clone(),
+                groups: vec![id],
+            });
+        }
         Ok(made)
+    }
+
+    pub(crate) fn mock_link_subgroup(
+        &self,
+        account: &AccountId,
+        community: &ChatId,
+        group: &ChatId,
+    ) -> ProviderResult<()> {
+        let mut state = self.state();
+        enter(&mut state, "link_subgroup")?;
+        if !as_admin(&mut state, account, community)?.community {
+            return Err(rejected(
+                "invalid_request",
+                "That group is not a community.",
+            ));
+        }
+        let key = (account.clone(), group.clone());
+        // Admin of both, as the API asks.
+        if as_admin(&mut state, account, group)?.community {
+            return Err(rejected(
+                "invalid_request",
+                "A community cannot be linked to another.",
+            ));
+        }
+        match state.social.links.get(&key) {
+            Some((parent, _)) if parent == community => return Ok(()),
+            Some(_) => {
+                return Err(rejected(
+                    "already_in_community",
+                    "That group is already in a community.",
+                ))
+            }
+            None => {}
+        }
+        state.social.links.insert(key, (community.clone(), false));
+        drop(state);
+        self.emit(ProviderEvent::CommunityChanged {
+            account_id: account.clone(),
+            community_id: community.clone(),
+            groups: vec![group.clone()],
+        });
+        Ok(())
+    }
+
+    pub(crate) fn mock_unlink_subgroup(
+        &self,
+        account: &AccountId,
+        community: &ChatId,
+        group: &ChatId,
+    ) -> ProviderResult<()> {
+        let mut state = self.state();
+        enter(&mut state, "unlink_subgroup")?;
+        as_admin(&mut state, account, community)?;
+        let key = (account.clone(), group.clone());
+        match state.social.links.get(&key) {
+            Some((parent, true)) if parent == community => {
+                return Err(rejected(
+                    "invalid_request",
+                    "The announcements group stays in its community.",
+                ))
+            }
+            Some((parent, false)) if parent == community => {}
+            // Not linked there: done already.
+            _ => return Ok(()),
+        }
+        state.social.links.remove(&key);
+        drop(state);
+        self.emit(ProviderEvent::CommunityChanged {
+            account_id: account.clone(),
+            community_id: community.clone(),
+            groups: vec![group.clone()],
+        });
+        Ok(())
+    }
+
+    pub(crate) fn mock_community_participants(
+        &self,
+        account: &AccountId,
+        community: &ChatId,
+    ) -> ProviderResult<Vec<ContactId>> {
+        let mut state = self.state();
+        enter(&mut state, "community_participants")?;
+        let found = group_mut(&mut state, account, community)?;
+        if !found.community {
+            return Err(rejected(
+                "invalid_request",
+                "That group is not a community.",
+            ));
+        }
+        Ok(found
+            .participants
+            .iter()
+            .map(|participant| participant.contact.clone())
+            .collect())
     }
 
     pub(crate) fn mock_update_group(

@@ -1,0 +1,8 @@
+{
+  "object": "list",
+  "items": [
+    { "object": "community_participant", "contactId": "+584121234567" },
+    { "object": "community_participant", "contactId": "lid:200055501000001" }
+  ],
+  "nextCursor": null
+}

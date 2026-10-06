@@ -15,7 +15,7 @@ use crate::icons::{icon, IconName};
 use crate::pictures::{PicturePicker, SystemPicker};
 use crate::theme::px;
 use crate::theme::{metrics, Palette};
-use client_core::{ChatSummary, StoreChange, SyncError};
+use client_core::{ChatSummary, GroupPlace, StoreChange, SyncError};
 use client_provider::{
     AccountId, ChatChange, ChatId, ChatKind, Contact, ContactId, GroupChange, JoinRequest,
     ParticipantChange, ProfileChange,
@@ -56,10 +56,30 @@ pub(super) enum GroupTab {
     Manage,
 }
 
+/// What the "New group" form makes.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(super) enum GroupKind {
+    #[default]
+    Group,
+    /// A community: no participants to choose, and no chat.
+    Community,
+    /// A group inside this community, which is called `name`.
+    InCommunity { community: ChatId, name: String },
+}
+
+/// The people of a community, asked for when its Members page is shown.
+pub(super) enum CommunityPeople {
+    Loading,
+    Failed(SharedString),
+    Loaded(Vec<ContactId>),
+}
+
 /// A question the panel asks before doing something that is not undone
 /// with a click.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) enum Confirm {
+    /// Take this group out of the community in the panel.
+    Unlink(ChatId),
     /// Block (`true`) or unblock the contact.
     Block(bool),
     Leave,
@@ -107,6 +127,7 @@ pub(super) struct People {
 /// The "New group" form.
 pub(super) struct NewGroupForm {
     pub(super) account: AccountId,
+    pub(super) kind: GroupKind,
     pub(super) subject: Entity<InputState>,
     pub(super) people: People,
     /// The picture chosen for it: the JPEG to upload, and how it is drawn.
@@ -140,6 +161,13 @@ pub(super) struct SocialUi {
     pub(super) tab: GroupTab,
     /// "Add participants" is showing in the group panel.
     pub(super) adding: Option<People>,
+    /// "Add a group" is showing in a community's panel: the groups that
+    /// can be linked to it.
+    pub(super) linking: bool,
+    /// The people of the community in the panel, once asked for.
+    pub(super) community_people: Option<CommunityPeople>,
+    /// What the next "New group" form makes.
+    pub(super) next_group_kind: GroupKind,
     pub(super) confirm: Option<Confirm>,
     pub(super) edit: Option<Edit>,
     /// The participant whose actions are showing.
@@ -158,6 +186,7 @@ pub(super) struct SocialUi {
     /// is retried, a new one once it is answered.
     request_id: String,
     _work: Option<Task<()>>,
+    _people: Option<Task<()>>,
     _creating: Option<Task<()>>,
     _picking: Option<Task<()>>,
 }
@@ -172,6 +201,9 @@ impl SocialUi {
             stack: Vec::new(),
             tab: GroupTab::default(),
             adding: None,
+            linking: false,
+            community_people: None,
+            next_group_kind: GroupKind::default(),
             confirm: None,
             edit: None,
             expanded: None,
@@ -184,6 +216,7 @@ impl SocialUi {
             pictures: Rc::new(SystemPicker),
             request_id: new_request_id(),
             _work: None,
+            _people: None,
             _creating: None,
             _picking: None,
         }
@@ -198,6 +231,8 @@ impl SocialUi {
     fn clear_page(&mut self) {
         self.tab = GroupTab::default();
         self.adding = None;
+        self.linking = false;
+        self.community_people = None;
         self.confirm = None;
         self.edit = None;
         self.expanded = None;
@@ -205,6 +240,7 @@ impl SocialUi {
         self.note = None;
         self.busy = false;
         self._work = None;
+        self._people = None;
     }
 
     /// The panels were closed: nothing is kept.
@@ -313,6 +349,7 @@ impl Shell {
         if social.confirm.take().is_some()
             || social.edit.take().is_some()
             || social.adding.take().is_some()
+            || std::mem::take(&mut social.linking)
         {
             social.error = None;
             self.overlay_focus.focus(window, cx);
@@ -332,7 +369,7 @@ impl Shell {
 
     /// Whether the back arrow has somewhere to go that is not "closed".
     pub(super) fn info_can_go_back(&self) -> bool {
-        self.social.stack.len() > 1 || self.social.adding.is_some()
+        self.social.stack.len() > 1 || self.social.adding.is_some() || self.social.linking
     }
 
     // ----- small actions -------------------------------------------------
@@ -467,6 +504,9 @@ impl Shell {
             (Confirm::Leave, Target::Group { account, group }) => {
                 self.leave_group(account, group, cx)
             }
+            (Confirm::Unlink(linked), Target::Group { account, group }) => {
+                self.unlink_group(account, group, linked, cx)
+            }
             _ => self.social.confirm = None,
         }
         cx.notify();
@@ -489,6 +529,30 @@ impl Shell {
             };
             this.update(cx, |this, cx| {
                 done(this, outcome, cx);
+                cx.notify();
+            })
+            .ok();
+        })
+    }
+
+    /// [`await_engine`](Self::await_engine) for an outcome that needs the
+    /// window: to open a panel.
+    fn await_engine_in<T: Send + 'static>(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+        work: impl Future<Output = Result<T, SyncError>> + Send + 'static,
+        done: impl FnOnce(&mut Self, Result<T, SharedString>, &mut Window, &mut Context<Self>) + 'static,
+    ) -> Task<()> {
+        let handle = self.engine.runtime().spawn(work);
+        cx.spawn_in(window, async move |this, cx| {
+            let outcome = match handle.await {
+                Ok(Ok(value)) => Ok(value),
+                Ok(Err(error)) => Err(client_core::failure_sentence(&error).into()),
+                Err(error) => Err(error.to_string().into()),
+            };
+            this.update_in(cx, |this, window, cx| {
+                done(this, outcome, window, cx);
                 cx.notify();
             })
             .ok();
@@ -714,19 +778,37 @@ impl Shell {
 
     // ----- a new group ---------------------------------------------------
 
+    /// Opens the form that makes `kind` for the number on screen.
+    pub(super) fn open_new_group(
+        &mut self,
+        kind: GroupKind,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.social.next_group_kind = kind;
+        self.open_overlay(Overlay::NewGroup, window, cx);
+    }
+
     /// Opens the "New group" form for the number on screen.
     pub(super) fn begin_new_group(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let kind = std::mem::take(&mut self.social.next_group_kind);
         self.social.close();
         let Some(account) = self.account.clone() else {
             self.overlay = Overlay::None;
             return;
         };
-        let subject = cx.new(|cx| InputState::new(window, cx).placeholder("Group name"));
+        let subject = cx.new(|cx| {
+            InputState::new(window, cx).placeholder(match kind {
+                GroupKind::Community => "Community name",
+                _ => "Group name",
+            })
+        });
         subject.update(cx, |field, cx| field.focus(window, cx));
         self.engine
             .want_contacts(&account, std::time::Duration::from_secs(5 * 60));
         self.social.new_group = Some(NewGroupForm {
             account,
+            kind,
             subject,
             people: people_picker(window, cx),
             picture: None,
@@ -767,7 +849,7 @@ impl Shell {
             Some("Give the group a name.".into())
         } else if subject.chars().count() > EditWhat::Subject.limit() {
             Some("A group's name has at most 100 characters.".into())
-        } else if form.people.chosen.is_empty() {
+        } else if form.people.chosen.is_empty() && form.kind != GroupKind::Community {
             Some("Choose at least one participant.".into())
         } else {
             None
@@ -780,51 +862,199 @@ impl Shell {
         let ids: Vec<ContactId> = chosen.iter().map(|contact| contact.id.clone()).collect();
         let picture = form.picture.as_ref().map(|(jpeg, _)| jpeg.clone());
         let (account, request_id) = (form.account.clone(), form.request_id.clone());
+        let kind = form.kind.clone();
+        let place = match &kind {
+            GroupKind::Group => GroupPlace::Plain,
+            GroupKind::Community => GroupPlace::Community,
+            GroupKind::InCommunity { community, .. } => GroupPlace::InCommunity(community.clone()),
+        };
         let engine = self.engine.clone();
+        let of_account = account.clone();
         let work = async move {
             engine
-                .create_group(&account, &subject, ids, picture, &request_id)
+                .create_group_in(&account, &subject, ids, picture, &request_id, place)
                 .await
         };
-        let task = self.await_engine(cx, work, move |this, outcome, cx| match outcome {
-            Ok(created) => {
-                this.social.close();
-                this.overlay = Overlay::None;
-                this.filter = ChatFilter::All;
-                this.reload_chats(cx);
-                this.open_chat(created.chat.clone(), None, cx);
-                if !created.missing.is_empty() {
-                    let names: Vec<String> = created
-                        .missing
-                        .iter()
-                        .map(|missing| {
-                            chosen
+        let task =
+            self.await_engine_in(
+                window,
+                cx,
+                work,
+                move |this, outcome, window, cx| match outcome {
+                    // A community has no chat, and a group made inside one is
+                    // seen where it is: in the community's panel.
+                    Ok(created) if kind != GroupKind::Group => {
+                        let community = match kind {
+                            GroupKind::InCommunity { community, .. } => community,
+                            _ => created.chat,
+                        };
+                        this.reload_chats(cx);
+                        this.open_info(
+                            Target::Group {
+                                account: of_account,
+                                group: community,
+                            },
+                            window,
+                            cx,
+                        );
+                    }
+                    Ok(created) => {
+                        this.social.close();
+                        this.overlay = Overlay::None;
+                        this.filter = ChatFilter::All;
+                        this.reload_chats(cx);
+                        this.open_chat(created.chat.clone(), None, cx);
+                        if !created.missing.is_empty() {
+                            let names: Vec<String> = created
+                                .missing
                                 .iter()
-                                .find(|contact| &contact.id == missing)
-                                .map(Contact::display_name)
-                                .unwrap_or_else(|| missing.to_string())
-                        })
-                        .collect();
-                    // Said like every other thing that did not happen.
-                    this.engine.store().notify(StoreChange::Problem {
-                        message: format!(
+                                .map(|missing| {
+                                    chosen
+                                        .iter()
+                                        .find(|contact| &contact.id == missing)
+                                        .map(Contact::display_name)
+                                        .unwrap_or_else(|| missing.to_string())
+                                })
+                                .collect();
+                            // Said like every other thing that did not happen.
+                            this.engine.store().notify(StoreChange::Problem {
+                                message: format!(
                             "The group was created without {}: their privacy settings do not \
                              allow adding them. Send them the invite link instead.",
                             names.join(", ")
                         ),
-                    });
+                            });
+                        }
+                    }
+                    Err(sentence) => {
+                        // Back to the form with what was typed: the same request
+                        // can be sent again and makes one group.
+                        if let Some(form) = this.social.new_group.as_mut() {
+                            form.busy = false;
+                            form.error = Some(sentence);
+                        }
+                    }
+                },
+            );
+        self.social._creating = Some(task);
+        cx.notify();
+    }
+
+    // ----- a community's groups and people -----------------------------
+
+    /// Opens the list of groups that can be added to the community in
+    /// the panel.
+    pub(super) fn begin_linking(&mut self, cx: &mut Context<Self>) {
+        if let Some(Target::Group { account, .. }) = self.social.target() {
+            // Which groups the number administers comes from the listing.
+            self.engine.want_groups(account);
+        }
+        self.social.linking = true;
+        self.social.error = None;
+        self.social.note = None;
+        cx.notify();
+    }
+
+    /// Adds `group` to the community in the panel.
+    pub(super) fn link_group(&mut self, group: ChatId, cx: &mut Context<Self>) {
+        let Some(Target::Group {
+            account,
+            group: community,
+        }) = self.social.target().cloned()
+        else {
+            return;
+        };
+        if self.social.busy {
+            return;
+        }
+        self.social.busy = true;
+        self.social.error = None;
+        let (engine, request_id) = (self.engine.clone(), self.social.request_id.clone());
+        let work = async move {
+            engine
+                .link_subgroup(&account, &community, &group, &request_id)
+                .await
+        };
+        let task = self.await_engine(cx, work, |this, outcome, _| {
+            let social = &mut this.social;
+            social.busy = false;
+            match outcome {
+                Ok(()) => {
+                    social.linking = false;
+                    social.request_id = new_request_id();
+                    social.note = Some("The group is in the community now.".into());
                 }
-            }
-            Err(sentence) => {
-                // Back to the form with what was typed: the same request
-                // can be sent again and makes one group.
-                if let Some(form) = this.social.new_group.as_mut() {
-                    form.busy = false;
-                    form.error = Some(sentence);
-                }
+                // The picker stays: another group can be chosen.
+                Err(sentence) => social.error = Some(sentence),
             }
         });
-        self.social._creating = Some(task);
+        self.social._work = Some(task);
+        cx.notify();
+    }
+
+    /// Takes `linked` out of the community `community`, after the question.
+    fn unlink_group(
+        &mut self,
+        account: AccountId,
+        community: ChatId,
+        linked: ChatId,
+        cx: &mut Context<Self>,
+    ) {
+        if self.social.busy {
+            return;
+        }
+        self.social.busy = true;
+        self.social.error = None;
+        let engine = self.engine.clone();
+        let work = async move { engine.unlink_subgroup(&account, &community, &linked).await };
+        let task = self.await_engine(cx, work, |this, outcome, _| {
+            let social = &mut this.social;
+            social.busy = false;
+            match outcome {
+                Ok(()) => {
+                    social.confirm = None;
+                    social.note = Some("The group is out of the community.".into());
+                }
+                // The question stays: its button is the way to try again.
+                Err(sentence) => social.error = Some(sentence),
+            }
+        });
+        self.social._work = Some(task);
+        cx.notify();
+    }
+
+    /// Asks for the people of the community in the panel, unless they
+    /// are being asked for or were. Looking again is "Try again".
+    pub(super) fn load_community_people(&mut self, cx: &mut Context<Self>) {
+        let Some(Target::Group { account, group }) = self.social.target().cloned() else {
+            return;
+        };
+        if matches!(
+            self.social.community_people,
+            Some(CommunityPeople::Loading | CommunityPeople::Loaded(_))
+        ) {
+            return;
+        }
+        self.social.community_people = Some(CommunityPeople::Loading);
+        let engine = self.engine.clone();
+        let asked = group.clone();
+        let work = async move { engine.community_participants(&account, &asked).await };
+        let task = self.await_engine(cx, work, move |this, outcome, _| {
+            // The panel moved on to another page meanwhile.
+            if this.social.community_people.is_none()
+                || this.social.target().map(|target| match target {
+                    Target::Group { group, .. } => group.clone(),
+                    Target::Contact { .. } => ChatId::new(""),
+                }) != Some(group)
+            {
+                return;
+            }
+            this.social.community_people = Some(match outcome {
+                Ok(people) => CommunityPeople::Loaded(people),
+                Err(sentence) => CommunityPeople::Failed(sentence),
+            });
+        });
+        self.social._people = Some(task);
         cx.notify();
     }
 

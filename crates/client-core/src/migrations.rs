@@ -502,6 +502,17 @@ const MIGRATIONS: &[&str] = &[
     ALTER TABLE chats ADD COLUMN pinned_at INTEGER;
     ALTER TABLE library_items ADD COLUMN origin_message TEXT;
     "#,
+    // v13: the community a group is linked to (`community_id`, the
+    // community's own group id; NULL for a group that is in none, for a
+    // community, and until the provider says) and whether the group is
+    // that community's announcement group. Only added columns: no row
+    // that exists changes, and the next listing of the groups fills them.
+    r#"
+    ALTER TABLE groups ADD COLUMN community_id TEXT;
+    ALTER TABLE groups ADD COLUMN announcements INTEGER NOT NULL DEFAULT 0;
+    CREATE INDEX groups_by_community ON groups (account_id, community_id)
+        WHERE community_id IS NOT NULL;
+    "#,
 ];
 
 /// The schema version this build expects.

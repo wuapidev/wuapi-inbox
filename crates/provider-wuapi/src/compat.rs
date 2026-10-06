@@ -3,15 +3,17 @@
 //! TEMPORARY(response-compat): the generated types read a response field
 //! that the API added later as required: a `Message` without
 //! `forwardedManyTimes` (0.12.0), a message's `media` without
-//! `gifPlayback` (0.12.0) or an `Account` without `imageQuality` (0.9.0)
-//! does not decode at all. The SDK is published when the spec is merged,
-//! and the backend is deployed after that: in between, every message,
-//! every chat (it carries its last message) and every account would be
-//! unreadable, and with them the whole application, for the sake of
-//! fields that have an obvious "not said".
+//! `gifPlayback` (0.12.0), an `Account` without `imageQuality` (0.9.0),
+//! a `Group` without `default` or a `GroupChange` without `linked` and
+//! `unlinked` (0.14.0) does not decode at all. The SDK is published when
+//! the spec is merged, and the backend is deployed after that: in
+//! between, every message, every chat (it carries its last message),
+//! every account and every group would be unreadable, and with them the
+//! whole application, for the sake of fields that have an obvious "not
+//! said".
 //!
-//! So the calls whose answers carry a `Message` or an `Account` are made
-//! here: the same requests the generated methods build (the SDK's
+//! So the calls whose answers carry a `Message`, an `Account` or a
+//! `Group` are made here: the same requests the generated methods build (the SDK's
 //! [`RequestParts`] are its documented way to do that), through the SDK's
 //! own HTTP client (its key, timeouts and error handling), decoded into
 //! the SDK's own types after the missing fields were given the value an
@@ -53,9 +55,11 @@ impl<P: CursorPage> CursorPage for Lenient<P> {
     }
 }
 
-/// Gives every message and account in `value` the fields a backend from
-/// before them does not send, with what their absence means: not
-/// forwarded many times, not a GIF, the default image quality.
+/// Gives every message, account, group and group change in `value` the
+/// fields a backend from before them does not send, with what their
+/// absence means: not forwarded many times, not a GIF, the default image
+/// quality, not a community's announcement group, nothing linked or
+/// unlinked.
 pub(crate) fn fill(value: &mut Value) {
     match value {
         Value::Array(items) => items.iter_mut().for_each(fill),
@@ -72,6 +76,14 @@ pub(crate) fn fill(value: &mut Value) {
                 Some("account") => {
                     map.entry("imageQuality")
                         .or_insert_with(|| Value::String("standard".to_owned()));
+                }
+                Some("group") => {
+                    map.entry("default").or_insert(Value::Bool(false));
+                }
+                Some("group_change") => {
+                    for field in ["linked", "unlinked"] {
+                        map.entry(field).or_insert_with(|| Value::Array(Vec::new()));
+                    }
                 }
                 _ => {}
             }
@@ -149,6 +161,51 @@ pub(crate) fn chats(
 pub(crate) fn chat(http: &HttpClient, account: &str, chat: &str) -> Request<Lenient<api::Chat>> {
     let tail = format!("/chats/{}", encode_path(chat));
     http.request(RequestParts::new(Method::Get, account_path(account, &tail)).retryable())
+}
+
+fn group_path(account: &str, group: &str) -> String {
+    account_path(account, &format!("/groups/{}", encode_path(group)))
+}
+
+/// `groups().list`
+pub(crate) fn groups(
+    http: &HttpClient,
+    account: &str,
+    params: &api::GroupsListParams,
+) -> Paginator<Lenient<api::GroupList>> {
+    let parts = RequestParts::new(Method::Get, account_path(account, "/groups"))
+        .query_opt("limit", params.limit.as_ref())
+        .retryable();
+    Paginator::new(http.clone(), parts, "cursor", params.cursor.clone())
+}
+
+/// `groups().get`
+pub(crate) fn group(http: &HttpClient, account: &str, group: &str) -> Request<Lenient<api::Group>> {
+    http.request(RequestParts::new(Method::Get, group_path(account, group)).retryable())
+}
+
+/// `groups().create`
+pub(crate) fn create_group(
+    http: &HttpClient,
+    account: &str,
+    params: &api::GroupsCreateParams,
+) -> Request<Lenient<api::Group>> {
+    http.request(
+        RequestParts::new(Method::Post, account_path(account, "/groups"))
+            .body(params)
+            .keyed(),
+    )
+}
+
+/// `groups().update` answers the group, which nobody reads: it is not
+/// decoded at all.
+pub(crate) fn update_group(
+    http: &HttpClient,
+    account: &str,
+    group: &str,
+    params: &api::GroupsUpdateParams,
+) -> Request<IgnoredAny> {
+    http.request(RequestParts::new(Method::Patch, group_path(account, group)).body(params))
 }
 
 /// `messages().list`, one page.

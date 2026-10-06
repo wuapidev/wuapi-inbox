@@ -450,6 +450,67 @@ async fn every_group_is_listed_with_its_participants() {
     assert_eq!(groups[0].participants.len(), 3);
 }
 
+/// The community of the community fixtures, and two of its groups.
+const ANNOUNCEMENTS: &str = "120363055512345678@g.us";
+const VOLUNTEERS: &str = "120363055512345679@g.us";
+
+#[test]
+fn maps_the_community_a_group_is_linked_to() {
+    let wire: api::Group = parse(fixture!("group_subgroup"));
+    let mapped = social::group(&wire, Vec::new());
+    assert_eq!(
+        mapped.community_id.as_ref().map(ChatId::as_str),
+        Some(GROUP)
+    );
+    assert!(!mapped.community && !mapped.announcements);
+
+    // A plain group is in none, and a community is not in itself.
+    for plain in [fixture!("group"), fixture!("group_community")] {
+        let wire: api::Group = parse(plain);
+        let mapped = social::group(&wire, Vec::new());
+        assert_eq!(mapped.community_id, None);
+        assert!(!mapped.announcements);
+    }
+}
+
+#[tokio::test]
+async fn every_group_is_listed_with_the_community_it_is_linked_to() {
+    let server = MockServer::start().await;
+    on(
+        &server,
+        "GET",
+        &at("/groups"),
+        vec![reply(200, fixture!("group_list_community"))],
+    )
+    .await;
+    let groups = provider(&server).list_groups(&account()).await.unwrap();
+    let listed: Vec<(&str, bool, Option<&str>, bool)> = groups
+        .iter()
+        .map(|group| {
+            (
+                group.subject.as_str(),
+                group.community,
+                group.community_id.as_ref().map(ChatId::as_str),
+                group.announcements,
+            )
+        })
+        .collect();
+    assert_eq!(
+        listed,
+        [
+            ("Neighbours", true, None, false),
+            ("Announcements", false, Some(GROUP), true),
+            ("Volunteers", false, Some(GROUP), false),
+            ("Book club", false, None, false),
+        ]
+    );
+    assert_eq!(groups[1].id.as_str(), ANNOUNCEMENTS);
+    assert_eq!(groups[2].id.as_str(), VOLUNTEERS);
+    // The listing does not say which groups a community links.
+    assert!(groups[0].subgroups.is_empty());
+    assert_eq!(requests(&server).await.len(), 1, "one request for all");
+}
+
 #[tokio::test]
 async fn creating_a_group_sends_the_request_id_as_the_idempotency_key() {
     let server = MockServer::start().await;
@@ -471,6 +532,8 @@ async fn creating_a_group_sends_the_request_id_as_the_idempotency_key() {
             ContactId::new("lid:200055501000001"),
         ],
         request_id: "create-7".into(),
+        community: false,
+        in_community: None,
     };
     assert!(provider
         .create_group(&account(), &new)
@@ -783,4 +846,168 @@ fn the_adapter_says_it_does_profiles_and_groups() {
     assert!(caps.contact_lookup && caps.business_profiles && caps.blocking && caps.profile_edit);
     assert!(caps.group_info && caps.group_create && caps.group_manage);
     assert!(caps.group_invites && caps.group_join_requests && caps.group_leave);
+}
+
+// ----- communities ----------------------------------------------------------
+
+fn sub(id: &str) -> ChatId {
+    ChatId::new(id)
+}
+
+#[tokio::test]
+async fn a_group_is_linked_and_unlinked_on_the_communitys_subgroup_route() {
+    let server = MockServer::start().await;
+    on(
+        &server,
+        "POST",
+        &group_at("/subgroups"),
+        vec![
+            reply(503, &error("engine_unavailable", "Retry shortly.")),
+            wiremock::ResponseTemplate::new(204),
+            reply(403, &error("whatsapp_forbidden", "WhatsApp refused.")),
+        ],
+    )
+    .await;
+    on(
+        &server,
+        "DELETE",
+        &group_at("/subgroups/120363055512345679%40g.us"),
+        vec![
+            wiremock::ResponseTemplate::new(204),
+            reply(403, &error("whatsapp_forbidden", "WhatsApp refused.")),
+        ],
+    )
+    .await;
+    let provider = provider(&server);
+    let (account, community, linked) = (account(), group(), sub("120363055512345679@g.us"));
+
+    assert!(provider
+        .link_subgroup(&account, &community, &linked, "link-1")
+        .await
+        .unwrap_err()
+        .is_transient());
+    provider
+        .link_subgroup(&account, &community, &linked, "link-1")
+        .await
+        .unwrap();
+    let refused = provider
+        .link_subgroup(&account, &community, &linked, "link-2")
+        .await
+        .unwrap_err();
+    assert!(matches!(refused, ProviderError::Rejected { code, .. } if code == refusal::NOT_ADMIN));
+
+    provider
+        .unlink_subgroup(&account, &community, &linked)
+        .await
+        .unwrap();
+    let refused = provider
+        .unlink_subgroup(&account, &community, &linked)
+        .await
+        .unwrap_err();
+    assert!(matches!(refused, ProviderError::Rejected { code, .. } if code == refusal::NOT_ADMIN));
+
+    let sent = requests(&server).await;
+    let posts: Vec<_> = sent
+        .iter()
+        .filter(|request| request.method.as_str() == "POST")
+        .collect();
+    assert_eq!(posts.len(), 3);
+    for (post, key) in posts.iter().zip(["link-1", "link-1", "link-2"]) {
+        assert_eq!(header(post, "idempotency-key"), Some(key));
+        assert_eq!(
+            body(post),
+            serde_json::json!({ "groupId": "120363055512345679@g.us" })
+        );
+    }
+}
+
+#[tokio::test]
+async fn a_communitys_participants_are_every_contact_in_its_pages() {
+    let server = MockServer::start().await;
+    on(
+        &server,
+        "GET",
+        &group_at("/community-participants"),
+        vec![reply(200, fixture!("community_participant_list"))],
+    )
+    .await;
+    let people = provider(&server)
+        .community_participants(&account(), &group())
+        .await
+        .unwrap();
+    let people: Vec<&str> = people.iter().map(ContactId::as_str).collect();
+    assert_eq!(people, ["+584121234567", "lid:200055501000001"]);
+}
+
+#[tokio::test]
+async fn a_group_is_created_in_a_community_and_a_community_is_created_empty() {
+    let server = MockServer::start().await;
+    on(
+        &server,
+        "POST",
+        &at("/groups"),
+        vec![
+            reply(201, fixture!("group")),
+            reply(201, fixture!("group_community")),
+            reply(
+                400,
+                &error("not_supported", "Not available for this number yet."),
+            ),
+        ],
+    )
+    .await;
+    let provider = provider(&server);
+    let mut new = NewGroup {
+        subject: "Volunteers".into(),
+        participants: vec![ContactId::new("+584245550199")],
+        request_id: "create-8".into(),
+        community: false,
+        in_community: Some(group()),
+    };
+    provider.create_group(&account(), &new).await.unwrap();
+    new = NewGroup {
+        subject: "Neighbours".into(),
+        participants: Vec::new(),
+        request_id: "create-9".into(),
+        community: true,
+        in_community: None,
+    };
+    let made = provider.create_group(&account(), &new).await.unwrap();
+    assert!(made.community);
+    // The engine cannot do it for this number: said plainly, and not
+    // something to try again.
+    new.in_community = Some(group());
+    new.community = false;
+    let refused = provider.create_group(&account(), &new).await.unwrap_err();
+    assert!(!refused.is_transient());
+    assert!(matches!(
+        &refused,
+        ProviderError::Rejected { code, message }
+            if code == "not_supported" && message.contains("community")
+    ));
+
+    let sent = requests(&server).await;
+    assert_eq!(
+        body(&sent[0]),
+        serde_json::json!({
+            "name": "Volunteers",
+            "participants": ["+584245550199"],
+            "communityId": GROUP
+        })
+    );
+    assert_eq!(
+        body(&sent[1]),
+        serde_json::json!({ "name": "Neighbours", "community": true })
+    );
+}
+
+#[test]
+fn the_adapter_says_it_does_communities() {
+    let server_less = crate::provider::WuapiProvider::new(
+        crate::config::WuapiConfig::new("test-agent/1.0"),
+        crate::config::ApiKey::new(super::KEY),
+    )
+    .unwrap();
+    let caps = server_less.capabilities();
+    assert!(caps.community_manage && caps.community_members);
 }
