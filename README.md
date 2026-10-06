@@ -142,6 +142,14 @@ Builds are on the [releases page](https://github.com/wuapidev/wuapi-inbox/releas
 
 The macOS builds are signed and notarized. The Windows build is not code-signed yet, so Windows warns about an unknown publisher before it runs. `SHA256SUMS` in the release lists the checksum of every file. An installed copy looks for new versions and updates itself; the `.tar.gz` files for macOS and Windows are what the updater downloads. [docs/RELEASING.md](docs/RELEASING.md) has the details.
 
+On Linux the release also carries `install.sh`, which unpacks the app under `~/.local`, adds it to the applications menu and leaves the self-updater working:
+
+```sh
+curl -fsSL https://github.com/wuapidev/wuapi-inbox/releases/latest/download/install.sh | sh
+```
+
+The `.deb` and `.rpm` are for the system's package manager instead: they install under `/usr`, where the package manager owns the files and the app only says a new version is out. The Linux build needs glibc 2.35 or later (Debian 12, Ubuntu 22.04, Fedora 35, RHEL 9 and later).
+
 ## Status
 
 Early: 0.1.0 is the first release, with builds for macOS, Windows and Linux.

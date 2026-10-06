@@ -310,6 +310,20 @@ jobs:
           target/debug/xtask sign --file "$manifest"
           target/debug/xtask verify --file "$manifest" --dir dist
 
+      # The Linux one-liner and the system packages: the same files that are
+      # in the archive, for a home install and for a package manager. They
+      # join dist/ before the checksums, so people can verify them too.
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+          cache: false
+
+      - name: Build the Linux installer and packages
+        run: |
+          go install github.com/goreleaser/nfpm/v2/cmd/nfpm@v2.47.0
+          bash packaging/linux/package.sh --out dist
+          cp packaging/linux/install.sh dist/install.sh
+
       - name: Write the checksums
         working-directory: dist
         run: |

@@ -1,0 +1,37 @@
+# The .deb and .rpm of wuapi Inbox, built from the Linux archive by
+# packaging/linux/package.sh (the release workflow runs it; docs/RELEASING.md).
+# That script substitutes the two variables nFPM does not expand itself:
+#
+#   VERSION    the release's version (Cargo.toml, `[workspace.package]`)
+#   LINUX_DIR  the unpacked wuapi-inbox-<version>-linux-x86_64 directory
+#
+# These install under /usr, where the application does not replace itself:
+# it says a new version is there and links to the download page, and the
+# system's package manager owns the files. packaging/linux/install.sh installs
+# under $HOME instead, where the self-updater keeps working.
+
+name: wuapi-inbox
+arch: amd64
+platform: linux
+version: ${VERSION}
+section: net
+priority: optional
+maintainer: wuapi <support@wuapi.dev>
+vendor: wuapi
+homepage: https://wuapi.dev/desktop
+license: Apache-2.0
+description: |
+  A native, local-first desktop WhatsApp client.
+  The window reads from a database on your computer and a background engine
+  keeps it in sync, so chats open without waiting for the network.
+contents:
+  - src: ${LINUX_DIR}/wuapi-inbox
+    dst: /usr/bin/wuapi-inbox
+    file_info:
+      mode: 0755
+  - src: ${LINUX_DIR}/dev.wuapi.inbox.desktop
+    dst: /usr/share/applications/dev.wuapi.inbox.desktop
+  - src: ${LINUX_DIR}/dev.wuapi.inbox.png
+    dst: /usr/share/icons/hicolor/256x256/apps/dev.wuapi.inbox.png
+  - src: ${LINUX_DIR}/LICENSE
+    dst: /usr/share/doc/wuapi-inbox/LICENSE
