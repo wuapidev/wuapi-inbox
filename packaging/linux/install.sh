@@ -1,5 +1,5 @@
 #!/bin/sh
-# wuapi Inbox on Linux: installs the app under your home, with no root, and
+# Wuapi on Linux: installs the app under your home, with no root, and
 # keeps the signed self-updater working. The .deb and .rpm install under /usr
 # instead, where the system's package manager owns the files and the app only
 # tells you a new version is there.
@@ -33,7 +33,7 @@ die() { warn "$*"; exit 1; }
 
 usage() {
   cat <<'USAGE'
-wuapi Inbox on Linux: install it under your home, or uninstall it.
+Wuapi on Linux: install it under your home, or uninstall it.
 
   sh install.sh [--version <v>] [--base-url <url>] [--bin-dir <dir>]
   sh install.sh --uninstall
@@ -97,7 +97,7 @@ fi
 arch="$(uname -m)"
 [ "$arch" = "x86_64" ] || die "there is no build for $arch yet (x86_64 only); see https://github.com/$REPO/releases"
 if [ -e /lib/ld-musl-x86_64.so.1 ] || [ -e /lib/ld-musl-aarch64.so.1 ]; then
-  die "this looks like a musl system (Alpine?): wuapi Inbox needs glibc"
+  die "this looks like a musl system (Alpine?): Wuapi needs glibc"
 fi
 libc="$(getconf GNU_LIBC_VERSION 2>/dev/null | awk '{print $2}' || true)"
 if [ -n "$libc" ] && ! awk -v have="$libc" 'BEGIN {
@@ -209,7 +209,7 @@ if command -v update-desktop-database >/dev/null 2>&1; then
   update-desktop-database "$(dirname "$desktop_file")" >/dev/null 2>&1 || true
 fi
 
-say "wuapi Inbox is installed:"
+say "Wuapi is installed:"
 say "  $binary"
 say "open it from your applications menu, or run it from a terminal"
 case ":${PATH}:" in
