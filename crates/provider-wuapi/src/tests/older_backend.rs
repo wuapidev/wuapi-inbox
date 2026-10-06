@@ -210,6 +210,102 @@ fn the_sdk_cannot_read_an_answer_from_before_a_field_it_requires() {
     assert!(read.0.forwarded_many_times);
 }
 
+/// A group as a backend from before communities had a parent answers
+/// it: without `communityId` and `default`.
+fn before_communities(json: &str) -> String {
+    fn strip(value: &mut serde_json::Value) {
+        match value {
+            serde_json::Value::Array(items) => items.iter_mut().for_each(strip),
+            serde_json::Value::Object(map) => {
+                if map.get("object").and_then(|object| object.as_str()) == Some("group") {
+                    map.remove("communityId");
+                    map.remove("default");
+                }
+                map.values_mut().for_each(strip);
+            }
+            _ => {}
+        }
+    }
+    let mut value: serde_json::Value = serde_json::from_str(json).unwrap();
+    strip(&mut value);
+    value.to_string()
+}
+
+/// Groups are read, listed and created against a backend that does not
+/// say which community a group is linked to: it is then in none.
+#[tokio::test]
+async fn groups_are_still_read_from_a_backend_from_before_communities() {
+    let one = before_communities(fixture!("group"));
+    let refused = serde_json::from_str::<api::Group>(&one).unwrap_err();
+    assert!(refused.to_string().contains("default"), "{refused}");
+
+    let server = MockServer::start().await;
+    let group = "120363041234567890@g.us";
+    let groups = format!("/v1/accounts/{ACCOUNT}/groups");
+    let at = format!("{groups}/{}", group.replace('@', "%40"));
+    always(&server, "GET", &at, one.clone(), 200).await;
+    always(
+        &server,
+        "GET",
+        &groups,
+        before_communities(fixture!("group_list")),
+        200,
+    )
+    .await;
+    always(&server, "POST", &groups, one.clone(), 201).await;
+    always(&server, "PATCH", &at, one, 200).await;
+    let provider = provider(&server);
+    let account = AccountId::new(ACCOUNT);
+
+    let read = provider
+        .fetch_group(&account, &ChatId::new(group))
+        .await
+        .unwrap();
+    assert_eq!(read.subject, "Launch team");
+    assert_eq!((read.community_id, read.announcements), (None, false));
+    let listed = provider.list_groups(&account).await.unwrap();
+    assert_eq!(listed.len(), 1);
+    assert_eq!(listed[0].community_id, None);
+    let made = provider
+        .create_group(
+            &account,
+            &client_provider::NewGroup {
+                subject: "Launch team".into(),
+                participants: vec![client_provider::ContactId::new("+584245550199")],
+                request_id: "req-1".into(),
+                community: false,
+                in_community: None,
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(made.id.as_str(), group);
+    provider
+        .update_group(
+            &account,
+            &ChatId::new(group),
+            &client_provider::GroupChange::Subject("Launch crew".into()),
+        )
+        .await
+        .unwrap();
+
+    // The requests are the ones the SDK's own methods make.
+    let asked: Vec<String> = requests(&server)
+        .await
+        .iter()
+        .map(|request| format!("{} {}", request.method, target(request)))
+        .collect();
+    assert_eq!(
+        asked,
+        [
+            format!("GET {at}"),
+            format!("GET {groups}?limit=100"),
+            format!("POST {groups}"),
+            format!("PATCH {at}"),
+        ]
+    );
+}
+
 /// Accounts, chats, history, sends, votes, edits, stars, posting a story:
 /// all of it goes on against the older backend.
 #[tokio::test]

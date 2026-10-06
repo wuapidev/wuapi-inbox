@@ -3690,6 +3690,7 @@ async fn an_image_shows_from_the_copy_in_hand_and_progress_is_reported() {
 
 mod actions;
 mod chat_stickers;
+mod communities;
 mod forward;
 mod library;
 mod message_types;

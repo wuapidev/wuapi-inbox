@@ -15,6 +15,7 @@
 //!   group is opened again (or, for a rename, when the chat list shows it).
 
 use crate::client::{WuapiClient, MAX_PAGE};
+use crate::compat;
 use crate::error::from_sdk;
 use crate::mapping;
 use base64::Engine as _;
@@ -50,6 +51,8 @@ pub(crate) fn group(wire: &api::Group, subgroups: Vec<Subgroup>) -> Group {
         owner: filled(&wire.owner_id).map(ContactId::new),
         created_at: wire.created_at.as_deref().and_then(mapping::timestamp),
         community: wire.community,
+        community_id: filled(&wire.community_id).map(ChatId::new),
+        announcements: wire.default,
         announce: wire.announce,
         locked: wire.locked,
         // TODO(wuapi-api): `joinApproval` and `memberAddMode` are accepted
@@ -361,12 +364,10 @@ impl WuapiClient {
 
     /// `GET …/groups/{groupId}`, and for a community the groups it links.
     pub(crate) async fn group(&self, account: &AccountId, id: &ChatId) -> ProviderResult<Group> {
-        let wire = self
-            .sdk()
-            .groups()
-            .get(account.as_str(), id.as_str())
+        let wire = compat::group(self.sdk().http(), account.as_str(), id.as_str())
             .await
-            .map_err(|error| group_refusal(from_sdk(error), Doing::Reading))?;
+            .map_err(|error| group_refusal(from_sdk(error), Doing::Reading))?
+            .0;
         let subgroups = if wire.community {
             let params = api::GroupsListSubgroupsParams {
                 limit: Some(i64::from(MAX_PAGE)),
@@ -402,14 +403,31 @@ impl WuapiClient {
         new: &NewGroup,
     ) -> ProviderResult<Group> {
         let mut request = api::GroupCreateRequest::new(new.subject.clone());
-        request.participants = Some(new.participants.iter().map(ContactId::to_string).collect());
-        let wire = self
-            .sdk()
-            .groups()
-            .create(account.as_str(), request)
+        // A community may start with nobody else in it.
+        if !(new.community && new.participants.is_empty()) {
+            request.participants =
+                Some(new.participants.iter().map(ContactId::to_string).collect());
+        }
+        request.community = new.community.then_some(true);
+        request.community_id = new.in_community.as_ref().map(ChatId::to_string);
+        let wire = compat::create_group(self.sdk().http(), account.as_str(), &request)
             .idempotency_key(&new.request_id)
             .await
-            .map_err(from_sdk)?;
+            .map_err(|error| match from_sdk(error) {
+                // The account's engine cannot put a group in a community
+                // yet: not a failure to try again.
+                ProviderError::Rejected { code, .. }
+                    if code == "not_supported" && new.in_community.is_some() =>
+                {
+                    ProviderError::Rejected {
+                        code,
+                        message: "This number cannot create a group inside a community yet."
+                            .to_owned(),
+                    }
+                }
+                other => other,
+            })?
+            .0;
         Ok(group(&wire, Vec::new()))
     }
 
@@ -435,9 +453,7 @@ impl WuapiClient {
                 })
             }
         }
-        self.sdk()
-            .groups()
-            .update(account.as_str(), id.as_str(), request)
+        compat::update_group(self.sdk().http(), account.as_str(), id.as_str(), &request)
             .await
             .map(drop)
             .map_err(|error| group_refusal(from_sdk(error), Doing::Managing))
@@ -557,6 +573,64 @@ impl WuapiClient {
             .await
             .map_err(|error| group_refusal(from_sdk(error), Doing::Managing))?;
         Ok(answered.items.iter().map(outcome).collect())
+    }
+
+    /// `POST …/groups/{groupId}/subgroups`. `request_id` is the
+    /// idempotency key.
+    pub(crate) async fn link_subgroup(
+        &self,
+        account: &AccountId,
+        community: &ChatId,
+        group: &ChatId,
+        request_id: &str,
+    ) -> ProviderResult<()> {
+        self.sdk()
+            .groups()
+            .link_subgroup(
+                account.as_str(),
+                community.as_str(),
+                api::SubgroupLinkRequest::new(group.to_string()),
+            )
+            .idempotency_key(request_id)
+            .await
+            .map_err(|error| group_refusal(from_sdk(error), Doing::Managing))
+    }
+
+    /// `DELETE …/groups/{groupId}/subgroups/{subgroupId}`.
+    pub(crate) async fn unlink_subgroup(
+        &self,
+        account: &AccountId,
+        community: &ChatId,
+        group: &ChatId,
+    ) -> ProviderResult<()> {
+        self.sdk()
+            .groups()
+            .unlink_subgroup(account.as_str(), community.as_str(), group.as_str())
+            .await
+            .map_err(|error| group_refusal(from_sdk(error), Doing::Managing))
+    }
+
+    /// `GET …/groups/{groupId}/community-participants`, every page.
+    pub(crate) async fn community_participants(
+        &self,
+        account: &AccountId,
+        community: &ChatId,
+    ) -> ProviderResult<Vec<ContactId>> {
+        let params = api::GroupsListCommunityParticipantsParams {
+            limit: Some(i64::from(MAX_PAGE)),
+            ..Default::default()
+        };
+        let listed = self
+            .sdk()
+            .groups()
+            .list_community_participants(account.as_str(), community.as_str(), params)
+            .to_vec_max(MAX_ITEMS)
+            .await
+            .map_err(|error| group_refusal(from_sdk(error), Doing::Reading))?;
+        Ok(listed
+            .into_iter()
+            .map(|person| ContactId::new(person.contact_id))
+            .collect())
     }
 
     /// `POST …/groups/{groupId}/leave`.

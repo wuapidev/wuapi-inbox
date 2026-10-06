@@ -43,6 +43,9 @@ const BLOCKLIST_FRESH: Duration = Duration::from_secs(5 * 60);
 const REQUESTS_FRESH: Duration = Duration::from_secs(30);
 /// How soon a read that failed in passing may be tried again.
 const READ_RETRY: Duration = Duration::from_secs(15);
+/// How many communities a listing of the groups left out are read on
+/// their own after it, for their names. The rest wait for the next one.
+const COMMUNITIES_AT_ONCE: usize = 8;
 /// How many times a dialog's request is offered before it says "try
 /// again", and the longest it waits between two attempts.
 const DIALOG_ATTEMPTS: u32 = 3;
@@ -76,13 +79,31 @@ pub(super) struct Social {
     blocking: Mutex<HashMap<(AccountId, ContactId), bool>>,
     /// Accounts whose every group was listed at least once.
     listed: Mutex<HashSet<AccountId>>,
+    /// Groups somebody looked at since this engine started: a change the
+    /// provider hints at is read at once for these, and for the others
+    /// when they are looked at.
+    looked_at: Mutex<HashSet<(AccountId, ChatId)>>,
+}
+
+/// Where a new group goes.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum GroupPlace {
+    /// On its own.
+    Plain,
+    /// A community is created instead of a group.
+    Community,
+    /// Inside this community, as one of its groups.
+    InCommunity(ChatId),
 }
 
 /// A group that was just created.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CreatedGroup {
-    /// Its chat, in the store.
+    /// Its chat, in the store. For a community, which has no chat, the
+    /// community's own group id.
     pub chat: ChatId,
+    /// It is a community.
+    pub community: bool,
     /// The people who were asked for and are not in it: WhatsApp did not
     /// let this account add them.
     pub missing: Vec<ContactId>,
@@ -313,6 +334,11 @@ impl SyncEngine {
         if !self.inner.capabilities.group_info {
             return;
         }
+        self.social()
+            .looked_at
+            .lock()
+            .expect("social lock")
+            .insert((account.clone(), group.clone()));
         let topic = Topic::Group(account.clone(), group.clone());
         if !self.claim(&topic, GROUP_FRESH) {
             return;
@@ -335,18 +361,35 @@ impl SyncEngine {
         let fetched = self
             .bounded(inner.provider.fetch_group(account, group))
             .await;
-        match self.noted(fetched) {
-            Ok(details) => Ok(inner.store.put_group(&details, Timestamp::now())?),
+        let details = match self.noted(fetched) {
+            Ok(details) => details,
             // The account is not in it any more: that is an answer.
             Err(ProviderError::Rejected { code, .. }) if code == refusal::NOT_MEMBER => {
-                Ok(inner.store.set_departed(account, group, true)?)
+                return Ok(inner.store.set_departed(account, group, true)?);
             }
-            Err(error) => Err(error.into()),
+            Err(error) => return Err(error.into()),
+        };
+        inner.store.put_group(&details, Timestamp::now())?;
+        // Its community, when that was never read: the chat list shows
+        // the community's name. One read, and a community is in none.
+        if let Some(community) = &details.community_id {
+            if inner.store.group(account, community)?.is_none() {
+                let fetched = self
+                    .bounded(inner.provider.fetch_group(account, community))
+                    .await;
+                match self.noted(fetched) {
+                    Ok(parent) => inner.store.put_group(&parent, Timestamp::now())?,
+                    // Not in it, or not now: the group itself was read.
+                    Err(error) => tracing::debug!(%error, "a group's community was not read"),
+                }
+            }
         }
+        Ok(())
     }
 
     /// The provider said a group changed: what the store holds of it is
-    /// read again, now. A group nobody looked at is read when it is.
+    /// read again, now, when somebody looked at the group since this
+    /// engine started. A group nobody looked at is read when it is.
     pub(super) fn group_changed(&self, account: &AccountId, group: &ChatId) {
         let topic = Topic::Group(account.clone(), group.clone());
         self.social()
@@ -354,9 +397,55 @@ impl SyncEngine {
             .lock()
             .expect("social lock")
             .remove(&topic);
-        if matches!(self.inner.store.group(account, group), Ok(Some(_))) {
+        let looked_at = self
+            .social()
+            .looked_at
+            .lock()
+            .expect("social lock")
+            .contains(&(account.clone(), group.clone()));
+        if looked_at && matches!(self.inner.store.group(account, group), Ok(Some(_))) {
             self.want_group(account, group);
         }
+    }
+
+    /// The provider said groups were linked to a community or unlinked
+    /// from it: the community and each of them are read again, now,
+    /// whether or not they were held, because the chat list says which
+    /// community a chat is in.
+    pub(super) fn community_changed(
+        &self,
+        account: &AccountId,
+        community: &ChatId,
+        groups: &[ChatId],
+    ) {
+        if !self.inner.capabilities.group_info || self.is_stopped() {
+            return;
+        }
+        let mut wanted = vec![community.clone()];
+        for group in groups {
+            if !wanted.contains(group) {
+                wanted.push(group.clone());
+            }
+        }
+        {
+            // Each of them is being read: nobody else needs to meanwhile.
+            let mut due = self.social().due.lock().expect("social lock");
+            for group in &wanted {
+                due.insert(
+                    Topic::Group(account.clone(), group.clone()),
+                    Instant::now() + GROUP_FRESH,
+                );
+            }
+        }
+        let this = self.clone();
+        let account = account.clone();
+        self.inner.runtime.spawn(async move {
+            for group in wanted {
+                let result = this.refresh_group(&account, &group).await;
+                let topic = Topic::Group(account.clone(), group);
+                this.read_done(topic, "a community's groups", result);
+            }
+        });
     }
 
     /// A chat arrived from the provider: when it is a group whose subject
@@ -392,8 +481,39 @@ impl SyncEngine {
         });
     }
 
-    /// Reads every group of an account, with its participants, into the
-    /// store. Returns how many there are.
+    /// Lists the groups of every connected number, after a refresh: one
+    /// request per number says which community each group is linked to,
+    /// so the chat list knows without any group being opened. A listing
+    /// that fails is not a failure of the refresh: it is asked for again
+    /// at the next one, or when somebody looks.
+    pub(super) async fn refresh_groups(&self) {
+        if !self.inner.capabilities.group_info {
+            return;
+        }
+        let accounts = match self.inner.store.accounts() {
+            Ok(accounts) => accounts,
+            Err(error) => return tracing::error!(%error, "could not read the accounts"),
+        };
+        for account in accounts {
+            // Read live from WhatsApp by some providers: not while the
+            // number is offline.
+            if !account.connection.is_connected() || self.is_stopped() {
+                continue;
+            }
+            let topic = Topic::Groups(account.id.clone());
+            self.social()
+                .due
+                .lock()
+                .expect("social lock")
+                .insert(topic.clone(), Instant::now() + GROUPS_FRESH);
+            let result = self.sync_groups(&account.id).await;
+            self.read_done(topic, "the list of groups", result);
+        }
+    }
+
+    /// Reads every group of an account, with its participants and the
+    /// community it is linked to, into the store. Returns how many there
+    /// are.
     pub async fn sync_groups(&self, account: &AccountId) -> Result<usize, SyncError> {
         let inner = &self.inner;
         let listed = self.bounded(inner.provider.list_groups(account)).await;
@@ -404,13 +524,37 @@ impl SyncEngine {
             .lock()
             .expect("social lock")
             .insert(account.clone());
-        // Each of them was just read.
-        let mut due = self.social().due.lock().expect("social lock");
-        for group in &groups {
-            due.insert(
-                Topic::Group(account.clone(), group.id.clone()),
-                Instant::now() + GROUP_FRESH,
-            );
+        {
+            // Each of them was just read. Not a community: a listing does
+            // not say which groups it links, so it is still read when it
+            // is looked at.
+            let mut due = self.social().due.lock().expect("social lock");
+            for group in groups.iter().filter(|group| !group.community) {
+                due.insert(
+                    Topic::Group(account.clone(), group.id.clone()),
+                    Instant::now() + GROUP_FRESH,
+                );
+            }
+        }
+        // A community the listing left out is read on its own, for its
+        // name: one read per community, never one per group.
+        let mut missing: Vec<&ChatId> = Vec::new();
+        for community in groups
+            .iter()
+            .filter_map(|group| group.community_id.as_ref())
+        {
+            if !missing.contains(&community)
+                && !groups.iter().any(|group| &group.id == community)
+                && inner.store.group(account, community)?.is_none()
+            {
+                missing.push(community);
+            }
+        }
+        for community in missing.into_iter().take(COMMUNITIES_AT_ONCE) {
+            let result = self.refresh_group(account, community).await;
+            if let Err(error) = result {
+                tracing::debug!(%error, "a community was not read");
+            }
         }
         Ok(groups.len())
     }
@@ -467,17 +611,46 @@ impl SyncEngine {
         picture: Option<Vec<u8>>,
         request_id: &str,
     ) -> Result<CreatedGroup, SyncError> {
+        self.create_group_in(
+            account,
+            subject,
+            participants,
+            picture,
+            request_id,
+            GroupPlace::Plain,
+        )
+        .await
+    }
+
+    /// [`create_group`](Self::create_group) where `place` says: on its
+    /// own, inside a community (which is read again, so that it lists the
+    /// new group), or as a community. A community has no chat: none is
+    /// made, and [`CreatedGroup::chat`] is the community's group id.
+    pub async fn create_group_in(
+        &self,
+        account: &AccountId,
+        subject: &str,
+        participants: Vec<ContactId>,
+        picture: Option<Vec<u8>>,
+        request_id: &str,
+        place: GroupPlace,
+    ) -> Result<CreatedGroup, SyncError> {
         let inner = &self.inner;
         let new = NewGroup {
             subject: subject.trim().to_owned(),
             participants,
             request_id: request_id.to_owned(),
+            community: place == GroupPlace::Community,
+            in_community: match &place {
+                GroupPlace::InCommunity(community) => Some(community.clone()),
+                _ => None,
+            },
         };
         let created = self
             .ask(|| inner.provider.create_group(account, &new))
             .await?;
         inner.store.put_group(&created, Timestamp::now())?;
-        if inner.store.chat(account, &created.id)?.is_none() {
+        if !created.community && inner.store.chat(account, &created.id)?.is_none() {
             inner.store.upsert_chat(
                 &Chat {
                     id: created.id.clone(),
@@ -497,6 +670,9 @@ impl SyncEngine {
                 true,
             )?;
         }
+        if let Some(community) = &new.in_community {
+            self.reread(account, std::slice::from_ref(community)).await;
+        }
         let missing = new
             .participants
             .iter()
@@ -507,9 +683,81 @@ impl SyncEngine {
             self.set_group_picture(account, &created.id, Some(jpeg));
         }
         Ok(CreatedGroup {
+            community: created.community,
             chat: created.id,
             missing,
         })
+    }
+
+    /// Links an existing group to a community. When this returns the
+    /// store has the community and the group as the provider now has
+    /// them, so the chat list says which community the chat is in. Await
+    /// it off the UI thread; `request_id` is the same for every attempt.
+    pub async fn link_subgroup(
+        &self,
+        account: &AccountId,
+        community: &ChatId,
+        group: &ChatId,
+        request_id: &str,
+    ) -> Result<(), SyncError> {
+        let inner = &self.inner;
+        self.ask(|| {
+            inner
+                .provider
+                .link_subgroup(account, community, group, request_id)
+        })
+        .await?;
+        self.reread(account, &[community.clone(), group.clone()])
+            .await;
+        Ok(())
+    }
+
+    /// Takes a group out of a community, and reads both again.
+    pub async fn unlink_subgroup(
+        &self,
+        account: &AccountId,
+        community: &ChatId,
+        group: &ChatId,
+    ) -> Result<(), SyncError> {
+        let inner = &self.inner;
+        self.ask(|| inner.provider.unlink_subgroup(account, community, group))
+            .await?;
+        self.reread(account, &[community.clone(), group.clone()])
+            .await;
+        Ok(())
+    }
+
+    /// Who is in all of a community's groups. Not kept: asked for each
+    /// time the list is shown. Await it off the UI thread.
+    pub async fn community_participants(
+        &self,
+        account: &AccountId,
+        community: &ChatId,
+    ) -> Result<Vec<ContactId>, SyncError> {
+        let inner = &self.inner;
+        Ok(self
+            .ask(|| inner.provider.community_participants(account, community))
+            .await?)
+    }
+
+    /// Reads groups again, now, after a change of their links was made
+    /// here. The change is made: a read that fails is logged and left to
+    /// the provider's own announcement of it and the next listing.
+    async fn reread(&self, account: &AccountId, groups: &[ChatId]) {
+        {
+            let mut due = self.social().due.lock().expect("social lock");
+            for group in groups {
+                due.insert(
+                    Topic::Group(account.clone(), group.clone()),
+                    Instant::now() + GROUP_FRESH,
+                );
+            }
+        }
+        for group in groups {
+            if let Err(error) = self.refresh_group(account, group).await {
+                tracing::debug!(%error, "a group was not read after its links changed");
+            }
+        }
     }
 
     /// Adds people to a group. One outcome per contact: those it worked

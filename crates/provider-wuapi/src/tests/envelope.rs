@@ -69,7 +69,7 @@ fn every_fixture_data_line_decodes_strictly() {
 #[test]
 fn older_backend_decodes_leniently() {
     let frames = frames("older_backend.sse");
-    assert_eq!(frames.len(), 2);
+    assert_eq!(frames.len(), 4);
     for (event, data) in &frames {
         assert!(
             serde_json::from_str::<api::Event>(data).is_err(),
@@ -89,6 +89,16 @@ fn older_backend_decodes_leniently() {
     match account.body {
         Body::Account(wire) => assert_eq!(wire.id, "k57a8m2x9d3f0q1wjh6ypc4n2d7s0vbr"),
         other => panic!("an account was expected: {other:?}"),
+    }
+    // A group change from before communities links and unlinks nothing,
+    // and a group joined then is in no community.
+    match decode(&frames[2].1).body {
+        Body::Group(wire) => assert!(wire.linked.is_empty() && wire.unlinked.is_empty()),
+        other => panic!("a group change was expected: {other:?}"),
+    }
+    match decode(&frames[3].1).body {
+        Body::Joined(wire) => assert_eq!((wire.community_id, wire.default), (None, false)),
+        other => panic!("a group was expected: {other:?}"),
     }
 }
 
@@ -324,6 +334,77 @@ fn mapper_table_covers_every_type() {
         );
         assert_eq!(said(&mapped), expected, "{name}");
     }
+}
+
+const VOLUNTEERS: &str = "120363055512345679@g.us";
+const CARPOOL: &str = "120363055512345680@g.us";
+
+fn community_changed(groups: &[&str]) -> ProviderEvent {
+    ProviderEvent::CommunityChanged {
+        account_id: client_provider::AccountId::new(ACCOUNT),
+        community_id: client_provider::ChatId::new(GROUP),
+        groups: groups
+            .iter()
+            .map(|group| client_provider::ChatId::new(*group))
+            .collect(),
+    }
+}
+
+/// WhatsApp reports a link on the community or on the subgroup. Either
+/// way the client is told which community and which groups to read again.
+#[test]
+fn a_link_or_unlink_names_the_community_and_its_groups() {
+    let mut rig = new_rig();
+    let frames = frames("community.sse");
+    // Linked, reported on the community.
+    let linked = rig.mapper.map(&frames[0].1, now());
+    assert_eq!(linked.events, [community_changed(&[VOLUNTEERS])]);
+    assert!(linked.marks.is_empty());
+    // Unlinked, reported on the subgroup.
+    let unlinked = rig.mapper.map(&frames[1].1, now());
+    assert_eq!(unlinked.events, [community_changed(&[VOLUNTEERS])]);
+    assert!(unlinked.marks.is_empty());
+}
+
+/// A group the account joined inside a community is read with it; one
+/// that is in no community only has its chat read, as before.
+#[test]
+fn a_group_joined_inside_a_community_is_read_with_its_community() {
+    let mut rig = new_rig();
+    let frames = frames("community.sse");
+    let joined = rig.mapper.map(&frames[2].1, now());
+    assert_eq!(joined.events, [community_changed(&[CARPOOL])]);
+    assert_eq!(
+        joined.marks,
+        [Dirty::Chat {
+            account: ACCOUNT.to_owned(),
+            chat: CARPOOL.to_owned()
+        }]
+    );
+    let community = rig.mapper.map(&frames[3].1, now());
+    assert!(community.events.is_empty(), "{:?}", community.events);
+    assert_eq!(community.marks.len(), 1);
+}
+
+/// A change that also moved participants is still a change of the group.
+#[test]
+fn a_link_that_comes_with_another_change_is_both() {
+    let mut rig = new_rig();
+    let (_, data) = &frames("community.sse")[0];
+    let mut envelope: serde_json::Value = serde_json::from_str(data).unwrap();
+    envelope["id"] = "evt_com_both".into();
+    envelope["data"]["object"]["added"] = serde_json::json!(["+584245550199"]);
+    let mapped = rig.mapper.map(&envelope.to_string(), now());
+    assert_eq!(
+        mapped.events,
+        [
+            ProviderEvent::GroupChanged {
+                account_id: client_provider::AccountId::new(ACCOUNT),
+                group_id: client_provider::ChatId::new(GROUP),
+            },
+            community_changed(&[VOLUNTEERS]),
+        ]
+    );
 }
 
 #[test]

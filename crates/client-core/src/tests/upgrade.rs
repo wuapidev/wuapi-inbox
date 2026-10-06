@@ -92,6 +92,8 @@ fn opens_at_the_current_schema(from: u32) {
         owner: None,
         created_at: None,
         community: false,
+        community_id: None,
+        announcements: false,
         announce: false,
         locked: false,
         join_approval: None,
@@ -220,8 +222,72 @@ fn a_database_from_before_sends_were_measured_measures_the_next_one() {
 }
 
 #[test]
-fn the_schema_is_at_v12() {
-    assert_eq!(SCHEMA_VERSION, 12);
+fn the_schema_is_at_v13() {
+    assert_eq!(SCHEMA_VERSION, 13);
+}
+
+/// v13 added two columns to a group (the community it is linked to, and
+/// whether it is that community's announcement group) and changed no
+/// row. A database a build at v12 left on disk, with a community and its
+/// groups in it, opens, loses nothing, and takes both from then on.
+#[test]
+fn a_database_at_schema_v12_is_brought_to_the_current_one() {
+    opens_at_the_current_schema(12);
+
+    let dir = tempfile::tempdir().unwrap();
+    let path = database_at(dir.path(), 12);
+    {
+        let raw = rusqlite::Connection::open(&path).unwrap();
+        // A build at v12 knows neither column.
+        assert!(raw.prepare("SELECT community_id FROM groups").is_err());
+        assert!(raw.prepare("SELECT announcements FROM groups").is_err());
+        raw.execute_batch(
+            r#"INSERT INTO accounts (id, provider, display_name, connection, position)
+               VALUES ('acc', 'mock', 'Work', 'connected', 0);
+               INSERT INTO chats (account_id, id, kind, title, last_message_at)
+               VALUES ('acc', 'news', 'group', 'Announcements', 50);
+               INSERT INTO groups (account_id, id, subject, community, announce, locked,
+                                   subgroups, fetched_at)
+               VALUES ('acc', 'school', 'School', 1, 1, 0,
+                       '[{"id":"news","subject":"Announcements","announcements":true}]', 7),
+                      ('acc', 'news', 'Announcements', 0, 1, 0, '[]', 7);
+               INSERT INTO group_participants (account_id, group_id, contact_id, role)
+               VALUES ('acc', 'news', 'them', 'owner');"#,
+        )
+        .unwrap();
+    }
+
+    let store = Store::open(&path, None).unwrap();
+    let (school, news) = (ChatId::new("school"), ChatId::new("news"));
+    // What was held is still there, and the group is in no community
+    // until the provider says so.
+    let community = store.group(&account(), &school).unwrap().unwrap();
+    assert!(community.group.community);
+    assert_eq!(community.group.subgroups.len(), 1);
+    assert_eq!(community.fetched_at, Timestamp::from_millis(7));
+    let group = store.group(&account(), &news).unwrap().unwrap();
+    assert_eq!(group.participant_count, 1);
+    assert_eq!(
+        (group.group.community_id.clone(), group.group.announcements),
+        (None, false)
+    );
+    let chat = store.chat(&account(), &news).unwrap().unwrap();
+    assert_eq!(chat.community, None);
+
+    // From then on a group is kept with its community.
+    let mut linked = group.group;
+    linked.community_id = Some(school.clone());
+    linked.announcements = true;
+    store.put_group(&linked, Timestamp::from_millis(9)).unwrap();
+    let chat = store.chat(&account(), &news).unwrap().unwrap();
+    assert_eq!(
+        chat.community,
+        Some(ChatCommunity {
+            id: school,
+            name: "School".into(),
+            announcements: true,
+        })
+    );
 }
 
 /// v12 added two columns (when a chat was pinned, the message a sticker
@@ -263,7 +329,7 @@ fn a_database_at_schema_v11_is_brought_to_the_current_one() {
         .unwrap()
         .query_row("PRAGMA user_version", [], |row| row.get(0))
         .unwrap();
-    assert_eq!(version, 12);
+    assert_eq!(version, SCHEMA_VERSION);
     let account = AccountId::new("acc");
 
     // What was pinned is pinned, without a time; what the library and the

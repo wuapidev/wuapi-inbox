@@ -223,8 +223,7 @@ fn groups_in_common_lead_to_the_group_and_back(cx: &mut TestAppContext) {
     open_chat(&harness, cx, &ChatId::new(person.as_str()));
 
     click(harness.window, "header-info", cx);
-    // Not read yet: said, not shown as "none".
-    assert!(shows(harness.window, "common-groups-none", cx));
+    // The refresh listed this number's groups: no waiting for them.
     harness.settle(cx);
     assert!(shows(harness.window, "common-group-0", cx));
     assert!(!shows(harness.window, "common-groups-none", cx));

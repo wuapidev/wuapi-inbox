@@ -961,8 +961,9 @@ fn the_chat_list_menu_opens_closes_and_marks_everything_read(cx: &mut TestAppCon
     assert!(!shows(harness.window, "new-group", cx));
     click(harness.window, "list-menu", cx);
 
-    // With the keyboard: down past "New group" to "Mark all as read",
-    // Enter.
+    // With the keyboard: down past "New group" and "New community" to
+    // "Mark all as read", Enter.
+    press(harness.window, "down", cx);
     press(harness.window, "down", cx);
     press(harness.window, "down", cx);
     press(harness.window, "enter", cx);
@@ -4585,6 +4586,7 @@ fn where_files_cannot_be_sent_the_button_says_so_and_a_paste_is_not_lost_in_sile
 
 mod animated;
 mod attach_files;
+mod communities;
 mod connection;
 mod design;
 mod emoji;

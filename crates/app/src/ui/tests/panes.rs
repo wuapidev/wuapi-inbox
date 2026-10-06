@@ -223,7 +223,8 @@ fn single_keys_act_on_the_chat_in_focus_without_opening_it(cx: &mut TestAppConte
     assert_eq!(filter(cx), ChatFilter::Unread);
     press(harness.window, "shift-tab", cx);
     assert_eq!(filter(cx), ChatFilter::All);
-    for _ in 0..3 {
+    // Unread, Groups, Communities (the demo data has one), Archived.
+    for _ in 0..4 {
         press(harness.window, "tab", cx);
     }
     assert_eq!(filter(cx), ChatFilter::Archived);

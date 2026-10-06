@@ -61,6 +61,18 @@ pub enum ProviderEvent {
         group_id: ChatId,
     },
 
+    /// Groups were linked to a community or unlinked from it. A hint
+    /// without the details: the client reads the community and each of
+    /// these groups again, whether or not it held them before.
+    CommunityChanged {
+        /// The account that is in them.
+        account_id: AccountId,
+        /// The community.
+        community_id: ChatId,
+        /// The groups that were linked or unlinked.
+        groups: Vec<ChatId>,
+    },
+
     /// An account connected, dropped or was logged out.
     ConnectionChanged {
         /// The account.

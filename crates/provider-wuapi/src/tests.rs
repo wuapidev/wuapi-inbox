@@ -1666,7 +1666,7 @@ mod with_the_engine {
     }
 
     #[tokio::test]
-    async fn the_chat_list_costs_two_requests_whatever_the_history_mode() {
+    async fn the_chat_list_costs_three_requests_whatever_the_history_mode() {
         for mode in [
             HistoryMode::OnOpen,
             HistoryMode::Recent(1),
@@ -1676,14 +1676,16 @@ mod with_the_engine {
             let engine = engine(&server, mode);
             engine.refresh().await.unwrap();
 
-            // The accounts and the first (here, only) page of chats: the
-            // list is on screen after these two, with names, previews and
-            // unread counts. Nothing was asked per chat.
+            // The accounts, the first (here, only) page of chats and one
+            // group listing: the list is on screen after these, with names,
+            // previews, unread counts and the community of each group.
+            // Nothing was asked per chat or per group.
             assert_eq!(
                 asked(&server).await,
                 [
                     "/v1/accounts?limit=100".to_owned(),
                     format!("/v1/accounts/{ACCOUNT}/chats?limit=100"),
+                    format!("/v1/accounts/{ACCOUNT}/groups?limit=100"),
                 ],
                 "{mode:?}"
             );
@@ -1695,7 +1697,7 @@ mod with_the_engine {
 
             // History, afterwards and in the background, as the mode says.
             engine.preload().await.unwrap();
-            let history: Vec<_> = asked(&server).await.split_off(2);
+            let history: Vec<_> = asked(&server).await.split_off(3);
             let expected = match mode {
                 HistoryMode::OnOpen => 0,
                 HistoryMode::Recent(_) => 1,
@@ -1718,7 +1720,7 @@ mod with_the_engine {
         engine.refresh().await.unwrap();
         let (account, chat) = (AccountId::new(ACCOUNT), ChatId::new("+584245550199"));
         engine.fetch_latest(&account, &chat).await.unwrap();
-        let history: Vec<_> = asked(&server).await.split_off(2);
+        let history: Vec<_> = asked(&server).await.split_off(3);
         assert_eq!(
             history,
             [format!(

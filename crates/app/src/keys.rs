@@ -32,6 +32,8 @@ pub enum Command {
     NewChat,
     /// "New group".
     NewGroup,
+    /// "New community".
+    NewCommunity,
     /// Settings.
     Settings,
     /// Settings, on its Keyboard section.
@@ -918,6 +920,13 @@ pub const BINDINGS: &[Binding] = &[
         S::Compose,
         W::Anywhere,
         &[secondary_shift("n")],
+    ),
+    bind(
+        C::NewCommunity,
+        "New community",
+        S::Compose,
+        W::Anywhere,
+        &[],
     ),
     bind(C::Menu, "Menu", S::Chats, W::Anywhere, &[secondary(".")]),
     bind(

@@ -285,6 +285,7 @@ impl Shell {
             C::Account(place) if usize::from(place) > self.accounts.len() => Hidden,
             C::NewChat => state(caps.start_chat),
             C::NewGroup => numbered(caps.group_create),
+            C::NewCommunity => numbered(caps.group_create && caps.community_manage),
             C::NewPoll => state(caps.polls),
             C::AddNumber => state(caps.link_accounts),
             C::CheckForUpdates | C::RestartToUpdate
@@ -1001,6 +1002,7 @@ pub(super) fn menu_command(id: &str) -> Option<Command> {
     Some(match id {
         "menu-new-chat" => C::NewChat,
         "menu-new-group" => C::NewGroup,
+        "menu-new-community" => C::NewCommunity,
         "menu-read-all" => C::MarkAllRead,
         "menu-archived" => C::ShowArchived,
         "menu-settings" => C::Settings,
