@@ -93,8 +93,9 @@ impl Tween {
 /// in between, with or without motion.
 pub const FLASH: Duration = Duration::from_millis(1400);
 
-/// How long the palette waits after a keystroke before it asks the store:
-/// typing a word is one question, not one per letter.
+/// How long the palette and the chat list's search wait after a keystroke
+/// before they ask the store: typing a word is one question, not one per
+/// letter.
 pub const SEARCH_DEBOUNCE: Duration = Duration::from_millis(120);
 
 /// The account rail's motion: every duration and factor of it, in one

@@ -19,6 +19,7 @@ use serde::{Deserialize, Serialize};
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
+use std::sync::Arc;
 use std::time::Duration;
 use updater::{
     Channel, Config, Install, Layout, Manual, Outcome, Phase, Schedule, Snapshot, Startup,
@@ -122,6 +123,7 @@ pub struct Boot {
     url_from: UrlFrom,
     saved_file: PathBuf,
     automatic: bool,
+    relocation: Option<updater::Relocation>,
 }
 
 impl Boot {
@@ -145,6 +147,11 @@ impl Boot {
             Ok(executable) => updater::install::detect(&executable),
             Err(_) => Install::NotifyOnly(updater::WhyNot::ReadOnly),
         };
+        // Opened from the disk image or from Downloads, the copy cannot
+        // replace itself where it is; in the Applications folder it can.
+        let relocation = std::env::current_exe()
+            .ok()
+            .and_then(|executable| updater::install::relocation(&executable, &install));
         let automatic = settings::Settings::load(&data_dir.join(settings::FILE_NAME)).auto_update;
         Self {
             startup: Startup {
@@ -163,6 +170,7 @@ impl Boot {
             url_from,
             saved_file,
             automatic,
+            relocation,
         }
     }
 
@@ -179,7 +187,12 @@ impl Boot {
             return Outcome::Continue;
         }
         let spawn = updater::launch::spawn_with(self.args.clone());
-        self.startup.run(&spawn)
+        match self.startup.run(&spawn) {
+            // Nothing to install or to watch: an install from the first
+            // releases takes the name the application has today.
+            Outcome::Continue => self.startup.take_todays_name(&spawn),
+            exit => exit,
+        }
     }
 
     /// Before the store is opened: from here on the database may be
@@ -205,7 +218,15 @@ impl Boot {
             url_from,
             saved_file,
             automatic,
+            relocation,
         } = self;
+        let relocation = relocation.map(|plan| {
+            let args = args.clone();
+            Move {
+                folder: plan.folder.clone(),
+                run: Arc::new(move || make_move(&plan, args.clone())),
+            }
+        });
         let updater = if startup.keys.is_empty() {
             tracing::warn!(
                 "updates are disabled: {NO_KEY} (replace the placeholder in \
@@ -244,6 +265,7 @@ impl Boot {
                     updater: updater.clone(),
                     args,
                 }),
+                relocation,
             },
         );
         // The window follows what the updater says.
@@ -317,6 +339,43 @@ pub struct Center {
     pub saved_file: Option<PathBuf>,
     /// What can be asked of the updater.
     pub actions: Rc<dyn Actions>,
+    /// The move to the Applications folder, for a copy that would update
+    /// itself from there. `None` for one that already does, and for one
+    /// no move would help.
+    pub relocation: Option<Move>,
+}
+
+/// A move of this copy to the Applications folder
+/// ([`updater::Relocation`]), as the window asks for it.
+#[derive(Clone)]
+pub struct Move {
+    /// The folder it goes to.
+    pub folder: PathBuf,
+    /// Copies the application there and starts the copy; the caller then
+    /// quits. It takes as long as copying the application does: never
+    /// called on the thread that draws. `Err` says why nothing was moved,
+    /// and then nothing was changed.
+    pub run: Arc<dyn Fn() -> Result<(), String> + Send + Sync>,
+}
+
+/// Makes the move, and starts the copy with the arguments this instance
+/// has: it waits for this one to end, as after "Restart now".
+#[cfg(target_os = "macos")]
+fn make_move(plan: &updater::Relocation, args: Vec<OsString>) -> Result<(), String> {
+    plan.run(&|executable| updater::start_to_take_over(executable, args.clone()))
+}
+
+/// Only macOS has a move to make ([`updater::install::relocation_in`]).
+#[cfg(not(target_os = "macos"))]
+fn make_move(_: &updater::Relocation, _: Vec<OsString>) -> Result<(), String> {
+    Err("There is no Applications folder on this system.".to_owned())
+}
+
+/// The move to the Applications folder, where it would let this copy
+/// update itself.
+pub fn relocation(cx: &App) -> Option<Move> {
+    cx.try_global::<Center>()
+        .and_then(|center| center.relocation.clone())
 }
 
 impl Global for Center {}
@@ -336,7 +395,7 @@ pub fn snapshot(cx: &App) -> Snapshot {
             last_check: None,
             notice: None,
             automatic: false,
-            unreachable: false,
+            failure: None,
         },
     }
 }
@@ -463,10 +522,18 @@ pub fn status_line(snapshot: &Snapshot) -> String {
         Phase::Disabled(reason) => format!("Updates are off: {reason}."),
         Phase::Idle => "Not checked yet.".to_owned(),
         Phase::Checking => "Checking…".to_owned(),
-        Phase::UpToDate if snapshot.unreachable => {
-            "The update server could not be reached. It is asked again later.".to_owned()
-        }
-        Phase::UpToDate => format!("{name} is up to date."),
+        // A check that failed says which way, and why: a server that is
+        // away and an update that was not taken are looked into
+        // differently. (The reason never holds the address.)
+        Phase::UpToDate => match &snapshot.failure {
+            Some(updater::Failure::Unreachable(reason)) => format!(
+                "The update server could not be reached: {reason}. It is asked again later."
+            ),
+            Some(updater::Failure::Refused(reason)) => {
+                format!("The update could not be used: {reason}. It is asked again later.")
+            }
+            None => format!("{name} is up to date."),
+        },
         Phase::Downloading {
             version,
             received,
@@ -539,7 +606,7 @@ pub(crate) mod tests {
             last_check: None,
             notice: None,
             automatic: true,
-            unreachable: false,
+            failure: None,
         }
     }
 
@@ -706,7 +773,7 @@ pub(crate) mod tests {
     fn every_state_reads_as_a_sentence() {
         let line = |phase| status_line(&snapshot_of(phase));
         assert!(line(Phase::Disabled(NO_KEY.into())).contains("no update key"));
-        assert_eq!(line(Phase::UpToDate), "wuapi Inbox is up to date.");
+        assert_eq!(line(Phase::UpToDate), "Wuapi is up to date.");
         assert_eq!(line(Phase::Checking), "Checking…");
         assert_eq!(
             line(Phase::Downloading {
@@ -730,10 +797,44 @@ pub(crate) mod tests {
             why: Manual::Install(updater::WhyNot::Packaged),
         });
         assert!(packaged.contains("package manager"), "{packaged}");
-        let unreachable = Snapshot {
-            unreachable: true,
-            ..snapshot_of(Phase::UpToDate)
+    }
+
+    #[test]
+    fn a_failed_check_says_which_way_it_failed_and_why() {
+        let failed = |failure| {
+            status_line(&Snapshot {
+                failure: Some(failure),
+                ..snapshot_of(Phase::UpToDate)
+            })
         };
-        assert!(status_line(&unreachable).contains("could not be reached"));
+        // Not reached: the reason, and that it passes by itself.
+        assert_eq!(
+            failed(updater::Failure::Unreachable(
+                "tcp connect error: Connection refused".into()
+            )),
+            "The update server could not be reached: tcp connect error: Connection refused. \
+             It is asked again later."
+        );
+        // Reached, and what it had was not taken: said as that, never as
+        // a server that is away.
+        let refused = failed(updater::Failure::Refused(
+            "the manifest's signature is not good: no key of this build made it".into(),
+        ));
+        assert_eq!(
+            refused,
+            "The update could not be used: the manifest's signature is not good: no key of \
+             this build made it. It is asked again later."
+        );
+        assert!(!refused.contains("reached"));
+        // An update that is ready stays what is said, whatever the check
+        // after it ran into.
+        let ready = status_line(&Snapshot {
+            failure: Some(updater::Failure::Unreachable("timed out".into())),
+            ..snapshot_of(Phase::Ready {
+                version: version("1.2.0"),
+                notes: String::new(),
+            })
+        });
+        assert!(ready.contains("is ready"), "{ready}");
     }
 }

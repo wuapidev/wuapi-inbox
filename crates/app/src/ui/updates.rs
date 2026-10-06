@@ -1,7 +1,9 @@
 //! Updates in the window: the About section (the version, the channel,
 //! when the source was last asked, what stands ready), the small notice
-//! in the rail when a restart would install a new version, and the two
-//! commands ("Check for updates", "Restart to update").
+//! in the rail when a restart would install a new version, the two
+//! commands ("Check for updates", "Restart to update"), and the question
+//! asked of a copy that cannot update itself where it was opened from:
+//! whether to move to the Applications folder.
 //!
 //! The window only shows what the updater last said (`crate::update`); it
 //! never waits for it and nothing here opens anything by itself.
@@ -18,7 +20,7 @@ use crate::update::{self, UrlFrom};
 use gpui_kit::component::input::{Input, InputState};
 use gpui_kit::component::tooltip::Tooltip;
 use gpui_kit::prelude::*;
-use gpui_kit::{div, Context, Div, Entity, FontWeight, SharedString, Stateful, Window};
+use gpui_kit::{div, Context, Div, Entity, FontWeight, SharedString, Stateful, Task, Window};
 use updater::{Manual, Phase};
 
 /// What the About section holds beside what the updater says.
@@ -32,6 +34,21 @@ pub(super) struct UpdateUi {
     pub(super) warned: bool,
     /// The advanced part (the update source) is unfolded.
     pub(super) advanced: bool,
+    /// Where the move to the Applications folder stands.
+    moving: Moving,
+    _moving: Option<Task<()>>,
+}
+
+/// The move to the Applications folder, as the window follows it.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+enum Moving {
+    /// Not asked for.
+    #[default]
+    No,
+    /// The application is being copied.
+    Working,
+    /// It was not moved, and why.
+    Failed(SharedString),
 }
 
 impl UpdateUi {
@@ -49,7 +66,18 @@ impl UpdateUi {
             said: None,
             warned: false,
             advanced: from != UrlFrom::Default,
+            moving: Moving::No,
+            _moving: None,
         }
+    }
+}
+
+/// An Applications folder, in words: the system's, or the user's own.
+fn folder_words(folder: &std::path::Path) -> &'static str {
+    if folder == std::path::Path::new("/Applications") {
+        "the Applications folder"
+    } else {
+        "the Applications folder of your home folder"
     }
 }
 
@@ -116,6 +144,191 @@ impl Shell {
                 cx,
             );
         }
+    }
+
+    /// Why the move to the Applications folder was not made, when it was
+    /// asked for and failed.
+    pub(super) fn move_failure(&self) -> Option<SharedString> {
+        match &self.updates.moving {
+            Moving::Failed(why) => Some(why.clone()),
+            _ => None,
+        }
+    }
+
+    /// "Move to Applications": the application is copied there off this
+    /// thread, the copy is started, and this one quits. A move that
+    /// fails says why, and has changed nothing.
+    pub(super) fn move_to_applications(&mut self, cx: &mut Context<Self>) {
+        let Some(offer) = update::relocation(cx) else {
+            return;
+        };
+        if self.updates.moving == Moving::Working {
+            return;
+        }
+        self.updates.moving = Moving::Working;
+        cx.notify();
+        self.updates._moving = Some(cx.spawn(async move |this, cx| {
+            let run = offer.run.clone();
+            let moved = cx.background_spawn(async move { run() }).await;
+            this.update(cx, |this, cx| match moved {
+                // The copy is waiting for this instance to end.
+                Ok(()) => cx.quit(),
+                Err(why) => {
+                    tracing::warn!(%why, "the application was not moved to the Applications folder");
+                    this.updates.moving = Moving::Failed(
+                        format!(
+                            "{PRODUCT_NAME} could not be moved: {}. Nothing was changed.",
+                            why.trim().trim_end_matches('.')
+                        )
+                        .into(),
+                    );
+                    cx.notify();
+                }
+            })
+            .ok();
+        }));
+    }
+
+    /// The question at the top of the chats, for a copy that was opened
+    /// from the disk image or from where it was downloaded to: there it
+    /// cannot replace itself with a new version, and in the Applications
+    /// folder it can. Asked until it is answered; "Not now" is remembered.
+    pub(super) fn render_move_prompt(
+        &self,
+        palette: &Palette,
+        cx: &mut Context<Self>,
+    ) -> Option<Div> {
+        let offer = update::relocation(cx)?;
+        if crate::settings::get(cx).move_prompt_done {
+            return None;
+        }
+        let working = self.updates.moving == Moving::Working;
+        Some(
+            div()
+                .flex_none()
+                .debug_selector(|| "move-prompt".into())
+                .px_4()
+                .py_3()
+                .border_b_1()
+                .border_color(palette.border)
+                .bg(palette.muted)
+                .flex()
+                .flex_col()
+                .gap_2()
+                .text_size(metrics::TEXT_SMALL())
+                .line_height(px(18.))
+                .text_color(palette.text)
+                .child(SharedString::from(format!(
+                    "Move {PRODUCT_NAME} to {}? From there it updates by itself.",
+                    folder_words(&offer.folder)
+                )))
+                .children(self.move_failure().map(|why| {
+                    div()
+                        .debug_selector(|| "move-failed".into())
+                        .text_color(palette.danger)
+                        .child(why)
+                }))
+                .child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap_2()
+                        .child(
+                            text_button(
+                                "move-accept",
+                                if working {
+                                    "Moving…"
+                                } else {
+                                    "Move to Applications"
+                                },
+                                None,
+                                true,
+                                palette,
+                            )
+                            .when(working, |this| this.opacity(0.6))
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                cx.stop_propagation();
+                                this.move_to_applications(cx);
+                            })),
+                        )
+                        .when(!working, |this| {
+                            this.child(
+                                text_button("move-not-now", "Not now", None, false, palette)
+                                    .on_click(cx.listener(|_, _, _, cx| {
+                                        cx.stop_propagation();
+                                        crate::settings::update(cx, |settings| {
+                                            settings.move_prompt_done = true
+                                        });
+                                        cx.notify();
+                                    })),
+                            )
+                        }),
+                ),
+        )
+    }
+
+    /// The same offer in Settings > About, where it stays after "Not
+    /// now": in place of a link to the download page.
+    fn render_move_offer(
+        &self,
+        offer: &update::Move,
+        palette: &Palette,
+        cx: &mut Context<Self>,
+    ) -> Div {
+        let working = self.updates.moving == Moving::Working;
+        div()
+            .p_3()
+            .rounded(metrics::RADIUS())
+            .border_1()
+            .border_color(palette.border)
+            .flex()
+            .flex_col()
+            .gap_2()
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap_3()
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .text_size(metrics::TEXT_SMALL())
+                            .line_height(px(19.))
+                            .text_color(palette.text)
+                            .child(SharedString::from(format!(
+                                "Where it was opened from, {PRODUCT_NAME} cannot replace itself \
+                                 with a new version. In {} it updates by itself.",
+                                folder_words(&offer.folder)
+                            ))),
+                    )
+                    .child(
+                        text_button(
+                            "update-move",
+                            if working {
+                                "Moving…"
+                            } else {
+                                "Move to Applications"
+                            },
+                            None,
+                            true,
+                            palette,
+                        )
+                        .when(working, |this| this.opacity(0.6))
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            cx.stop_propagation();
+                            this.move_to_applications(cx);
+                        })),
+                    ),
+            )
+            .children(self.move_failure().map(|why| {
+                div()
+                    .debug_selector(|| "update-move-failed".into())
+                    .text_size(metrics::TEXT_SMALL())
+                    .line_height(px(19.))
+                    .text_color(palette.danger)
+                    .child(why)
+            }))
     }
 
     /// Settings, on About.
@@ -194,10 +407,19 @@ impl Shell {
         let busy = matches!(snapshot.phase, Phase::Checking | Phase::Downloading { .. });
         let status = update::status_line(&snapshot);
         let checked = update::last_checked(&snapshot, updater::stage::now());
+        // A copy that can move to the Applications folder is offered
+        // that, and never the download page: the new version then comes
+        // by itself.
+        let relocation = update::relocation(cx);
         let (notes, ready, download) = match &snapshot.phase {
             Phase::Ready { notes, .. } => (notes.clone(), true, false),
             Phase::Available { notes, why, .. } => {
-                (notes.clone(), false, !matches!(why, Manual::NoBuild))
+                let by_hand = match why {
+                    Manual::NoBuild => false,
+                    Manual::Install(_) => relocation.is_none(),
+                    Manual::TooOld => true,
+                };
+                (notes.clone(), false, by_hand)
             }
             _ => (String::new(), false, false),
         };
@@ -311,6 +533,9 @@ impl Shell {
                         )
                     }),
             );
+        if let Some(offer) = &relocation {
+            updates = updates.child(self.render_move_offer(offer, palette, cx));
+        }
         if warned {
             updates = updates.child(
                 div()

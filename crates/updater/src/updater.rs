@@ -177,9 +177,39 @@ pub struct Snapshot {
     pub notice: Option<String>,
     /// Whether it asks by itself.
     pub automatic: bool,
-    /// The last check could not reach the source (or what it found did
-    /// not verify). Said in the About section only; never a failure.
-    pub unreachable: bool,
+    /// Why the last check did not end in an answer, if it did not. Said
+    /// in the About section only: the phase stays what it was.
+    pub failure: Option<Failure>,
+}
+
+impl Snapshot {
+    /// The last check could not reach the source. (One that reached it
+    /// and did not take what it had is not this: see [`Failure`].)
+    pub fn unreachable(&self) -> bool {
+        matches!(self.failure, Some(Failure::Unreachable(_)))
+    }
+}
+
+/// Why a check did not end in an answer, as the interface says it: which
+/// way it failed, and the reason in words. The words never hold an
+/// address.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Failure {
+    /// The source could not be reached, or the transfer was cut short.
+    /// It passes by itself: the next check may well succeed.
+    Unreachable(String),
+    /// The source answered, and what it had was not taken: not signed,
+    /// not whole, not what the manifest names, or not storable.
+    Refused(String),
+}
+
+impl Failure {
+    /// The reason, in words.
+    pub fn reason(&self) -> &str {
+        match self {
+            Self::Unreachable(reason) | Self::Refused(reason) => reason,
+        }
+    }
 }
 
 /// Why a check did not end in an answer.
@@ -203,6 +233,27 @@ pub enum CheckError {
     /// The staging area.
     #[error("the update could not be stored: {0}")]
     Io(#[from] std::io::Error),
+}
+
+impl CheckError {
+    /// The error as the interface says it. The address updates are taken
+    /// from is in the settings, and may hold whatever somebody put in it:
+    /// it is left out of the words.
+    pub fn failure(&self) -> Failure {
+        match self {
+            Self::Source(SourceError::Unreachable(reason)) => Failure::Unreachable(reason.clone()),
+            Self::Source(source) if source.is_transient() => {
+                Failure::Unreachable(source.to_string())
+            }
+            Self::Source(SourceError::BadBase(_, why)) => Failure::Refused(format!(
+                "updates cannot be taken from the address in the settings: {why}"
+            )),
+            Self::Source(SourceError::Refused(_)) => Failure::Refused(
+                "the update's file is at an address that is not allowed".to_owned(),
+            ),
+            other => Failure::Refused(other.to_string()),
+        }
+    }
 }
 
 /// One check, start to end: ask, verify, decide, download, verify, mark
@@ -403,7 +454,7 @@ impl Updater {
             last_check: None,
             notice: None,
             automatic: false,
-            unreachable: false,
+            failure: None,
         });
         Self {
             commands: None,
@@ -421,7 +472,7 @@ impl Updater {
             last_check: stored.last_check,
             notice: stored.notice,
             automatic,
-            unreachable: false,
+            failure: None,
         });
         let sender = Arc::new(sender);
         let (commands, inbox) = mpsc::unbounded_channel();
@@ -528,28 +579,34 @@ async fn run(
         let now = stage::now();
         let mut stored = State::load(&config.layout);
         stored.last_check = Some(now);
-        let unreachable = outcome.is_err();
-        let phase = match outcome {
+        let (phase, failure) = match outcome {
             Ok(phase) => {
                 failures = 0;
-                phase
+                (phase, None)
             }
             Err(error) => {
                 failures = failures.saturating_add(1);
-                let transient =
-                    matches!(&error, CheckError::Source(source) if source.is_transient());
-                if transient {
-                    tracing::debug!(%error, "no update could be looked for; trying again later");
-                } else {
-                    tracing::warn!(%error, "the update was not taken");
+                // Said without the address, and loud enough for the log
+                // of a released build: a check that keeps failing has a
+                // reason somebody will want to read.
+                let failure = error.failure();
+                match &failure {
+                    Failure::Unreachable(reason) => tracing::warn!(
+                        %reason, failures,
+                        "no update could be looked for; trying again later"
+                    ),
+                    Failure::Refused(reason) => {
+                        tracing::warn!(%reason, failures, "the update was not taken")
+                    }
                 }
-                // Not reachable, not signed, not whole: for the user it
-                // all comes to "no update", said quietly. What was ready
-                // before is still ready.
-                match before {
+                // Not reachable, not signed, not whole: the phase is "no
+                // update" all the same, and the About section says why.
+                // What was ready before is still ready.
+                let phase = match before {
                     ready @ Phase::Ready { .. } => ready,
                     _ => Phase::UpToDate,
-                }
+                };
+                (phase, Some(failure))
             }
         };
         stored.failures = failures;
@@ -557,7 +614,7 @@ async fn run(
         state.send_modify(|snapshot| {
             snapshot.phase = phase;
             snapshot.last_check = Some(now);
-            snapshot.unreachable = unreachable;
+            snapshot.failure = failure;
         });
         wait = config.schedule.wait(failures, random());
     }
@@ -566,6 +623,58 @@ async fn run(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_failed_check_says_whether_the_source_was_reached() {
+        // What passes by itself: the source was not reached.
+        let offline = CheckError::Source(SourceError::Unreachable("timed out".into()));
+        assert_eq!(offline.failure(), Failure::Unreachable("timed out".into()));
+        let cut = CheckError::Source(SourceError::Incomplete {
+            received: 5,
+            expected: 20,
+        });
+        assert_eq!(
+            cut.failure(),
+            Failure::Unreachable("the download stopped at 5 of 20 bytes".into())
+        );
+        // Everything else was reached, and what it had was not taken.
+        assert_eq!(
+            CheckError::Hash.failure(),
+            Failure::Refused("the downloaded file does not match the manifest's hash".into())
+        );
+        assert_eq!(
+            CheckError::Source(SourceError::Unsigned).failure(),
+            Failure::Refused("the manifest has no signature next to it".into())
+        );
+        assert!(matches!(
+            CheckError::TooLarge(9).failure(),
+            Failure::Refused(_)
+        ));
+        assert!(matches!(
+            CheckError::Io(std::io::Error::other("disk full")).failure(),
+            Failure::Refused(reason) if reason.contains("disk full")
+        ));
+    }
+
+    #[test]
+    fn why_a_check_failed_never_names_an_address() {
+        // The address is in the settings; what is shown and logged is no
+        // place for whatever somebody put in it.
+        let secret = "https://user:token@updates.example/private";
+        for error in [
+            CheckError::Source(SourceError::BadBase(secret.into(), "it is not HTTPS")),
+            CheckError::Source(SourceError::Refused(format!("{secret}/app.tar.zst"))),
+        ] {
+            let Failure::Refused(reason) = error.failure() else {
+                panic!("{error} was reached");
+            };
+            assert!(!reason.contains("example"), "{reason}");
+            assert!(!reason.contains("token"), "{reason}");
+            assert!(!reason.is_empty());
+        }
+        let bad_base = CheckError::Source(SourceError::BadBase(secret.into(), "it is not HTTPS"));
+        assert!(bad_base.failure().reason().contains("it is not HTTPS"));
+    }
 
     #[test]
     fn the_next_check_waits_longer_after_every_failure() {

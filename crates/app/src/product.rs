@@ -10,9 +10,11 @@
 //! The name is the product's; the look is the maker's. The brand assets
 //! are in `brand.rs` and the design tokens in `theme.rs`.
 
-/// The name shown to the user. "wuapi" is always lowercase, as the brand
-/// writes it.
-pub const PRODUCT_NAME: &str = "wuapi Inbox";
+/// The name shown to the user: the brand alone, with a capital, as a
+/// person reads it in a window's title, a menu and a list of applications.
+/// (It was "wuapi Inbox" in the first releases. What is data keeps that
+/// name: [`SLUG`], [`APP_ID`], the files of a release.)
+pub const PRODUCT_NAME: &str = "Wuapi";
 
 /// The name in a form safe for paths, the keychain service and the user
 /// agent. It is also the package and binary name.
@@ -27,7 +29,8 @@ pub const APP_ID: &str = "dev.wuapi.inbox";
 /// `rename.rs`).
 pub const LEGACY_SLUG: &str = "fastwhatsapp";
 
-/// Who makes it: the brand the application wears. Always lowercase.
+/// Who makes it: the service the application is a client of, as it
+/// writes itself. Always lowercase.
 pub const MAKER: &str = "wuapi";
 
 /// Where the source code will live. A placeholder until the repository is
@@ -51,7 +54,7 @@ pub fn user_agent() -> String {
 }
 
 /// This computer's name, for the line the sign-in shows in the browser
-/// ("wuapi Inbox on <host>"), as `wuapi login` sends its host name.
+/// ("Wuapi on <host>"), as `wuapi login` sends its host name.
 pub fn host_name() -> Option<String> {
     let from_file = || {
         ["/proc/sys/kernel/hostname", "/etc/hostname"]
@@ -113,7 +116,14 @@ mod tests {
     fn the_name_is_the_same_everywhere() {
         // The binary is named after the package.
         assert_eq!(env!("CARGO_PKG_NAME"), SLUG);
-        assert!(PRODUCT_NAME.starts_with("wuapi "), "the brand is lowercase");
+        // What a person reads is the brand alone, capitalised; the maker
+        // goes on writing itself in lowercase.
+        assert_eq!(PRODUCT_NAME, "Wuapi");
+        assert_eq!(PRODUCT_NAME.to_lowercase(), MAKER);
+        assert_eq!(MAKER, MAKER.to_lowercase());
+        // And what is data did not follow the name.
+        assert_eq!(SLUG, "wuapi-inbox");
+        assert_eq!(APP_ID, "dev.wuapi.inbox");
         assert!(!PRODUCT_NAME.to_lowercase().contains("whatsapp"));
         assert_eq!(user_agent(), format!("wuapi-inbox/{VERSION}"));
         assert!(REPOSITORY.ends_with(SLUG));

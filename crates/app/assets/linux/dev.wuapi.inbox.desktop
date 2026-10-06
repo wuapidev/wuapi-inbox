@@ -1,6 +1,6 @@
 [Desktop Entry]
 Type=Application
-Name=wuapi Inbox
+Name=Wuapi
 Comment=Native desktop chat client
 Exec=wuapi-inbox
 Icon=dev.wuapi.inbox

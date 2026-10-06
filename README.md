@@ -1,7 +1,7 @@
-# wuapi Inbox
+# Wuapi
 
 <p align="center">
-  <img src="docs/media/hero.webp" width="100%" alt="wuapi Inbox: WhatsApp, in a native window. The chat list and a conversation, on the demo data.">
+  <img src="docs/media/hero.webp" width="100%" alt="Wuapi: WhatsApp, in a native window. The chat list and a conversation, on the demo data.">
 </p>
 
 An open-source, native desktop WhatsApp client for macOS, Windows and Linux. It starts in 0.57 s, opens a chat in 13 ms and holds 120 MB of memory with a conversation open.
