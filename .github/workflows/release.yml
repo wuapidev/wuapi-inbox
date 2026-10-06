@@ -160,8 +160,8 @@ jobs:
           security list-keychain -d user -s "$keychain"
           codesign --force --options runtime --timestamp \
             --entitlements packaging/macos/entitlements.plist \
-            --sign "$MACOS_SIGNING_IDENTITY" "work/wuapi Inbox.app"
-          codesign --verify --deep --strict --verbose=2 "work/wuapi Inbox.app"
+            --sign "$MACOS_SIGNING_IDENTITY" "work/Wuapi.app"
+          codesign --verify --deep --strict --verbose=2 "work/Wuapi.app"
 
       - name: Say that the bundle is not signed (macOS)
         if: runner.os == 'macOS' && env.HAS_MACOS_CERTIFICATE != 'true'
@@ -174,10 +174,10 @@ jobs:
           APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
-          ditto -c -k --keepParent "work/wuapi Inbox.app" "$RUNNER_TEMP/notarize.zip"
+          ditto -c -k --keepParent "work/Wuapi.app" "$RUNNER_TEMP/notarize.zip"
           xcrun notarytool submit "$RUNNER_TEMP/notarize.zip" \
             --apple-id "$APPLE_ID" --password "$APPLE_APP_PASSWORD" --team-id "$APPLE_TEAM_ID" --wait
-          xcrun stapler staple "work/wuapi Inbox.app"
+          xcrun stapler staple "work/Wuapi.app"
 
       - name: Say that the bundle is not notarized (macOS)
         if: runner.os == 'macOS' && !(env.HAS_MACOS_CERTIFICATE == 'true' && env.HAS_APPLE_NOTARY == 'true')
@@ -194,12 +194,16 @@ jobs:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
           target/release/xtask package --platform "$PLATFORM" --out-dir dist \
-            --input "work/wuapi Inbox.app"
-          mkdir work/image
-          cp -R "work/wuapi Inbox.app" work/image/
-          ln -s /Applications work/image/Applications
+            --input "work/Wuapi.app"
+          # The image's window (the picture behind the icons, where they
+          # are, the volume's icon) is laid out by dmgbuild, which writes
+          # the settings Finder reads: Finder itself is never scripted.
+          # `xtask dmg` fails if the image comes out without them.
+          python3 -m venv "$RUNNER_TEMP/dmgbuild"
+          "$RUNNER_TEMP/dmgbuild/bin/pip" install --quiet dmgbuild==1.6.7
           image="dist/wuapi-inbox-$VERSION-$PLATFORM.dmg"
-          hdiutil create -volname "wuapi Inbox" -srcfolder work/image -ov -format UDZO "$image"
+          target/release/xtask dmg --input "work/Wuapi.app" --out "$image" \
+            --dmgbuild "$RUNNER_TEMP/dmgbuild/bin/dmgbuild"
           if [ "$HAS_MACOS_CERTIFICATE" = "true" ]; then
             codesign --force --timestamp --sign "$MACOS_SIGNING_IDENTITY" "$image"
             if [ "$HAS_APPLE_NOTARY" = "true" ]; then
@@ -350,5 +354,5 @@ jobs:
           if [ "$CHANNEL" != "stable" ]; then
             flags+=(--prerelease)
           fi
-          gh release create "$TAG" dist/* --verify-tag --title "wuapi Inbox $VERSION" \
+          gh release create "$TAG" dist/* --verify-tag --title "Wuapi $VERSION" \
             --notes-file notes.md "${flags[@]}"
