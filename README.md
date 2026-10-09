@@ -138,7 +138,8 @@ Builds are on the [releases page](https://github.com/wuapidev/wuapi-inbox/releas
 | macOS, Apple Silicon | `wuapi-inbox-<version>-macos-aarch64.dmg` | Open it and drag the application to Applications. |
 | macOS, Intel | `wuapi-inbox-<version>-macos-x86_64.dmg` | The same. |
 | Windows, x86_64 | `wuapi-inbox-<version>-windows-x86_64.zip` | There is no installer: unzip it and put the `.exe` in a folder you own. |
-| Linux, x86_64 | `wuapi-inbox-<version>-linux-x86_64.tar.gz` | Unpack it: the binary, a desktop entry, the icon and the licence. |
+| Linux, x86_64 | `wuapi-inbox-<version>-linux-x86_64.AppImage` | Make it executable and run it. It needs FUSE 2 (`libfuse2` on Debian and Ubuntu); without it, run it with `--appimage-extract-and-run`. |
+| Linux, x86_64 (archive) | `wuapi-inbox-<version>-linux-x86_64.tar.gz` | Unpack it: the binary, a desktop entry, the icon and the licence. The updater uses this one. |
 
 The macOS builds are signed and notarized. The Windows build is not code-signed yet, so Windows warns about an unknown publisher before it runs. `SHA256SUMS` in the release lists the checksum of every file. An installed copy looks for new versions and updates itself; the `.tar.gz` files for macOS and Windows are what the updater downloads. [docs/RELEASING.md](docs/RELEASING.md) has the details.
 
