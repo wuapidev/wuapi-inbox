@@ -24,6 +24,7 @@ fn listed(harness: &Harness, cx: &mut TestAppContext) -> Vec<(&'static str, Stri
                 ListRow::Community(community) => ("community", community.name.to_string()),
                 ListRow::Section(name) => ("section", (*name).to_owned()),
                 ListRow::Hit(_) => ("hit", String::new()),
+                ListRow::Contact(contact) => ("contact", contact.id.to_string()),
             })
             .collect()
     })
