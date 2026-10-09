@@ -5,6 +5,8 @@
 //! cargo xtask keygen                      a new signing key
 //! cargo xtask public                      the public half of $UPDATE_SIGNING_KEY
 //! cargo xtask package ...                 one platform's update archive
+//! cargo xtask dmg ...                     the macOS disk image of a bundle
+//! cargo xtask dmg-background ...          the picture behind its icons
 //! cargo xtask manifest ...                latest.json from a directory of archives
 //! cargo xtask manifest-name              the name of a channel's manifest
 //! cargo xtask sign --file latest.json     latest.json.sig, with $UPDATE_SIGNING_KEY
@@ -16,6 +18,8 @@
 //! `docs/RELEASING.md` says when each is used. The secret key is only
 //! ever read from the environment and written to standard output by
 //! `keygen`; this tool never puts it in a file.
+
+mod dmg;
 
 use std::collections::BTreeMap;
 use std::io::Write;
@@ -34,7 +38,7 @@ const NAME: &str = "wuapi-inbox";
 /// The version of the workspace: the one source of truth for a release.
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
-const USAGE: &str = "Release tooling for wuapi Inbox
+const USAGE: &str = "Release tooling for Wuapi
 
 Usage: cargo xtask <COMMAND>
 
@@ -48,6 +52,13 @@ Commands:
   package --platform <KEY> --input <PATH> [--input <PATH>...] --out-dir <DIR>
       Packs the binary (or the .app bundle), and anything else given, into
       <DIR>/wuapi-inbox-<version>-<KEY>.tar.gz.
+  dmg --input <BUNDLE> --out <FILE> [--volume <NAME>] [--dmgbuild <PROGRAM>]
+      macOS: builds the disk image of a .app bundle, with its window laid
+      out (packaging/macos/dmg-settings.py) over the picture of
+      crates/app/assets/brand/dmg-background.svg. Needs `dmgbuild`
+      (pip install dmgbuild), or the program given.
+  dmg-background --out-dir <DIR>
+      Renders that picture alone into <DIR>, at 1x and 2x.
   manifest --dir <DIR> [--out <FILE>] [--channel stable|beta]
            [--notes-file <FILE>] [--min-supported <VERSION>]
            [--rollback-from <VERSION>[,<VERSION>...]] [--require <KEY>[,<KEY>...]]
@@ -425,6 +436,22 @@ fn run(
         "keygen" => return keygen(out, notes),
         "public" => secret_key(key)?.public().to_text(),
         "package" => package(&parsed)?,
+        "dmg" => {
+            parsed.only(&["input", "out", "volume", "dmgbuild"])?;
+            let out = PathBuf::from(parsed.need("out")?);
+            dmg::build(
+                Path::new(parsed.need("input")?),
+                &out,
+                parsed.get("volume"),
+                parsed.get("dmgbuild"),
+            )?;
+            out.display().to_string()
+        }
+        "dmg-background" => {
+            parsed.only(&["out-dir"])?;
+            let (small, large) = dmg::write_background(Path::new(parsed.need("out-dir")?))?;
+            format!("{}\n{}", small.display(), large.display())
+        }
         "manifest" => manifest(&parsed)?.display().to_string(),
         "manifest-name" => {
             parsed.only(&["channel"])?;

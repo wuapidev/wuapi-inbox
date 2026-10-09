@@ -1224,6 +1224,38 @@ fn the_palette_finds_a_message_opens_its_chat_and_goes_to_it(cx: &mut TestAppCon
 }
 
 #[gpui_kit::test]
+fn the_menu_bar_runs_the_commands_of_the_window(cx: &mut TestAppContext) {
+    use crate::menu_bar;
+    let harness = open_chat_one(cx);
+    let section = |cx: &mut TestAppContext| cx.update(|cx| harness.shell.read(cx).settings_section);
+
+    // An entry of the bar is the command, run as its keys run it.
+    cx.dispatch_action(harness.window.into(), menu_bar::OpenSettings);
+    cx.run_until_parked();
+    assert_eq!(overlay(&harness, cx), Overlay::Settings);
+    // And with something open over the panes, as what applies anywhere.
+    cx.dispatch_action(harness.window.into(), menu_bar::About);
+    cx.run_until_parked();
+    assert_eq!(overlay(&harness, cx), Overlay::Settings);
+    assert_eq!(section(cx), crate::ui::shell::SettingsSection::About);
+    press(harness.window, "escape", cx);
+    assert_eq!(overlay(&harness, cx), Overlay::None);
+
+    // A question half answered is not left for the settings: the bar is
+    // held to what the keys are.
+    cx.update_window(harness.window.into(), |_, window, cx| {
+        harness.shell.update(cx, |shell, cx| {
+            shell.open_overlay(Overlay::NewGroup, window, cx)
+        })
+    })
+    .unwrap();
+    cx.run_until_parked();
+    cx.dispatch_action(harness.window.into(), menu_bar::OpenSettings);
+    cx.run_until_parked();
+    assert_eq!(overlay(&harness, cx), Overlay::NewGroup);
+}
+
+#[gpui_kit::test]
 fn the_palette_narrows_by_prefix_and_runs_commands_with_their_keys(cx: &mut TestAppContext) {
     let harness = open_chat_one(cx);
     press(harness.window, "ctrl-k", cx);

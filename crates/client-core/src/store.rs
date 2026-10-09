@@ -416,6 +416,10 @@ pub struct Store {
     writer: Mutex<Connection>,
     /// `None` for in-memory databases, which cannot be opened twice.
     reader: Option<Mutex<Connection>>,
+    /// The message search's own connection: a search through a large
+    /// history takes a while, and the views' reads do not wait behind it.
+    /// `None` for in-memory databases.
+    searcher: Option<Mutex<Connection>>,
     changes: broadcast::Sender<StoreChange>,
 }
 
@@ -463,11 +467,15 @@ impl Store {
         writer.busy_timeout(std::time::Duration::from_secs(5))?;
         migrations::migrate(&mut writer)?;
 
-        let reader = connect(path.as_ref(), key)?;
-        reader.pragma_update(None, "query_only", true)?;
-        reader.busy_timeout(std::time::Duration::from_secs(5))?;
+        let read_only = || -> StoreResult<Connection> {
+            let conn = connect(path.as_ref(), key)?;
+            conn.pragma_update(None, "query_only", true)?;
+            conn.busy_timeout(std::time::Duration::from_secs(5))?;
+            Ok(conn)
+        };
+        let (reader, searcher) = (read_only()?, read_only()?);
 
-        Ok(Self::with_connections(writer, Some(reader)))
+        Ok(Self::with_connections(writer, Some((reader, searcher))))
     }
 
     /// The schema version of the database at `path`, read without
@@ -570,11 +578,13 @@ impl Store {
         Ok(Self::with_connections(writer, None))
     }
 
-    fn with_connections(writer: Connection, reader: Option<Connection>) -> Self {
+    fn with_connections(writer: Connection, readers: Option<(Connection, Connection)>) -> Self {
         let (changes, _) = broadcast::channel(256);
+        let (reader, searcher) = readers.unzip();
         Self {
             writer: Mutex::new(writer),
             reader: reader.map(Mutex::new),
+            searcher: searcher.map(Mutex::new),
             changes,
         }
     }
@@ -600,6 +610,23 @@ impl Store {
     pub(crate) fn read<T>(&self, f: impl FnOnce(&Connection) -> StoreResult<T>) -> StoreResult<T> {
         let conn = Self::lock(self.reader.as_ref().unwrap_or(&self.writer));
         f(&conn)
+    }
+
+    /// A read on the search's connection, so that a long one holds up
+    /// nothing but another search.
+    fn search<T>(&self, f: impl FnOnce(&Connection) -> StoreResult<T>) -> StoreResult<T> {
+        match &self.searcher {
+            Some(searcher) => f(&Self::lock(searcher)),
+            None => self.read(f),
+        }
+    }
+
+    /// Runs `f` with the views' connection taken, as a read under way
+    /// has it.
+    #[cfg(test)]
+    pub(crate) fn while_reading<T>(&self, f: impl FnOnce() -> T) -> T {
+        let _busy = Self::lock(self.reader.as_ref().unwrap_or(&self.writer));
+        f()
     }
 
     pub(crate) fn write<T>(
@@ -1765,7 +1792,7 @@ impl Store {
         let Some(fts_query) = fts_query(query) else {
             return Ok(Vec::new());
         };
-        self.read(|conn| {
+        self.search(|conn| {
             // CROSS JOIN keeps the order as written: the index is asked
             // once and its matches looked up. Left to choose, SQLite walks
             // the messages by time and asks the index again for each one,

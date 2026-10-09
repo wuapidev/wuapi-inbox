@@ -32,6 +32,7 @@ mod linking;
 mod login;
 mod markup;
 mod mentioning;
+mod menu_bar;
 mod motion;
 mod pictures;
 mod product;
@@ -183,6 +184,10 @@ fn main() {
                     seconds,
                 )));
             }
+
+            // The menu bar, where the platform has one: before the window,
+            // so that it is never seen empty.
+            menu_bar::install(cx);
 
             let bounds = Bounds::centered(None, size(px(1240.), px(800.)), cx);
             let window = WindowOptions {

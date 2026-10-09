@@ -145,6 +145,10 @@ pub struct Settings {
     /// The tip that points at the palette was dismissed, or the palette
     /// was opened: it is not shown again.
     pub palette_tip_done: bool,
+    /// The question of moving to the Applications folder was answered
+    /// "not now": it is not asked again at the start. (Settings > About
+    /// keeps the way there.)
+    pub move_prompt_done: bool,
     /// The picker's tab last used: where the composer's button opens it.
     pub picker_tab: PickerTab,
     /// Search GIFs online, with the user's own API key (kept in the OS
@@ -182,6 +186,7 @@ impl Default for Settings {
             wallpaper: WallpaperChoice::default(),
             voice_speed: crate::audio::Speed::default(),
             palette_tip_done: false,
+            move_prompt_done: false,
             picker_tab: PickerTab::default(),
             gif_online: false,
             sticker_hover_animation: true,
@@ -381,6 +386,7 @@ mod tests {
             wallpaper: WallpaperChoice::Plain,
             voice_speed: crate::audio::Speed::Faster,
             palette_tip_done: true,
+            move_prompt_done: true,
             picker_tab: PickerTab::Stickers,
             gif_online: true,
             sticker_hover_animation: false,

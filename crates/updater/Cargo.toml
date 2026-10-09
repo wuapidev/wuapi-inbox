@@ -1,6 +1,6 @@
 [package]
 name = "updater"
-description = "Signed, resumable, recoverable self-update for wuapi Inbox"
+description = "Signed, resumable, recoverable self-update for Wuapi"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

@@ -493,6 +493,31 @@ fn full_text_search_ignores_case_and_accents_and_tolerates_syntax() {
         .is_empty());
 }
 
+#[test]
+fn a_search_under_way_does_not_hold_up_the_other_reads() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = Arc::new(Store::open(dir.path().join("store.db"), Some(&test_key())).unwrap());
+    seed_account(&store);
+    store.upsert_chat(&chat("chat", "Ana"), false).unwrap();
+    store
+        .upsert_message(&text("m1", "chat", 1, "the truck", Direction::Incoming))
+        .unwrap();
+
+    // With the views' connection busy, a search still answers: it has its
+    // own. (Asked on another thread, so that sharing one fails the test
+    // instead of hanging it.)
+    let (answer, answered) = std::sync::mpsc::channel();
+    let searching = store.clone();
+    let found = store.while_reading(|| {
+        std::thread::spawn(move || {
+            let hits = searching.search_messages(&account(), "truck", 10).unwrap();
+            let _ = answer.send(hits.len());
+        });
+        answered.recv_timeout(Duration::from_secs(5))
+    });
+    assert_eq!(found, Ok(1));
+}
+
 #[tokio::test]
 async fn writes_announce_what_changed() {
     let store = Store::open_in_memory().unwrap();

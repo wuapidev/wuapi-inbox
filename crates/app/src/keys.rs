@@ -644,6 +644,30 @@ impl Chord {
         }
     }
 
+    /// The chord as GPUI writes a keystroke (`cmd-shift-k`): what the menu
+    /// bar binds its entries to, so that it shows the keys of this table.
+    pub fn keystroke(&self) -> String {
+        let secondary = if cfg!(target_os = "macos") {
+            "cmd"
+        } else {
+            "ctrl"
+        };
+        let mut out = String::new();
+        for (held, name) in [
+            (self.control, "ctrl"),
+            (self.secondary, secondary),
+            (self.alt, "alt"),
+            (self.shift, "shift"),
+        ] {
+            if held && !out.contains(name) {
+                out.push_str(name);
+                out.push('-');
+            }
+        }
+        out.push_str(self.key);
+        out
+    }
+
     /// The chord as the platform writes it: `⇧⌘K` on macOS, `Ctrl+Shift+K`
     /// elsewhere.
     pub fn label(&self) -> String {
@@ -1809,7 +1833,7 @@ pub const BINDINGS: &[Binding] = &[
         W::Anywhere,
         &[],
     ),
-    bind(C::Quit, "Quit", S::Application, W::Anywhere, &[]),
+    bind(C::Quit, "Quit", S::Application, W::Anywhere, QUIT_KEYS),
     // Reached from the palette: no keys of their own.
     bind(
         C::ShowAllChats,
@@ -2080,6 +2104,14 @@ pub const BINDINGS: &[Binding] = &[
     ),
 ];
 
+/// Cmd+Q is how an application is quit on macOS, and what its menu bar
+/// says. The other desktops close the window: Ctrl+Q is left alone there.
+const QUIT_KEYS: &[Chord] = if cfg!(target_os = "macos") {
+    &[secondary("q")]
+} else {
+    &[]
+};
+
 /// Cmd or Ctrl with Enter in the palette: runs, and the palette stays.
 pub const RUN_AND_STAY: Chord = secondary("enter");
 
@@ -2201,6 +2233,52 @@ mod tests {
     } else {
         "ctrl"
     };
+
+    #[test]
+    fn quit_has_the_key_of_the_platform() {
+        // Cmd+Q is how an application is quit on macOS. Elsewhere the
+        // window is closed, and Ctrl+Q is left alone.
+        let quit = binding(Command::Quit).expect("Quit is in the registry");
+        if cfg!(target_os = "macos") {
+            assert_eq!(quit.chords, [secondary("q")]);
+            assert_eq!(keys_label(Command::Quit).as_deref(), Some("⌘Q"));
+            assert_eq!(
+                resolve(&stroke("cmd-q"), Context::default()),
+                Some(Command::Quit)
+            );
+            // Typing does not take it away.
+            let typing = Context {
+                typing: true,
+                ..Context::default()
+            };
+            assert_eq!(resolve(&stroke("cmd-q"), typing), Some(Command::Quit));
+        } else {
+            assert!(quit.chords.is_empty());
+            assert_eq!(resolve(&stroke("ctrl-q"), Context::default()), None);
+        }
+    }
+
+    #[test]
+    fn a_chord_written_for_gpui_is_the_chord() {
+        // The menu bar gives GPUI the keys of its entries: written out and
+        // read back, a chord is still itself.
+        assert_eq!(
+            secondary_shift("p").keystroke(),
+            format!("{SECONDARY}-shift-p")
+        );
+        assert_eq!(control("tab").keystroke(), "ctrl-tab");
+        assert_eq!(alt("up").keystroke(), "alt-up");
+        for binding in BINDINGS {
+            for chord in binding.chords {
+                assert!(
+                    chord.matches(&stroke(&chord.keystroke())),
+                    "{} of {:?} is not read back",
+                    chord.keystroke(),
+                    binding.command
+                );
+            }
+        }
+    }
 
     #[test]
     fn every_command_is_bound_once_and_named() {

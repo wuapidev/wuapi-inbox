@@ -1,5 +1,5 @@
 #!/bin/sh
-# Builds the .deb and .rpm of wuapi Inbox from the Linux archive a release
+# Builds the .deb and .rpm of Wuapi from the Linux archive a release
 # leaves in dist/ (docs/RELEASING.md), with nFPM:
 # https://nfpm.goreleaser.com
 #

@@ -17,8 +17,8 @@ use updater::sign;
 use updater::stage::{Pending, State};
 use updater::updater::{check, CheckError};
 use updater::{
-    Artifact, Channel, Config, Install, Layout, Manifest, Manual, Outcome, Phase, Rollback,
-    Schedule, SecretKey, Startup, Target, Timeouts, Updater, Version, WhyNot,
+    Artifact, Channel, Config, Failure, Install, Layout, Manifest, Manual, Outcome, Phase,
+    Rollback, Schedule, SecretKey, Startup, Target, Timeouts, Updater, Version, WhyNot,
 };
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, Request, Respond, ResponseTemplate};
@@ -103,10 +103,16 @@ impl World {
     /// Builds the release of `version`: its archive, its manifest and the
     /// manifest's signature, in a directory of their own.
     fn release(&self, version_text: &str, body: &str) -> Release {
+        let name = self.target.path.file_name().unwrap().to_owned();
+        self.release_named(version_text, body, &name)
+    }
+
+    /// As [`World::release`], with the file or the bundle of the archive
+    /// called `name`.
+    fn release_named(&self, version_text: &str, body: &str, name: &std::ffi::OsStr) -> Release {
         let dir = self.dir.path().join(format!("release-{version_text}"));
         let build = dir.join("build");
         std::fs::create_dir_all(&build).unwrap();
-        let name = self.target.path.file_name().unwrap();
         self.write_version(&build.join(name), body);
         let file_name = format!("{BINARY}-{version_text}-{PLATFORM}.tar.gz");
         let file = dir.join(&file_name);
@@ -379,6 +385,79 @@ async fn a_binary_is_updated_end_to_end() {
 #[tokio::test]
 async fn a_bundle_is_updated_end_to_end() {
     updates_end_to_end(PayloadKind::Bundle).await;
+}
+
+/// The application was called "wuapi Inbox" in its first releases, and
+/// their installs are bundles of that name. An archive whose bundle has
+/// today's name is taken by them all the same (the archive's first `.app`
+/// is the payload, and it takes the place of the install whatever either
+/// is called); the version it installs then gives its folder the new name.
+#[tokio::test]
+async fn an_install_under_the_former_name_takes_a_bundle_of_todays_and_then_its_name() {
+    let world = World::new(PayloadKind::Bundle);
+    let old = world.target.path.clone();
+    assert!(old.ends_with("wuapi Inbox.app"));
+    let release = world.release_named(
+        "1.1.0",
+        &program("1.1.0", 0),
+        std::ffi::OsStr::new("Wuapi.app"),
+    );
+    let server = release.serve().await;
+    let config = world.config(&server.uri());
+    assert!(matches!(
+        check(&config, &|_| {}).await.unwrap(),
+        Phase::Ready { .. }
+    ));
+
+    // The start of the old version installs it, where the old one was.
+    let new_version = world.startup("1.1.0", SCHEMA);
+    let spawn = |path: &Path| {
+        assert_eq!(path, world.target.executable());
+        // Not yet seen to start: nothing is renamed under an update that
+        // may still be undone.
+        assert_eq!(new_version.run(&no_spawn), Outcome::Continue);
+        assert_eq!(new_version.take_todays_name(&no_spawn), Outcome::Continue);
+        new_version.opening_store();
+        assert!(new_version.confirm_started());
+        fake(|| None)
+    };
+    assert_eq!(world.startup("1.0.0", SCHEMA).run(&spawn), Outcome::Exit(0));
+    assert_eq!(world.installed(), program("1.1.0", 0));
+    assert!(old.exists() && !old.with_file_name("Wuapi.app").exists());
+
+    // Its next start, with nothing left to undo, takes today's name and
+    // hands over to itself there.
+    let renamed = old.with_file_name("Wuapi.app");
+    let started = std::cell::RefCell::new(Vec::new());
+    let hand_over = |path: &Path| {
+        started.borrow_mut().push(path.to_owned());
+        fake(|| None)
+    };
+    let next = world.startup("1.1.0", SCHEMA);
+    assert_eq!(next.run(&no_spawn), Outcome::Continue);
+    assert_eq!(next.take_todays_name(&hand_over), Outcome::Exit(0));
+    assert_eq!(
+        *started.borrow(),
+        [renamed.join("Contents").join("MacOS").join(BINARY)]
+    );
+    assert!(!old.exists());
+    assert_eq!(
+        std::fs::read_to_string(&started.borrow()[0]).unwrap(),
+        program("1.1.0", 0)
+    );
+
+    // A copy that will not start under the new name keeps the old one.
+    std::fs::rename(&renamed, &old).unwrap();
+    let refused = |_: &Path| -> std::io::Result<Box<dyn Child>> {
+        Err(std::io::Error::other("it will not start"))
+    };
+    assert_eq!(next.take_todays_name(&refused), Outcome::Continue);
+    assert!(old.exists() && !renamed.exists());
+    // And where something has the name already, nothing is touched.
+    std::fs::create_dir(&renamed).unwrap();
+    assert_eq!(next.take_todays_name(&hand_over), Outcome::Continue);
+    assert!(old.exists());
+    assert_eq!(started.borrow().len(), 1);
 }
 
 /// The version before comes back when the new one ends with an error
@@ -1080,7 +1159,7 @@ async fn the_running_updater_checks_by_itself_and_when_asked() {
     assert_eq!(updater.snapshot().phase, Phase::Idle);
     let snapshot = until(&updater, |s| matches!(s.phase, Phase::Ready { .. })).await;
     assert!(snapshot.last_check.is_some());
-    assert!(!snapshot.unreachable);
+    assert_eq!(snapshot.failure, None);
     assert!(State::load(&world.layout).last_check.is_some());
     drop(updater);
 
@@ -1121,7 +1200,15 @@ async fn a_source_that_cannot_be_reached_is_no_update_said_quietly() {
     updater.check_now();
     let snapshot = until(&updater, |s| s.last_check.is_some()).await;
     assert_eq!(snapshot.phase, Phase::UpToDate);
-    assert!(snapshot.unreachable);
+    assert!(snapshot.unreachable());
+    // Why is kept, for the About section: what went wrong, and never the
+    // address it went wrong at.
+    let Some(Failure::Unreachable(reason)) = &snapshot.failure else {
+        panic!("not said to be unreachable: {:?}", snapshot.failure);
+    };
+    assert!(reason.contains("refused"), "{reason}");
+    let address = closed.trim_start_matches("http://");
+    assert!(!reason.contains(address), "{reason}");
     assert_eq!(State::load(&world.layout).failures, 1);
 
     // Another address is taken from then on, and its failures start at none.
@@ -1130,8 +1217,33 @@ async fn a_source_that_cannot_be_reached_is_no_update_said_quietly() {
     updater.set_base_url(server.uri());
     updater.check_now();
     let snapshot = until(&updater, |s| matches!(s.phase, Phase::Ready { .. })).await;
-    assert!(!snapshot.unreachable);
+    assert!(!snapshot.unreachable());
+    assert_eq!(snapshot.failure, None);
     assert_eq!(State::load(&world.layout).failures, 0);
+}
+
+#[tokio::test]
+async fn an_update_that_is_refused_is_not_a_source_out_of_reach() {
+    let world = World::new(PayloadKind::File);
+    let mut release = world.release("1.1.0", &program("1.1.0", 0));
+    // Signed by somebody else: the server answers, and is not believed.
+    release.signature = sign::sign(&SecretKey::generate().unwrap(), &release.manifest, "x");
+    let server = release.serve().await;
+    let updater = Updater::start(
+        world.config(&server.uri()),
+        false,
+        &tokio::runtime::Handle::current(),
+    );
+    updater.check_now();
+    let snapshot = until(&updater, |s| s.last_check.is_some()).await;
+    assert_eq!(snapshot.phase, Phase::UpToDate);
+    assert!(!snapshot.unreachable());
+    let Some(Failure::Refused(reason)) = &snapshot.failure else {
+        panic!("not said to be refused: {:?}", snapshot.failure);
+    };
+    assert!(reason.contains("signature"), "{reason}");
+    assert!(!reason.contains(&server.uri()), "{reason}");
+    assert_eq!(State::load(&world.layout).failures, 1);
 }
 
 /// Windows lets a running executable be renamed but not written or
