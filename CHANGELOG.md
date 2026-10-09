@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [0.2.0]
 
 * The app is called Wuapi, and its macOS bundle is `Wuapi.app`. The name in the menu bar and the About window is the same.
 * A menu bar item on macOS: the chats, the status and the updates, from the menu bar.

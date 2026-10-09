@@ -843,7 +843,7 @@ dependencies = [
 
 [[package]]
 name = "brand-mark"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "gpui-kit",
 ]
@@ -1079,7 +1079,7 @@ dependencies = [
 
 [[package]]
 name = "client-core"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "async-trait",
  "client-provider",
@@ -1099,7 +1099,7 @@ dependencies = [
 
 [[package]]
 name = "client-provider"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "async-trait",
  "futures",
@@ -5841,7 +5841,7 @@ dependencies = [
 
 [[package]]
 name = "provider-example"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "async-trait",
  "client-provider",
@@ -5851,7 +5851,7 @@ dependencies = [
 
 [[package]]
 name = "provider-mock"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "async-trait",
  "client-provider",
@@ -5861,7 +5861,7 @@ dependencies = [
 
 [[package]]
 name = "provider-wuapi"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -8327,7 +8327,7 @@ checksum = "8ecb6da28b8a351d773b68d5825ac39017e680750f980f3a1a85cd8dd28a47c1"
 
 [[package]]
 name = "updater"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "base64 0.22.1",
  "blake2",
@@ -9743,7 +9743,7 @@ dependencies = [
 
 [[package]]
 name = "wuapi-inbox"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "arboard",
  "async-trait",
@@ -9911,7 +9911,7 @@ checksum = "ec7a2a501ed189703dba8b08142f057e887dfc4b2cc4db2d343ac6376ba3e0b9"
 
 [[package]]
 name = "xtask"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "resvg 0.46.0",
  "serde_json",
