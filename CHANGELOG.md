@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+* Linux: an AppImage in every release, one file that runs without installing. The application tells about new versions instead of replacing it, as with the packages.
+* Linux: a one-line installer (`install.sh`), which installs under `~/.local` and keeps the self-updater working.
+* Linux: `.deb` and `.rpm` packages, which install under `/usr` and are updated by the system's package manager.
+
 ## [0.1.1]
 
 * A number linked from another device appears without restarting.
