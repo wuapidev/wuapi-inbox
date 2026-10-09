@@ -17,7 +17,7 @@ use crate::icons::{icon, IconName};
 use crate::product::{LICENCE, MAKER, PRODUCT_NAME, REPOSITORY, VERSION};
 use crate::theme::{metrics, px, Palette};
 use crate::update::{self, UrlFrom};
-use gpui_kit::component::input::{Input, InputState};
+use gpui_kit::component::input::InputState;
 use gpui_kit::component::tooltip::Tooltip;
 use gpui_kit::prelude::*;
 use gpui_kit::{div, Context, Div, Entity, FontWeight, SharedString, Stateful, Task, Window};
@@ -737,7 +737,7 @@ impl Shell {
                             .bg(palette.surface)
                             .flex()
                             .items_center()
-                            .child(Input::new(&self.updates.url_input).appearance(false)),
+                            .child(super::widgets::field(&self.updates.url_input)),
                     )
                     .when(url_from != UrlFrom::CommandLine, |this| {
                         this.child(

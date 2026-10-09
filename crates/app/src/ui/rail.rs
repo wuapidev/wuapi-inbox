@@ -177,11 +177,19 @@ impl Shell {
         rail::key(self.engine.provider_id(), account.as_str())
     }
 
+    /// The numbers there is something to show for: the ones a phone was
+    /// linked to. One that was created and never linked is not in the rail
+    /// and is not switched to; it waits under Settings, to link or remove.
+    pub(super) fn linked_accounts(&self) -> impl Iterator<Item = &Account> {
+        self.accounts
+            .iter()
+            .filter(|account| !account.never_linked())
+    }
+
     /// The account a key of the rail stands for, when it is one of this
     /// session's.
     pub(super) fn rail_account(&self, key: &Key) -> Option<&Account> {
-        self.accounts
-            .iter()
+        self.linked_accounts()
             .find(|account| self.rail_key(&account.id) == *key)
     }
 

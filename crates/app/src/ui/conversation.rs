@@ -17,7 +17,7 @@ use crate::theme::px;
 use crate::theme::{metrics, Palette};
 use client_core::message_preview;
 use client_provider::{ChatKind, Direction, PresenceState, Timestamp};
-use gpui_kit::component::input::{Input, Textarea};
+use gpui_kit::component::input::Textarea;
 use gpui_kit::component::scroll::Scrollbar;
 use gpui_kit::component::Sizable;
 use gpui_kit::prelude::*;
@@ -286,7 +286,7 @@ impl Shell {
                             div()
                                 .flex_1()
                                 .min_w_0()
-                                .child(Input::new(&search.input).appearance(false)),
+                                .child(super::widgets::field(&search.input)),
                         )
                         .child(
                             mono(count)
@@ -605,11 +605,10 @@ impl Shell {
         let short = viewport.height < px(660.);
 
         let connected = self
-            .accounts
-            .iter()
+            .linked_accounts()
             .filter(|account| account.connection.is_connected())
             .count();
-        let (light, status): (_, SharedString) = match (self.accounts.len(), connected) {
+        let (light, status): (_, SharedString) = match (self.linked_accounts().count(), connected) {
             (0, _) => (palette.text_faint, "No numbers yet".into()),
             (1, 1) => (palette.accent, "1 number connected".into()),
             (all, on) if all == on => (palette.accent, format!("{on} numbers connected").into()),

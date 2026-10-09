@@ -3799,7 +3799,9 @@ fn a_number_that_never_linked_is_offered_to_link_or_remove(cx: &mut TestAppConte
         assert!(shell.accounts[1].never_linked());
         assert!(!shell.accounts[0].never_linked());
     });
-    assert!(shows(harness.window, "rail-account-1", cx));
+    // Nothing to show for it yet: it is not in the rail.
+    assert!(shows(harness.window, "rail-account-0", cx));
+    assert!(!shows(harness.window, "rail-account-1", cx));
 
     click(harness.window, "settings", cx);
     // Not a broken session: it says what it is, with the two things to do.
@@ -3832,6 +3834,21 @@ fn a_number_that_never_linked_is_offered_to_link_or_remove(cx: &mut TestAppConte
     assert_eq!(harness.mock.deleted_accounts(), vec![second, id]);
     assert_eq!(stored_accounts(&harness).len(), 1);
     assert!(!shows(harness.window, "number-unlinked-1", cx));
+}
+
+#[gpui_kit::test]
+fn a_text_field_is_as_tall_as_its_line(cx: &mut TestAppContext) {
+    let harness = open(cx, ShellOptions::default());
+    // The component library would give it two rems less sixteen pixels,
+    // which is less than a line at this text size: the text was cut.
+    let field = bounds(harness.window, "chat-search-field", cx);
+    let line = crate::theme::metrics::TEXT_BODY() * 1.25;
+    assert!(
+        field.size.height >= line,
+        "{:?} < {line:?}",
+        field.size.height
+    );
+    assert!(field.size.height < line + px(1.), "{:?}", field.size.height);
 }
 
 // ----- the rail -------------------------------------------------------------
@@ -4063,7 +4080,7 @@ fn numbers_are_grouped_reordered_and_rolled_up_from_the_menu_and_the_keyboard(
     let file = dir.path().join(settings::FILE_NAME);
     cx.update(|cx| prepare(cx, Some(file.clone())));
     let harness = open_prepared(cx, ShellOptions::default());
-    // A third number, never linked.
+    // A third number, linked meanwhile.
     let new = NewAccount {
         name: Some("Third".into()),
         place: None,
@@ -4077,9 +4094,11 @@ fn numbers_are_grouped_reordered_and_rolled_up_from_the_menu_and_the_keyboard(
         .unwrap()
         .account
         .id;
-    harness
-        .mock
-        .stop_link(&third, "The number was not linked in time.");
+    // Until a phone is linked to it, it is not in the rail.
+    harness.runtime.block_on(harness.engine.refresh()).unwrap();
+    cx.run_until_parked();
+    assert_eq!(rail_shape(&harness, cx), "personal work");
+    harness.mock.complete_link(&third);
     harness
         .runtime
         .block_on(harness.mock.link_status(&third))
@@ -4087,10 +4106,7 @@ fn numbers_are_grouped_reordered_and_rolled_up_from_the_menu_and_the_keyboard(
     harness.runtime.block_on(harness.engine.refresh()).unwrap();
     cx.run_until_parked();
     assert_eq!(rail_shape(&harness, cx), "personal work new_1");
-    // A number that never linked is offered Link and Remove, not Log out.
     right_click(harness.window, "rail-account-2", cx);
-    assert!(shows(harness.window, "rail-link", cx) && shows(harness.window, "rail-remove", cx));
-    assert!(!shows(harness.window, "rail-logout", cx));
 
     // A group, from the menu: this number with another.
     click(harness.window, "rail-group-with-0", cx);

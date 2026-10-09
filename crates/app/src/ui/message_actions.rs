@@ -22,7 +22,7 @@ use client_core::message_preview;
 use client_provider::{
     ChatId, ChatKind, DeliveryStatus, Direction, Message, MessageContent, MessageId,
 };
-use gpui_kit::component::input::{Input, InputState};
+use gpui_kit::component::input::InputState;
 use gpui_kit::prelude::*;
 use gpui_kit::{
     div, ClipboardItem, Context, Div, Entity, FontWeight, KeyDownEvent, SharedString, Stateful,
@@ -1185,7 +1185,7 @@ impl Shell {
                             div()
                                 .flex_1()
                                 .min_w_0()
-                                .child(Input::new(&self.acting.forward_input).appearance(false)),
+                                .child(super::widgets::field(&self.acting.forward_input)),
                         ),
                 ),
             )

@@ -1061,16 +1061,19 @@ impl Shell {
         let still_there = self
             .account
             .as_ref()
-            .is_some_and(|id| self.accounts.iter().any(|account| &account.id == id));
+            .is_some_and(|id| self.linked_accounts().any(|account| &account.id == id));
         if !still_there {
-            self.account = self.accounts.first().map(|account| account.id.clone());
+            let first = self
+                .linked_accounts()
+                .next()
+                .map(|account| account.id.clone());
+            self.account = first;
             self.open = None;
         }
-        // The rail follows the numbers that exist.
+        // The rail follows the numbers that exist and were linked.
         let provider = self.engine.provider_id();
         let keys: Vec<String> = self
-            .accounts
-            .iter()
+            .linked_accounts()
             .map(|account| crate::rail::key(provider, account.id.as_str()))
             .collect();
         if self.rail.reconcile(provider, &keys) {
@@ -1119,6 +1122,10 @@ impl Shell {
         }
         let mut rows = Vec::new();
         for account in &self.accounts {
+            // Nothing is listed for a number no phone was linked to.
+            if account.never_linked() {
+                continue;
+            }
             let is_current = Some(&account.id) == self.account.as_ref();
             let filter = Some(self.query.as_str()).filter(|query| is_current && !query.is_empty());
             let listed = if is_current && self.filter == ChatFilter::Archived {
