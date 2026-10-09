@@ -278,7 +278,7 @@ impl Shell {
         self.search
             .update(cx, |field, cx| field.set_value(text, window, cx));
         self.query = text.trim().to_owned();
-        self.reload_chats(cx);
+        self.search_changed(cx);
         cx.notify();
     }
 
