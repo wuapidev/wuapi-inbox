@@ -335,6 +335,10 @@ fn searching_filters_chats_and_finds_messages(cx: &mut TestAppContext) {
     })
     .unwrap();
     cx.run_until_parked();
+    // The messages are looked for off this thread, a moment after the
+    // last key: typing never waits for them.
+    assert_eq!(message_hits(&harness, cx), 0);
+    wait_for_message_search(cx);
     cx.update(|cx| {
         let shell = harness.shell.read(cx);
         assert!(matches!(
@@ -346,6 +350,99 @@ fn searching_filters_chats_and_finds_messages(cx: &mut TestAppContext) {
             .iter()
             .any(|row| matches!(row, ListRow::Hit(_))));
     });
+}
+
+/// How many messages the chat list shows as found.
+fn message_hits(harness: &Harness, cx: &mut TestAppContext) -> usize {
+    cx.update(|cx| {
+        harness
+            .shell
+            .read(cx)
+            .list_rows
+            .iter()
+            .filter(|row| matches!(row, ListRow::Hit(_)))
+            .count()
+    })
+}
+
+/// Lets the chat list's message search start and answer.
+fn wait_for_message_search(cx: &mut TestAppContext) {
+    cx.executor()
+        .advance_clock(crate::motion::SEARCH_DEBOUNCE + Duration::from_millis(10));
+    cx.run_until_parked();
+}
+
+/// Replaces what the search field holds with `text`.
+fn search_for(harness: &Harness, text: &str, cx: &mut TestAppContext) {
+    let search = cx.update(|cx| harness.shell.read(cx).search.clone());
+    let field: ElementId = ("input", search.entity_id()).into();
+    cx.update_window(harness.window.into(), |_, window, cx| {
+        window.click(field, cx);
+        window.press(&platform_key("ctrl-a"), cx);
+        if text.is_empty() {
+            window.press("backspace", cx);
+        } else {
+            window.input(text, cx);
+        }
+    })
+    .unwrap();
+    cx.run_until_parked();
+}
+
+#[gpui_kit::test]
+fn a_newer_search_wins_and_an_emptied_one_clears_the_messages(cx: &mut TestAppContext) {
+    let harness = open(cx, ShellOptions::default());
+
+    // A search replaced before it started never shows what it found.
+    search_for(&harness, "dentist", cx);
+    search_for(&harness, "zzzzzz", cx);
+    wait_for_message_search(cx);
+    assert_eq!(message_hits(&harness, cx), 0);
+
+    search_for(&harness, "dentist", cx);
+    wait_for_message_search(cx);
+    assert!(message_hits(&harness, cx) > 0);
+
+    // Emptying the field takes the messages away at once, and a search
+    // still waiting to start does not bring them back.
+    search_for(&harness, "dentis", cx);
+    search_for(&harness, "", cx);
+    assert_eq!(message_hits(&harness, cx), 0);
+    wait_for_message_search(cx);
+    assert_eq!(message_hits(&harness, cx), 0);
+    cx.update(|cx| {
+        let shell = harness.shell.read(cx);
+        assert!(shell.query.is_empty());
+        assert!(shell
+            .list_rows
+            .iter()
+            .any(|row| matches!(row, ListRow::Chat(_))));
+    });
+}
+
+#[gpui_kit::test]
+fn one_letter_filters_the_chats_without_searching_the_messages(cx: &mut TestAppContext) {
+    let harness = open(cx, ShellOptions::default());
+    let all_chats = cx.update(|cx| harness.shell.read(cx).list_rows.len());
+
+    // A single letter starts a great share of all the words there are:
+    // the titles are filtered by it, the messages are left alone.
+    search_for(&harness, "d", cx);
+    wait_for_message_search(cx);
+    cx.update(|cx| {
+        let shell = harness.shell.read(cx);
+        assert!(!shell.list_rows.is_empty());
+        assert!(shell.list_rows.len() < all_chats);
+        assert!(shell.list_rows.iter().all(|row| match row {
+            ListRow::Chat(chat) => chat.title.to_lowercase().contains('d'),
+            _ => false,
+        }));
+    });
+
+    // The second letter asks.
+    search_for(&harness, "de", cx);
+    wait_for_message_search(cx);
+    assert!(message_hits(&harness, cx) > 0);
 }
 
 #[gpui_kit::test]

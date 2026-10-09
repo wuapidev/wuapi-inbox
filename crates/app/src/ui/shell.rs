@@ -158,6 +158,11 @@ pub struct AudioView {
 const MESSAGE_WINDOW: usize = 120;
 /// Message search results shown under the matching chats.
 const MAX_HITS: usize = 40;
+/// The shortest search that looks through the messages. A single letter
+/// starts a great share of all the words there are, and finding every one
+/// of them is the slowest question the store can be asked; the chats are
+/// filtered by it all the same.
+const MIN_MESSAGE_SEARCH: usize = 2;
 /// Address-book contacts shown under the matching chats.
 const MAX_CONTACT_HITS: usize = 20;
 /// The chats are asked for again while searching, at most this often.
@@ -449,6 +454,34 @@ pub(super) enum ListRow {
     Contact(Contact),
 }
 
+/// The messages the chat list's search found. They are read off this
+/// thread, a moment after the last key, so typing never waits for them.
+#[derive(Default)]
+pub(super) struct FoundMessages {
+    /// What the store was last asked: the number, and the text.
+    asked: Option<(AccountId, String)>,
+    hits: Vec<SearchHit>,
+    /// A question is waiting to start, or for its answer.
+    pub(super) searching: bool,
+    /// Dropped by a newer question, and its answer with it.
+    _search: Option<Task<()>>,
+}
+
+/// Lists `hits` under the chats of `rows`, in place of what was there.
+fn list_found(rows: &mut Vec<ListRow>, hits: &[SearchHit]) {
+    // The messages are the last section; the contacts above them stay.
+    if let Some(section) = rows
+        .iter()
+        .position(|row| matches!(row, ListRow::Section("Messages")))
+    {
+        rows.truncate(section);
+    }
+    if !hits.is_empty() {
+        rows.push(ListRow::Section("Messages"));
+        rows.extend(hits.iter().cloned().map(|hit| ListRow::Hit(Box::new(hit))));
+    }
+}
+
 /// The chat shown in the conversation pane.
 pub(super) struct OpenChat {
     pub(super) chat: ChatSummary,
@@ -491,6 +524,7 @@ pub struct Shell {
 
     pub(super) filter: ChatFilter,
     pub(super) query: String,
+    pub(super) found: FoundMessages,
     /// When the chats were last asked for because of a search.
     pub(super) search_refreshed: Option<Instant>,
     pub(super) list_rows: Vec<ListRow>,
@@ -874,6 +908,7 @@ impl Shell {
             filter: ChatFilter::All,
             has_communities: false,
             query: String::new(),
+            found: FoundMessages::default(),
             search_refreshed: None,
             list_rows: Vec::new(),
             chat_scroll: UniformListScrollHandle::new(),
@@ -1164,16 +1199,10 @@ impl Shell {
             }
         }
 
-        if let (Some(account), false) = (&self.account, self.query.is_empty()) {
-            let hits = self
-                .store
-                .search_messages(account, &self.query, MAX_HITS)
-                .unwrap_or_default();
-            if !hits.is_empty() {
-                rows.push(ListRow::Section("Messages"));
-                rows.extend(hits.into_iter().map(|hit| ListRow::Hit(Box::new(hit))));
-            }
-        }
+        // The chats are listed now; the messages follow when the store
+        // has answered.
+        self.find_messages(cx);
+        list_found(&mut rows, &self.found.hits);
         self.list_rows = rows;
 
         // Keep the open chat's header fresh, and its unread count at zero:
@@ -1201,6 +1230,64 @@ impl Shell {
                 self.open_chat(chat_id, None, cx);
             }
         }
+    }
+
+    /// Asks the store for the messages matching the search, off this
+    /// thread and a moment later: a word typed is one question, not one
+    /// per letter, and a newer question drops the one before it. Asked
+    /// again whenever the chats are read again, since what the store holds
+    /// may have changed.
+    fn find_messages(&mut self, cx: &mut Context<Self>) {
+        let wanted = self.account.clone().zip(
+            Some(self.query.clone()).filter(|query| query.chars().count() >= MIN_MESSAGE_SEARCH),
+        );
+        let Some((account, query)) = wanted.clone() else {
+            // Nothing to look for: what was found goes, and so does a
+            // question still on its way.
+            self.found = FoundMessages::default();
+            return;
+        };
+        if self.found.asked == wanted && self.found.searching {
+            return;
+        }
+        // Letters added to the search narrow what is listed, which stays
+        // until the answer; anything else was found for another question.
+        let narrows = self
+            .found
+            .asked
+            .as_ref()
+            .is_some_and(|(of, asked)| *of == account && query.starts_with(asked.as_str()));
+        if !narrows {
+            self.found.hits.clear();
+        }
+        self.found.asked = wanted.clone();
+        self.found.searching = true;
+        let store = self.store.clone();
+        self.found._search = Some(cx.spawn(async move |this, cx| {
+            cx.background_executor()
+                .timer(motion::SEARCH_DEBOUNCE)
+                .await;
+            let hits = cx
+                .background_spawn(async move {
+                    store
+                        .search_messages(&account, &query, MAX_HITS)
+                        .unwrap_or_else(|error| {
+                            tracing::error!(%error, "could not search messages");
+                            Vec::new()
+                        })
+                })
+                .await;
+            this.update(cx, |this, cx| {
+                if this.found.asked != wanted {
+                    return;
+                }
+                this.found.searching = false;
+                this.found.hits = hits;
+                list_found(&mut this.list_rows, &this.found.hits);
+                cx.notify();
+            })
+            .ok();
+        }));
     }
 
     fn reload_messages(&mut self, cx: &mut Context<Self>) {
@@ -1878,16 +1965,7 @@ impl Shell {
         if key == "escape" && self.rail_cancel(cx) {
             return cx.stop_propagation();
         }
-        // In the middle of linking a number, or of a question about one:
-        // nothing else opens over it and leaves it half done.
-        if matches!(
-            self.overlay,
-            Overlay::AddNumber
-                | Overlay::NumberAction
-                | Overlay::NewGroup
-                | Overlay::OwnProfile
-                | Overlay::AttachSheet
-        ) {
+        if self.mid_question() {
             return;
         }
         // Every other key is looked up in the registry (`crate::keys`),
@@ -1909,6 +1987,37 @@ impl Shell {
         }
         if self.run_command(command, window, cx) {
             cx.stop_propagation();
+            cx.notify();
+        }
+    }
+
+    /// In the middle of linking a number, or of a question about one:
+    /// nothing else opens over it and leaves it half done.
+    fn mid_question(&self) -> bool {
+        matches!(
+            self.overlay,
+            Overlay::AddNumber
+                | Overlay::NumberAction
+                | Overlay::NewGroup
+                | Overlay::OwnProfile
+                | Overlay::AttachSheet
+        )
+    }
+
+    /// An entry of the menu bar was chosen, or its keys pressed: the
+    /// command runs as it does from the window's own keys, and is held to
+    /// the same rule. (Quitting does not come this way: it needs no
+    /// window, see `menu_bar::install`.)
+    fn menu_bar_entry(
+        &mut self,
+        entry: &dyn gpui_kit::Action,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(command) = crate::menu_bar::command(entry) else {
+            return;
+        };
+        if !self.mid_question() && self.run_command(command, window, cx) {
             cx.notify();
         }
     }
@@ -2918,6 +3027,22 @@ impl Render for Shell {
             .on_key_down(cx.listener(|this, event: &KeyDownEvent, window, cx| {
                 this.shortcut(event, window, cx)
             }))
+            // The menu bar's entries that are commands of this window.
+            .on_action(
+                cx.listener(|this, action: &crate::menu_bar::About, window, cx| {
+                    this.menu_bar_entry(action, window, cx)
+                }),
+            )
+            .on_action(
+                cx.listener(|this, action: &crate::menu_bar::OpenSettings, window, cx| {
+                    this.menu_bar_entry(action, window, cx)
+                }),
+            )
+            .on_action(cx.listener(
+                |this, action: &crate::menu_bar::CheckForUpdates, window, cx| {
+                    this.menu_bar_entry(action, window, cx)
+                },
+            ))
             .on_mouse_move(
                 cx.listener(|this, event: &gpui_kit::MouseMoveEvent, _, cx| {
                     this.drag_list_edge(event.position.x, cx);

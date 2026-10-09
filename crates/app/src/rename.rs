@@ -1,6 +1,6 @@
 //! Moving an install made under the product's working name to its name.
 //!
-//! Before it was "wuapi Inbox" the application kept its data in a
+//! Before it had its name ("wuapi Inbox", then "Wuapi") the application kept its data in a
 //! directory and a keychain service named after its working title. On the
 //! first start under the new name, if the new directory does not exist and
 //! the old one does, everything moves: the directory (databases, their

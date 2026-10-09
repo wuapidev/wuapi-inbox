@@ -136,6 +136,7 @@ impl Shell {
                         )
                     })
             }))
+            .children(self.render_move_prompt(&palette, cx))
             .children(self.render_connection_banner(&palette, cx))
             // Who has something new, a click away from the chats.
             .children(self.render_story_strip(&palette, cx))
@@ -360,7 +361,9 @@ impl Shell {
     }
 
     fn render_empty_list(&self, palette: &Palette) -> impl IntoElement {
-        let (title, detail): (&str, &str) = if !self.query.is_empty() {
+        let (title, detail): (&str, &str) = if self.found.searching {
+            ("Searching", "Looking through your messages.")
+        } else if !self.query.is_empty() {
             ("No results", "No chats or messages match your search.")
         } else if self.filter == ChatFilter::Archived {
             ("No archived chats", "Chats you archive are kept here.")

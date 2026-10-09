@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 660 440" width="660" height="440">
+  <!-- The window of the macOS disk image, behind its two icons. Rendered at
+       1x and 2x by `cargo xtask dmg`; the icons are placed by
+       packaging/macos/dmg-settings.py from the same numbers (crates/xtask/src/dmg.rs).
+       Colours are the theme's (crates/app/src/theme.rs): BLACK, PAPER,
+       STONE_400, LIME around the tray; PAPER, INK, OLIVE on it. The type is Inter Medium, the application's. -->
+  <defs>
+    <!-- The tile of wallpaper-lines.svg, in PAPER instead of black. -->
+    <pattern id="lines" width="168" height="168" patternUnits="userSpaceOnUse">
+      <g fill="none" stroke="#FAFAF9" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"><circle cx="63" cy="21" r="1.1" fill="#FAFAF9" stroke="none"/><path d="M99.5,21H110.5M105,15.5V26.5"/><circle cx="147" cy="21" r="1.1" fill="#FAFAF9" stroke="none"/><circle cx="21" cy="63" r="1.1" fill="#FAFAF9" stroke="none"/><g transform="translate(55.8 55.8) scale(0.6)" stroke-width="1.8"><path d="M18 6 7 17l-5-5"/><path d="m22 10-7.5 7.5L13 16"/></g><circle cx="105" cy="63" r="1.1" fill="#FAFAF9" stroke="none"/><path d="M143.5,58h-3v10h3M150.5,58h3v10h-3"/><path d="M15.5,105H26.5M21,99.5V110.5"/><circle cx="63" cy="105" r="1.1" fill="#FAFAF9" stroke="none"/><circle cx="147" cy="105" r="1.1" fill="#FAFAF9" stroke="none"/><circle cx="21" cy="147" r="1.1" fill="#FAFAF9" stroke="none"/><path d="M59.5,142h-3v10h3M66.5,142h3v10h-3"/><circle cx="105" cy="147" r="1.1" fill="#FAFAF9" stroke="none"/><g transform="translate(139.8 139.8) scale(0.6)" stroke-width="1.8"><path d="M18 6 7 17l-5-5"/><path d="m22 10-7.5 7.5L13 16"/></g></g>
+    </pattern>
+  </defs>
+
+  <rect width="660" height="440" fill="#0A0A0A"/>
+  <rect width="660" height="440" fill="url(#lines)" opacity="0.07"/>
+
+  <!-- The mark (mark-color.svg), as a signature. -->
+  <g transform="translate(28 26) scale(0.40625)"><path d="M10,0 H54 A10,10 0 0 1 64,10 V54 A10,10 0 0 1 54,64 H0 V10 A10,10 0 0 1 10,0 Z" fill="#D4FF3F"/><g transform="translate(1.25 3.1) scale(0.96)"><g><rect x="19.8" y="14.8" width="6.4" height="6.4" rx="3.2" fill="#0A0A0A"/><rect x="38.8" y="14.8" width="6.4" height="6.4" rx="3.2" fill="#0A0A0A"/></g><path d="M12,30 L20,45 L32.5,32 L45,45 L53,30" fill="none" stroke="#0A0A0A" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/></g></g>
+
+  <!-- The tray the two icons lie on, with the names Finder writes under
+       them. Finder writes those in black over a picture, whatever the
+       system's appearance: on PAPER they are read, and the pattern is not
+       behind them. A hairline in INK makes it a surface. -->
+  <rect x="70" y="70" width="520" height="230" rx="24" fill="#FAFAF9"/>
+  <rect x="70.5" y="70.5" width="519" height="229" rx="23.5" fill="none" stroke="#0C0A09" stroke-opacity="0.08"/>
+
+  <!-- From the application (its icon is centred on 180,166) to the
+       Applications folder (480,166). On paper the accent is OLIVE, as in
+       the light theme: lime would not be seen. -->
+  <g fill="none" stroke="#4D7C0F" stroke-width="4" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M286,166 H374"/>
+    <path d="M360,152 L374,166 L360,180"/>
+  </g>
+
+  <!-- The words are read on the surface alone: the pattern stops short
+       of them. -->
+  <rect x="180" y="328" width="300" height="60" fill="#0A0A0A"/>
+  <text x="330" y="352" text-anchor="middle" font-family="Inter" font-weight="500" font-size="16" fill="#FAFAF9">Drag Wuapi to Applications</text>
+  <text x="330" y="376" text-anchor="middle" font-family="Inter" font-weight="500" font-size="12" fill="#A8A29E">Opened from there, it updates by itself.</text>
+</svg>

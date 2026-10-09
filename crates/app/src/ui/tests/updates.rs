@@ -34,10 +34,39 @@ fn with_updater(cx: &mut TestAppContext, phase: Phase) -> Rc<Recorded> {
                 url_from: UrlFrom::Default,
                 saved_file: None,
                 actions,
+                relocation: None,
             },
         )
     });
     recorded
+}
+
+/// Makes this copy one that could move to the Applications folder. The
+/// move is played by `outcome`; how often it was asked for is counted.
+fn movable(
+    cx: &mut TestAppContext,
+    outcome: Result<(), String>,
+) -> std::sync::Arc<std::sync::atomic::AtomicUsize> {
+    let asked = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let count = asked.clone();
+    cx.update(|cx| {
+        cx.global_mut::<Center>().relocation = Some(update::Move {
+            folder: "/Applications".into(),
+            run: std::sync::Arc::new(move || {
+                count.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                outcome.clone()
+            }),
+        });
+    });
+    asked
+}
+
+fn from_the_image() -> Phase {
+    Phase::Available {
+        version: version("9.1.0"),
+        notes: String::new(),
+        why: Manual::Install(WhyNot::ReadOnly),
+    }
 }
 
 /// What the updater says changes, as when a check ends.
@@ -99,7 +128,7 @@ fn about_says_the_version_the_channel_and_when_it_last_checked(cx: &mut TestAppC
     assert!(!shows(harness.window, "update-download", cx));
     cx.update(|cx| {
         let snapshot = update::snapshot(cx);
-        assert_eq!(update::status_line(&snapshot), "wuapi Inbox is up to date.");
+        assert_eq!(update::status_line(&snapshot), "Wuapi is up to date.");
         assert_eq!(update::last_checked(&snapshot, 100), "Never");
         assert_eq!(update::CHANNEL.name(), "stable");
     });
@@ -475,4 +504,119 @@ fn a_source_given_on_the_command_line_is_shown_and_not_changed(cx: &mut TestAppC
         cx.update(|cx| field.read(cx).value().to_string()),
         "http://127.0.0.1:8000"
     );
+}
+
+#[gpui_kit::test]
+fn a_copy_that_could_update_itself_elsewhere_is_asked_once_to_move(cx: &mut TestAppContext) {
+    use std::sync::atomic::Ordering;
+    cx.update(|cx| prepare(cx, None));
+    with_updater(cx, Phase::UpToDate);
+    let asked = movable(cx, Ok(()));
+    let harness = open_prepared(cx, ShellOptions::default());
+
+    // Asked at the start, with nothing new out: the point is the update
+    // that will come.
+    assert!(shows(harness.window, "move-prompt", cx));
+    assert!(shows(harness.window, "move-accept", cx));
+    click(harness.window, "move-not-now", cx);
+    assert!(!shows(harness.window, "move-prompt", cx));
+    assert_eq!(asked.load(Ordering::SeqCst), 0);
+    cx.update(|cx| assert!(settings::get(cx).move_prompt_done));
+
+    // "Not now" is not "never": About keeps the way there.
+    click(harness.window, "settings", cx);
+    click(harness.window, "settings-about", cx);
+    assert!(shows(harness.window, "update-move", cx));
+    click(harness.window, "update-move", cx);
+    cx.run_until_parked();
+    assert_eq!(asked.load(Ordering::SeqCst), 1);
+}
+
+#[gpui_kit::test]
+fn the_prompt_is_not_shown_again_and_not_to_a_copy_that_has_no_use_for_it(cx: &mut TestAppContext) {
+    // Said "not now" in an earlier session.
+    cx.update(|cx| prepare(cx, None));
+    with_updater(cx, Phase::UpToDate);
+    movable(cx, Ok(()));
+    cx.update(|cx| settings::update(cx, |settings| settings.move_prompt_done = true));
+    let harness = open_prepared(cx, ShellOptions::default());
+    assert!(!shows(harness.window, "move-prompt", cx));
+    click(harness.window, "settings", cx);
+    click(harness.window, "settings-about", cx);
+    assert!(shows(harness.window, "update-move", cx));
+}
+
+#[gpui_kit::test]
+fn a_copy_that_updates_itself_is_never_asked_to_move_or_sent_to_download(cx: &mut TestAppContext) {
+    cx.update(|cx| prepare(cx, None));
+    with_updater(cx, ready());
+    let harness = open_prepared(cx, ShellOptions::default());
+    assert!(!shows(harness.window, "move-prompt", cx));
+    click(harness.window, "settings", cx);
+    click(harness.window, "settings-about", cx);
+    // A restart is the one step there is.
+    assert!(shows(harness.window, "update-restart", cx));
+    assert!(!shows(harness.window, "update-move", cx));
+    assert!(!shows(harness.window, "update-download", cx));
+    for phase in [
+        Phase::UpToDate,
+        Phase::Checking,
+        Phase::Downloading {
+            version: version("9.1.0"),
+            received: 1,
+            total: 2,
+        },
+    ] {
+        says(cx, |snapshot| snapshot.phase = phase);
+        assert!(!shows(harness.window, "update-download", cx));
+        assert!(!shows(harness.window, "update-move", cx));
+    }
+}
+
+#[gpui_kit::test]
+fn a_new_version_for_a_copy_that_can_move_offers_the_move_not_the_download_page(
+    cx: &mut TestAppContext,
+) {
+    use std::sync::atomic::Ordering;
+    cx.update(|cx| prepare(cx, None));
+    with_updater(cx, from_the_image());
+    let asked = movable(cx, Err("the disk is full".into()));
+    let harness = open_prepared(cx, ShellOptions::default());
+    click(harness.window, "settings", cx);
+    click(harness.window, "settings-about", cx);
+    assert!(shows(harness.window, "update-move", cx));
+    assert!(!shows(harness.window, "update-download", cx));
+
+    // A move that fails says why, where it was asked for and in the
+    // prompt, and can be asked for again.
+    assert!(!shows(harness.window, "update-move-failed", cx));
+    click(harness.window, "update-move", cx);
+    cx.run_until_parked();
+    assert_eq!(asked.load(Ordering::SeqCst), 1);
+    assert!(shows(harness.window, "update-move-failed", cx));
+    cx.update(|cx| {
+        let said = harness.shell.read(cx).move_failure();
+        let said = said.expect("the failure is said");
+        assert!(said.contains("the disk is full"), "{said}");
+        assert!(said.contains("Nothing was changed"), "{said}");
+    });
+    press(harness.window, "escape", cx);
+    assert!(shows(harness.window, "move-failed", cx));
+    click(harness.window, "move-accept", cx);
+    cx.run_until_parked();
+    assert_eq!(asked.load(Ordering::SeqCst), 2);
+
+    // A reason a move does not help keeps its link.
+    cx.update(|cx| cx.global_mut::<Center>().relocation = None);
+    says(cx, |snapshot| {
+        snapshot.phase = Phase::Available {
+            version: version("9.1.0"),
+            notes: String::new(),
+            why: Manual::Install(WhyNot::Packaged),
+        }
+    });
+    click(harness.window, "settings", cx);
+    click(harness.window, "settings-about", cx);
+    assert!(shows(harness.window, "update-download", cx));
+    assert!(!shows(harness.window, "update-move", cx));
 }

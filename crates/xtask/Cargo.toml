@@ -9,6 +9,8 @@ publish.workspace = true
 [dependencies]
 updater.workspace = true
 serde_json.workspace = true
+# Renders the disk image's background from its SVG. GPUI already builds it.
+resvg = { version = "0.46", default-features = false, features = ["text"] }
 
 [dev-dependencies]
 tempfile = "3"

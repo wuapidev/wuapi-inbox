@@ -1,4 +1,4 @@
-# The .deb and .rpm of wuapi Inbox, built from the Linux archive by
+# The .deb and .rpm of Wuapi, built from the Linux archive by
 # packaging/linux/package.sh (the release workflow runs it; docs/RELEASING.md).
 # That script substitutes the two variables nFPM does not expand itself:
 #

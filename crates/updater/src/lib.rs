@@ -1,4 +1,4 @@
-//! Self-update for wuapi Inbox: signed, resumable, and undone when the
+//! Self-update for Wuapi: signed, resumable, and undone when the
 //! new version does not start.
 //!
 //! Pure logic and files; no window. The pieces, in the order an update
@@ -27,14 +27,14 @@ pub mod stage;
 pub mod updater;
 
 pub use archive::PayloadKind;
-pub use install::{Install, Target, WhyNot};
+pub use install::{Install, Relocation, Target, WhyNot};
 pub use launch::{Outcome, Startup};
 pub use manifest::{platform_key, Artifact, Channel, Decision, Manifest, Rollback};
 pub use semver::Version;
 pub use sign::{embedded_keys, PublicKey, SecretKey, EMBEDDED_KEYS, PLACEHOLDER_KEY};
 pub use source::{Source, Timeouts};
 pub use stage::Layout;
-pub use updater::{Config, Manual, Phase, Schedule, Snapshot, Updater};
+pub use updater::{Config, Failure, Manual, Phase, Schedule, Snapshot, Updater};
 
 use std::ffi::OsString;
 use std::time::Duration;
@@ -57,7 +57,15 @@ pub const WAIT_FOR_PARENT: &str = "WUAPI_INBOX_WAIT_FOR_PARENT";
 /// work the same data at once. If an update is ready, the new process is
 /// what installs it (see [`launch`]).
 pub fn restart(args: Vec<OsString>) -> std::io::Result<()> {
-    let executable = std::env::current_exe()?;
+    start_to_take_over(&std::env::current_exe()?, args)
+}
+
+/// [`restart`], with another executable of this application: the copy a
+/// move to the Applications folder made ([`Relocation`]).
+pub fn start_to_take_over(
+    executable: &std::path::Path,
+    args: Vec<OsString>,
+) -> std::io::Result<()> {
     let mut child = std::process::Command::new(executable)
         .args(args)
         .env(WAIT_FOR_PARENT, "1")

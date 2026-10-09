@@ -434,7 +434,21 @@ fn absent(status: StatusCode) -> bool {
 fn offline(error: reqwest::Error) -> SourceError {
     // Without the URL: it is in the settings, and a log line is no place
     // for whatever somebody put in it.
-    SourceError::Unreachable(error.without_url().to_string())
+    // With what is behind it (no name found, connection refused, a
+    // certificate that is not good): "error sending request" alone tells
+    // nobody what to look at.
+    let error = error.without_url();
+    let mut text = error.to_string();
+    let mut cause = std::error::Error::source(&error);
+    while let Some(behind) = cause {
+        let behind_text = behind.to_string();
+        if !behind_text.is_empty() && !text.contains(&behind_text) {
+            text.push_str(": ");
+            text.push_str(&behind_text);
+        }
+        cause = behind.source();
+    }
+    SourceError::Unreachable(text)
 }
 
 #[cfg(test)]

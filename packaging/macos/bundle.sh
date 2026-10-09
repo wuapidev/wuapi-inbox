@@ -3,7 +3,7 @@
 #
 #   packaging/macos/bundle.sh <binary> <version> <output directory>
 #
-# Writes "<output directory>/wuapi Inbox.app". The bundle is signed ad hoc
+# Writes "<output directory>/Wuapi.app". The bundle is signed ad hoc
 # here (a seal with no identity, which is what an Apple Silicon Mac needs to
 # run it at all); the release workflow signs it again with the Developer ID
 # when the certificate is there.
@@ -16,7 +16,7 @@ here="$(cd "$(dirname "$0")" && pwd)"
 root="$(cd "$here/../.." && pwd)"
 icons="$root/crates/app/assets/icons"
 
-app="$out/wuapi Inbox.app"
+app="$out/Wuapi.app"
 rm -rf "$app"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
 cp "$binary" "$app/Contents/MacOS/wuapi-inbox"
@@ -42,9 +42,9 @@ cat > "$app/Contents/Info.plist" <<PLIST
 <plist version="1.0">
 <dict>
     <key>CFBundleName</key>
-    <string>wuapi Inbox</string>
+    <string>Wuapi</string>
     <key>CFBundleDisplayName</key>
-    <string>wuapi Inbox</string>
+    <string>Wuapi</string>
     <key>CFBundleIdentifier</key>
     <string>dev.wuapi.inbox</string>
     <key>CFBundleExecutable</key>
@@ -66,7 +66,7 @@ cat > "$app/Contents/Info.plist" <<PLIST
     <key>NSHighResolutionCapable</key>
     <true/>
     <key>NSMicrophoneUsageDescription</key>
-    <string>wuapi Inbox uses the microphone to record a voice note when you press the record button.</string>
+    <string>Wuapi uses the microphone to record a voice note when you press the record button.</string>
 </dict>
 </plist>
 PLIST

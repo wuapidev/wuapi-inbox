@@ -145,6 +145,51 @@ impl Startup {
         self.watch(target, &ready.version, &mut state, spawn)
     }
 
+    /// After [`Startup::run`] said to go on: gives an install that still
+    /// has the bundle name of the first releases today's
+    /// ([`crate::install::BUNDLE_NAME`]), and hands over to the executable
+    /// under it ([`Outcome::Exit`]).
+    ///
+    /// An update replaces what is in the bundle and leaves its folder's
+    /// name alone, so the folder is renamed here, at a start: this process
+    /// has opened nothing yet, and the one that takes over knows no other
+    /// path than the new one. Only when nothing can still be undone (no
+    /// update waiting to be seen to start, nothing kept next to the
+    /// bundle, whose names go by the bundle's) and nothing has the name.
+    /// If the copy will not start under it, the old name is put back and
+    /// this process goes on.
+    pub fn take_todays_name(&self, spawn: Spawn<'_>) -> Outcome {
+        let Install::SelfUpdating(target) = &self.install else {
+            return Outcome::Continue;
+        };
+        let exists = |path: &Path| std::fs::symlink_metadata(path).is_ok();
+        let settled = Pending::load(&self.layout).is_none()
+            && State::load(&self.layout).ready.is_none()
+            && ![target.backup(), target.staging(), target.failed()]
+                .iter()
+                .any(|path| exists(path));
+        let Some(renamed) = target.under_todays_name(&exists).filter(|_| settled) else {
+            return Outcome::Continue;
+        };
+        if let Err(error) = std::fs::rename(&target.path, &renamed.path) {
+            tracing::warn!(%error, "the application's folder keeps its former name");
+            return Outcome::Continue;
+        }
+        match spawn(renamed.executable()) {
+            Ok(_) => {
+                tracing::info!("the application's folder has today's name; starting from it");
+                Outcome::Exit(0)
+            }
+            Err(error) => {
+                tracing::warn!(%error, "the application did not start under its new name");
+                if let Err(undo) = std::fs::rename(&renamed.path, &target.path) {
+                    tracing::error!(%undo, "the former name could not be put back");
+                }
+                Outcome::Continue
+            }
+        }
+    }
+
     /// Verifies the staged update from the signature down, unpacks it next
     /// to the target and renames it into place.
     fn put_in_place(&self, target: &Target, version: &Version) -> Result<(), ApplyError> {
