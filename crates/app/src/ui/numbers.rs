@@ -31,7 +31,7 @@ use client_provider::{
     Account, AccountChange, AccountId, ConnectionState, HistoryImport, LinkPlace, LinkStatus,
     LinkStep, NewAccount, ProviderError, Timestamp,
 };
-use gpui_kit::component::input::{Input, InputEvent, InputState};
+use gpui_kit::component::input::{InputEvent, InputState};
 use gpui_kit::prelude::*;
 use gpui_kit::{
     div, ClipboardItem, Context, Div, Entity, FontWeight, Image, ImageFormat, SharedString,
@@ -2441,7 +2441,7 @@ pub(super) fn input_box(
         .flex()
         .items_center()
         .when(mono_face, |this| this.font_family(fonts::MONO))
-        .child(Input::new(input).appearance(false))
+        .child(super::widgets::field(input))
 }
 
 /// A labelled text field.

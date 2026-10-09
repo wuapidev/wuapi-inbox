@@ -17,7 +17,7 @@ use crate::settings;
 use crate::theme::{metrics, px, Palette};
 use client_core::{LibraryItem, LibraryKind, LibrarySource};
 use client_provider::{Media, MediaKind};
-use gpui_kit::component::input::{Input, InputState};
+use gpui_kit::component::input::InputState;
 use gpui_kit::prelude::*;
 use gpui_kit::{div, Context, Div, Entity, SharedString, Window};
 use std::path::PathBuf;
@@ -556,7 +556,7 @@ impl Shell {
                             .bg(palette.surface)
                             .flex()
                             .items_center()
-                            .child(Input::new(&self.library.key_input).appearance(false)),
+                            .child(super::widgets::field(&self.library.key_input)),
                     )
                     .child(
                         text_button("stickers-key-save", "Save key", None, false, palette)

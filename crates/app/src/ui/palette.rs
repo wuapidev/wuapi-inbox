@@ -27,7 +27,7 @@ use crate::theme::px;
 use crate::theme::{metrics, Palette as Colours};
 use client_core::{message_preview, ChatSummary, SearchHit};
 use client_provider::{ChatId, ChatKind, Contact, Message, Timestamp};
-use gpui_kit::component::input::{Input, InputState};
+use gpui_kit::component::input::InputState;
 use gpui_kit::prelude::*;
 use gpui_kit::{
     div, Context, Div, Entity, FontWeight, KeyDownEvent, SharedString, Stateful, Task, Window,
@@ -511,7 +511,7 @@ impl Shell {
     /// What a command is called in the palette: a number by its name.
     fn command_title(&self, command: Command) -> SharedString {
         match command {
-            Command::Account(place) => match self.accounts.get(usize::from(place) - 1) {
+            Command::Account(place) => match self.linked_accounts().nth(usize::from(place) - 1) {
                 Some(account) => format!("Go to {}", self.account_name(account)).into(),
                 None => keys::label(command).into(),
             },
@@ -1368,7 +1368,7 @@ impl Shell {
                         div()
                             .flex_1()
                             .min_w_0()
-                            .child(Input::new(&self.palette.input).appearance(false)),
+                            .child(super::widgets::field(&self.palette.input)),
                     )
                     .child(mono(keys::key_label("escape")).text_color(colours.text_muted)),
             )
@@ -1490,7 +1490,7 @@ impl Shell {
                         div()
                             .flex_1()
                             .min_w_0()
-                            .child(Input::new(&self.palette.shortcuts_input).appearance(false)),
+                            .child(super::widgets::field(&self.palette.shortcuts_input)),
                     ),
             )
             .child(body)
