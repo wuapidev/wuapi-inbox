@@ -18,10 +18,11 @@ use client_provider::{ChatChange, ChatId};
 use gpui_kit::{point, App, Context, FocusHandle, ScrollStrategy, Window};
 
 /// The filters, in the order Tab walks them.
-const FILTERS: [ChatFilter; 4] = [
+const FILTERS: [ChatFilter; 5] = [
     ChatFilter::All,
     ChatFilter::Unread,
     ChatFilter::Groups,
+    ChatFilter::Communities,
     ChatFilter::Archived,
 ];
 
@@ -110,25 +111,38 @@ impl Shell {
             && (self.pane_list || self.open.is_none())
     }
 
-    /// The chats of the list, with the row each is drawn in.
-    fn list_stops(&self) -> Vec<(usize, &ChatSummary)> {
+    /// Where the keyboard can stop, with the row each is drawn in: the
+    /// chats, and a community's row (which stands for the community's
+    /// own group id). A search result's labels are not stops.
+    fn list_stops(&self) -> Vec<(usize, ChatId)> {
         self.list_rows
             .iter()
             .enumerate()
             .filter_map(|(index, row)| match row {
-                ListRow::Chat(chat) => Some((index, chat)),
+                ListRow::Chat(chat) => Some((index, chat.id.clone())),
+                ListRow::Community(community) => Some((index, community.id.clone())),
                 _ => None,
             })
             .collect()
     }
 
-    /// The chat the list's outline is on, if it is still in the list.
+    /// The chat the list's outline is on, if it is still in the list and
+    /// is a chat.
     pub(super) fn list_cursor_chat(&self) -> Option<ChatSummary> {
         let cursor = self.list_cursor.as_ref()?;
-        self.list_stops()
-            .into_iter()
-            .find(|(_, chat)| chat.id == *cursor)
-            .map(|(_, chat)| chat.clone())
+        self.list_rows.iter().find_map(|row| match row {
+            ListRow::Chat(chat) if chat.id == *cursor => Some(chat.clone()),
+            _ => None,
+        })
+    }
+
+    /// The community the list's outline is on, if it is on one.
+    fn list_cursor_community(&self) -> Option<ChatId> {
+        let cursor = self.list_cursor.as_ref()?;
+        self.list_rows.iter().find_map(|row| match row {
+            ListRow::Community(community) if community.id == *cursor => Some(community.id.clone()),
+            _ => None,
+        })
     }
 
     /// Puts the outline on a chat and brings its row on screen.
@@ -136,7 +150,7 @@ impl Shell {
         if let Some((row, _)) = self
             .list_stops()
             .into_iter()
-            .find(|(_, stop)| stop.id == chat)
+            .find(|(_, stop)| *stop == chat)
         {
             self.chat_scroll.scroll_to_item(row, ScrollStrategy::Top);
         }
@@ -151,7 +165,7 @@ impl Shell {
         self.keys.clear();
         self.pane_list = true;
         let stops = self.list_stops();
-        let known = |id: &ChatId| stops.iter().any(|(_, chat)| chat.id == *id);
+        let known = |id: &ChatId| stops.iter().any(|(_, stop)| stop == id);
         let cursor = self
             .list_cursor
             .clone()
@@ -162,7 +176,7 @@ impl Shell {
                     .map(|open| open.chat.id.clone())
                     .filter(|id| known(id))
             })
-            .or_else(|| stops.first().map(|(_, chat)| chat.id.clone()));
+            .or_else(|| stops.first().map(|(_, stop)| stop.clone()));
         self.focus.focus(window, cx);
         gpui_kit::base::TextSelection::clear(window, cx);
         match cursor {
@@ -176,7 +190,7 @@ impl Shell {
         let stops: Vec<ChatId> = self
             .list_stops()
             .into_iter()
-            .map(|(_, chat)| chat.id.clone())
+            .map(|(_, stop)| stop)
             .collect();
         if stops.is_empty() {
             return false;
@@ -194,6 +208,23 @@ impl Shell {
         };
         self.set_list_cursor(stops[next as usize].clone(), cx);
         true
+    }
+
+    /// Puts the outline on the first or the last chat, wherever it was
+    /// (it may be on a chat the list no longer shows).
+    fn jump_list(&mut self, first: bool, cx: &mut Context<Self>) -> bool {
+        let stop = {
+            let stops = self.list_stops();
+            let stop = if first { stops.first() } else { stops.last() };
+            stop.map(|(_, stop)| stop.clone())
+        };
+        match stop {
+            Some(chat) => {
+                self.set_list_cursor(chat, cx);
+                true
+            }
+            None => false,
+        }
     }
 
     /// How many chats fit in the list as it is drawn.
@@ -326,11 +357,25 @@ impl Shell {
             }
             C::ListUp => self.step_list(-1, cx),
             C::ListDown => self.step_list(1, cx),
-            C::ListFirst => self.step_list(isize::MIN / 2, cx),
-            C::ListLast => self.step_list(isize::MAX / 2, cx),
+            C::ListFirst => self.jump_list(true, cx),
+            C::ListLast => self.jump_list(false, cx),
             C::ListPageUp => self.step_list(-self.list_page(), cx),
             C::ListPageDown => self.step_list(self.list_page(), cx),
             C::ListOpen => {
+                // A community opens its own screen, over the list.
+                if let (Some(community), Some(account)) =
+                    (self.list_cursor_community(), self.account.clone())
+                {
+                    self.open_info(
+                        super::social::Target::Group {
+                            account,
+                            group: community,
+                        },
+                        window,
+                        cx,
+                    );
+                    return Some(true);
+                }
                 let Some(chat) = self.list_cursor_chat() else {
                     return Some(false);
                 };
@@ -343,16 +388,21 @@ impl Shell {
                 true
             }
             C::ListNextFilter | C::ListPreviousFilter => {
-                let at = FILTERS
+                // The communities are a stop only while some chat is in one.
+                let stops: Vec<ChatFilter> = FILTERS
+                    .into_iter()
+                    .filter(|filter| *filter != ChatFilter::Communities || self.has_communities)
+                    .collect();
+                let at = stops
                     .iter()
                     .position(|filter| *filter == self.filter)
                     .unwrap_or(0);
                 let by = if command == C::ListNextFilter {
                     1
                 } else {
-                    FILTERS.len() - 1
+                    stops.len() - 1
                 };
-                self.set_filter(FILTERS[(at + by) % FILTERS.len()], cx);
+                self.set_filter(stops[(at + by) % stops.len()], cx);
                 true
             }
             C::ListClear => {
@@ -390,7 +440,7 @@ impl Shell {
                 let row = self
                     .list_stops()
                     .into_iter()
-                    .find(|(_, stop)| stop.id == chat.id)
+                    .find(|(_, stop)| *stop == chat.id)
                     .map(|(row, _)| row)
                     .unwrap_or(0);
                 let (bounds, offset) = {

@@ -786,6 +786,52 @@ pub trait Provider: Send + Sync + 'static {
         Err(ProviderError::Unsupported("leaving a group"))
     }
 
+    /// Links an existing group to a community. Admins of both only:
+    /// anyone else gets [`ProviderError::Rejected`] with
+    /// [`refusal::NOT_ADMIN`](crate::refusal::NOT_ADMIN). Linking a group
+    /// that is already linked there is a success. `request_id` is the same
+    /// on every retry of one user action.
+    ///
+    /// Only called when [`Capabilities::community_manage`] is set.
+    async fn link_subgroup(
+        &self,
+        account: &AccountId,
+        community: &ChatId,
+        group: &ChatId,
+        request_id: &str,
+    ) -> ProviderResult<()> {
+        let _ = (account, community, group, request_id);
+        Err(ProviderError::Unsupported("linking a group to a community"))
+    }
+
+    /// Takes a group out of a community. Admins only. Unlinking a group
+    /// that is not linked is a success. Safe to repeat.
+    ///
+    /// Only called when [`Capabilities::community_manage`] is set.
+    async fn unlink_subgroup(
+        &self,
+        account: &AccountId,
+        community: &ChatId,
+        group: &ChatId,
+    ) -> ProviderResult<()> {
+        let _ = (account, community, group);
+        Err(ProviderError::Unsupported(
+            "taking a group out of a community",
+        ))
+    }
+
+    /// The people in all of a community's groups, as contact ids.
+    ///
+    /// Only called when [`Capabilities::community_members`] is set.
+    async fn community_participants(
+        &self,
+        account: &AccountId,
+        community: &ChatId,
+    ) -> ProviderResult<Vec<ContactId>> {
+        let _ = (account, community);
+        Err(ProviderError::Unsupported("a community's participants"))
+    }
+
     // ----- stories -------------------------------------------------------
 
     /// The stories the account can see and its own, the ones that have not

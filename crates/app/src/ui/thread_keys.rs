@@ -471,6 +471,11 @@ impl Shell {
             C::NewGroup if caps.group_create && self.account.is_some() => {
                 self.open_overlay(Overlay::NewGroup, window, cx)
             }
+            C::NewCommunity
+                if caps.group_create && caps.community_manage && self.account.is_some() =>
+            {
+                self.open_new_group(super::social::GroupKind::Community, window, cx)
+            }
             C::Menu => {
                 let menu = if self.open.is_some() {
                     Overlay::ChatMenu

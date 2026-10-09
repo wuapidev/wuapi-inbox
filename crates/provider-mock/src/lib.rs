@@ -13,6 +13,7 @@
 
 #![warn(missing_docs)]
 
+mod community;
 mod forward;
 mod seed;
 mod showcase;
@@ -20,6 +21,10 @@ mod social;
 mod stickers;
 mod stories;
 
+pub use community::{
+    COMMUNITY, COMMUNITY_ACCOUNT, COMMUNITY_ANNOUNCEMENTS, COMMUNITY_GROUPS, COMMUNITY_NAME,
+    COMMUNITY_UNJOINED, COMMUNITY_UNJOINED_NAME,
+};
 pub use showcase::{SHOWCASE_ACCOUNT, SHOWCASE_CHAT, SHOWCASE_STICKER};
 
 use async_trait::async_trait;
@@ -357,7 +362,7 @@ impl MockProvider {
                     create_calls: 0,
                     link_checks: 0,
                     deleted: Vec::new(),
-                    social: social::Social::default(),
+                    social: social::Social::seeded(),
                     stickers: stickers::Stickers::default(),
                     forwards: forward::Forwards::default(),
                     stories: story_state,
@@ -906,6 +911,7 @@ impl MockProvider {
                 ProviderEvent::Presence { .. }
                 | ProviderEvent::ContactUpdated(_)
                 | ProviderEvent::GroupChanged { .. }
+                | ProviderEvent::CommunityChanged { .. }
                 | ProviderEvent::StoryUpserted(_)
                 | ProviderEvent::StoryRemoved { .. }
                 | ProviderEvent::StoryViewed { .. }
@@ -2155,6 +2161,33 @@ impl Provider for MockProvider {
         request_id: &str,
     ) -> ProviderResult<Vec<ParticipantOutcome>> {
         self.mock_answer_join_requests(account, group, approve, contacts, request_id)
+    }
+
+    async fn link_subgroup(
+        &self,
+        account: &AccountId,
+        community: &ChatId,
+        group: &ChatId,
+        _request_id: &str,
+    ) -> ProviderResult<()> {
+        self.mock_link_subgroup(account, community, group)
+    }
+
+    async fn unlink_subgroup(
+        &self,
+        account: &AccountId,
+        community: &ChatId,
+        group: &ChatId,
+    ) -> ProviderResult<()> {
+        self.mock_unlink_subgroup(account, community, group)
+    }
+
+    async fn community_participants(
+        &self,
+        account: &AccountId,
+        community: &ChatId,
+    ) -> ProviderResult<Vec<ContactId>> {
+        self.mock_community_participants(account, community)
     }
 
     async fn leave_group(

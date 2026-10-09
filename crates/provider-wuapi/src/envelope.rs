@@ -47,8 +47,10 @@ pub(crate) enum Body {
     Contact(Box<api::Contact>),
     /// `group.updated`.
     Group(Box<api::GroupChange>),
+    /// `group.joined`.
+    Joined(Box<api::Group>),
     /// An event that says a chat changed and not how: `chat.updated`,
-    /// `contact.picture_updated`, `group.joined`.
+    /// `contact.picture_updated`.
     Chat { account: String, chat: String },
     /// `history.synced`.
     History { account: String },
@@ -197,10 +199,7 @@ fn read(kind: &str, value: &mut Value) -> Body {
             account: event.data.object.account_id,
             chat: event.data.object.chat_id,
         },
-        api::Event::GroupJoined(event) => Body::Chat {
-            account: event.data.object.account_id,
-            chat: event.data.object.id,
-        },
+        api::Event::GroupJoined(event) => Body::Joined(Box::new(event.data.object)),
         api::Event::HistorySynced(event) => Body::History {
             account: event.data.object.account_id,
         },
@@ -331,16 +330,59 @@ impl Mapper {
                 .events
                 .push(ProviderEvent::ContactUpdated(mapping::contact(&wire))),
             Body::Group(wire) => {
-                out.events.push(ProviderEvent::GroupChanged {
-                    account_id: AccountId::new(wire.account_id.clone()),
-                    group_id: ChatId::new(wire.group_id.clone()),
-                });
+                // WhatsApp reports a link on the community or on the
+                // subgroup: `communityId` names the community either way.
+                let relinked: Vec<ChatId> = wire
+                    .linked
+                    .iter()
+                    .chain(&wire.unlinked)
+                    .map(|group| ChatId::new(group.clone()))
+                    .collect();
+                // A link alone changes nothing else about `groupId`.
+                let only_relinked = !relinked.is_empty()
+                    && wire.added.is_empty()
+                    && wire.removed.is_empty()
+                    && wire.promoted.is_empty()
+                    && wire.demoted.is_empty()
+                    && wire.name.is_none()
+                    && wire.description.is_none()
+                    && wire.locked.is_none()
+                    && wire.announce.is_none();
+                if !only_relinked {
+                    out.events.push(ProviderEvent::GroupChanged {
+                        account_id: AccountId::new(wire.account_id.clone()),
+                        group_id: ChatId::new(wire.group_id.clone()),
+                    });
+                }
+                if !relinked.is_empty() {
+                    let community = wire.community_id.as_ref().unwrap_or(&wire.group_id);
+                    out.events.push(ProviderEvent::CommunityChanged {
+                        account_id: AccountId::new(wire.account_id.clone()),
+                        community_id: ChatId::new(community.clone()),
+                        groups: relinked,
+                    });
+                }
                 if wire.name.is_some() {
                     out.marks.push(Dirty::Chat {
                         account: wire.account_id,
                         chat: wire.group_id,
                     });
                 }
+            }
+            Body::Joined(wire) => {
+                // Joined inside a community: the group is read with it,
+                // so the chat list knows where the new chat belongs.
+                if let Some(community) = wire.community_id.as_ref().filter(|id| !id.is_empty()) {
+                    out.events.push(ProviderEvent::CommunityChanged {
+                        account_id: AccountId::new(wire.account_id.clone()),
+                        community_id: ChatId::new(community.clone()),
+                        groups: vec![ChatId::new(wire.id.clone())],
+                    });
+                }
+                out.marks.push(Dirty::Chat {
+                    account: wire.account_id,
+                    chat: wire.id,
+                });
             }
             Body::Chat { account, chat } => out.marks.push(Dirty::Chat { account, chat }),
             Body::History { account } => out.marks.push(Dirty::Account(account)),

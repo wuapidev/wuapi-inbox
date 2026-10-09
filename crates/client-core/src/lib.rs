@@ -47,8 +47,8 @@ pub use outbox::{
 pub use picture::{profile_picture, PICTURE_MAX_FILE, PICTURE_SIDE};
 pub use store::{
     file_state, local_story_id, message_preview, preview_text, CachedMedia, ChangeListener,
-    ChatSummary, FileState, HistoryState, IndexState, LibraryItem, LibraryKind, LibraryPack,
-    LibrarySource, LibraryStats, MessagePreview, NameSource, NewLibraryItem, Person,
+    ChatCommunity, ChatSummary, FileState, HistoryState, IndexState, LibraryItem, LibraryKind,
+    LibraryPack, LibrarySource, LibraryStats, MessagePreview, NameSource, NewLibraryItem, Person,
     ReactionSummary, Reactor, SearchHit, SeenSticker, SendTiming, StickerMessage, Store,
     StoreChange, StoreError, StoreKey, StoreResult, StoredAvatar, StoredGroup, StoredMessage,
     StoredParticipant, StoryAuthor, StoryFeed, StoryItem, StoryPostEntry, StoryPostState,
@@ -57,10 +57,10 @@ pub use store::{
 pub use summary::system_line;
 pub use sync::{
     animation_key, failure_sentence, file_key, new_client_id, outcome_sentence,
-    own_picture_subject, thumbnail_key, CreatedGroup, ForwardError, ForwardRefusal, HistoryMode,
-    LibraryError, LibrarySend, MediaState, NewChat, NewMedia, SendMediaError, SyncConfig,
-    SyncEngine, SyncError, ANIMATION_KEEP_LIMIT, AUTO_MEDIA_LIMIT, AVATAR_TTL, HEARD_LIMIT,
-    LIBRARY_BUDGET, MANUAL_MEDIA_LIMIT, RECENT_LIMIT,
+    own_picture_subject, thumbnail_key, CreatedGroup, ForwardError, ForwardRefusal, GroupPlace,
+    HistoryMode, LibraryError, LibrarySend, MediaState, NewChat, NewMedia, SendMediaError,
+    SyncConfig, SyncEngine, SyncError, ANIMATION_KEEP_LIMIT, AUTO_MEDIA_LIMIT, AVATAR_TTL,
+    HEARD_LIMIT, LIBRARY_BUDGET, MANUAL_MEDIA_LIMIT, RECENT_LIMIT,
 };
 pub use sync::{
     PreparedMedia, ReceiptPass, StoryListing, StoryPass, StoryPostError, StoryReplyError,

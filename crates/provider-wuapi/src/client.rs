@@ -547,9 +547,7 @@ impl WuapiClient {
             limit: Some(i64::from(MAX_PAGE)),
             ..Default::default()
         };
-        self.api
-            .groups()
-            .list(account, params)
+        compat::groups(self.api.http(), account, &params)
             .to_vec_max(MAX_ITEMS)
             .await
             .map_err(from_sdk)

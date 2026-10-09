@@ -72,14 +72,27 @@ const MY_IDS: &str = "(SELECT self_contact FROM accounts
                        WHERE id = ?1 AND self_contact IS NOT NULL
                        UNION SELECT phone FROM accounts WHERE id = ?1 AND phone IS NOT NULL)";
 
+/// Stores one group. Returns whether the chat list reads differently for
+/// it: a chat took the group's subject, the group is in another community
+/// (or in none) than before, or it is a community whose name changed.
 fn put_group_tx(tx: &Transaction<'_>, group: &Group, now: Timestamp) -> StoreResult<bool> {
     let account = group.account_id.as_str();
     let subgroups = serde_json::to_string(&group.subgroups)?;
+    let community = group.community_id.as_ref().map(ChatId::as_str);
+    let before: Option<(String, Option<String>, bool)> = tx
+        .query_row(
+            "SELECT subject, community_id, announcements FROM groups
+             WHERE account_id = ?1 AND id = ?2",
+            params![account, group.id.as_str()],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .optional()?;
     tx.execute(
         "INSERT INTO groups
             (account_id, id, subject, description, owner, created_at, community, announce,
-             locked, join_approval, members_can_add, subgroups, fetched_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
+             locked, join_approval, members_can_add, subgroups, fetched_at, community_id,
+             announcements)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)
          ON CONFLICT (account_id, id) DO UPDATE SET
             subject = excluded.subject,
             description = excluded.description,
@@ -91,8 +104,14 @@ fn put_group_tx(tx: &Transaction<'_>, group: &Group, now: Timestamp) -> StoreRes
             -- A setting the provider cannot read keeps what was set here.
             join_approval = COALESCE(excluded.join_approval, join_approval),
             members_can_add = COALESCE(excluded.members_can_add, members_can_add),
-            subgroups = excluded.subgroups,
-            fetched_at = excluded.fetched_at",
+            -- A community always links its announcement group, so none
+            -- at all means the provider did not say (a listing of every
+            -- group does not): what a read of the community stored stays.
+            subgroups = CASE WHEN excluded.community AND excluded.subgroups = '[]'
+                             THEN subgroups ELSE excluded.subgroups END,
+            fetched_at = excluded.fetched_at,
+            community_id = excluded.community_id,
+            announcements = excluded.announcements",
         params![
             account,
             group.id.as_str(),
@@ -107,6 +126,8 @@ fn put_group_tx(tx: &Transaction<'_>, group: &Group, now: Timestamp) -> StoreRes
             group.members_can_add,
             subgroups,
             now.as_millis(),
+            community,
+            group.announcements,
         ],
     )?;
     tx.execute(
@@ -134,7 +155,24 @@ fn put_group_tx(tx: &Transaction<'_>, group: &Group, now: Timestamp) -> StoreRes
          WHERE account_id = ?1 AND id = ?2 AND kind = 'group' AND title <> ?3 AND ?3 <> ''",
         params![account, group.id.as_str(), group.subject],
     )?;
-    Ok(renamed > 0)
+    // The chat list says which community a chat is in, and its name.
+    let (subject_before, community_before, announcements_before) = match &before {
+        Some((subject, community, announcements)) => {
+            (Some(subject.as_str()), community.as_deref(), *announcements)
+        }
+        None => (None, None, false),
+    };
+    let moved = community_before != community || announcements_before != group.announcements;
+    let named = group.community
+        && subject_before != Some(group.subject.as_str())
+        && tx
+            .prepare_cached(
+                "SELECT 1 FROM groups g
+                 JOIN chats c ON c.account_id = g.account_id AND c.id = g.id
+                 WHERE g.account_id = ?1 AND g.community_id = ?2 LIMIT 1",
+            )?
+            .exists(params![account, group.id.as_str()])?;
+    Ok(renamed > 0 || moved || named)
 }
 
 fn put_participant_tx(
@@ -174,17 +212,18 @@ impl Store {
     /// Stores groups as the provider just gave them, participants
     /// included, replacing what was held for each.
     pub fn put_groups(&self, groups: &[Group], now: Timestamp) -> StoreResult<()> {
-        let mut renamed = Vec::new();
+        // The accounts whose chat list reads differently now.
+        let mut listed = Vec::new();
         self.write(|tx| {
             for group in groups {
                 if put_group_tx(tx, group, now)? {
-                    renamed.push(group.account_id.clone());
+                    listed.push(group.account_id.clone());
                 }
             }
             Ok(())
         })?;
-        renamed.dedup();
-        for account in renamed {
+        listed.dedup();
+        for account in listed {
             self.notify(StoreChange::Chats {
                 account_id: account,
             });
@@ -212,6 +251,7 @@ impl Store {
                         "SELECT g.subject, g.description, g.owner, g.created_at, g.community,
                                 g.announce, g.locked, g.join_approval, g.members_can_add,
                                 g.subgroups, g.invite_link, g.departed, g.fetched_at,
+                                g.community_id, g.announcements,
                                 (SELECT count(*) FROM group_participants p
                                  WHERE p.account_id = g.account_id AND p.group_id = g.id),
                                 (SELECT p.role FROM group_participants p
@@ -232,6 +272,8 @@ impl Store {
                                     .get::<_, Option<i64>>(3)?
                                     .map(Timestamp::from_millis),
                                 community: row.get(4)?,
+                                community_id: row.get::<_, Option<String>>(13)?.map(ChatId::new),
+                                announcements: row.get(14)?,
                                 announce: row.get(5)?,
                                 locked: row.get(6)?,
                                 join_approval: row.get(7)?,
@@ -243,8 +285,8 @@ impl Store {
                             row.get::<_, Option<String>>(10)?,
                             row.get::<_, bool>(11)?,
                             row.get::<_, i64>(12)?,
-                            row.get::<_, i64>(13)?,
-                            row.get::<_, Option<String>>(14)?,
+                            row.get::<_, i64>(15)?,
+                            row.get::<_, Option<String>>(16)?,
                         ))
                     },
                 )
@@ -256,6 +298,24 @@ impl Store {
             };
             if let Some(json) = subgroups {
                 details.subgroups = serde_json::from_str::<Vec<Subgroup>>(&json)?;
+            }
+            if details.community && details.subgroups.is_empty() {
+                // Never read on its own (a listing of every group does
+                // not say what a community links): the groups known to be
+                // in it, its announcement group first.
+                let mut stmt = conn.prepare_cached(
+                    "SELECT id, subject, announcements FROM groups
+                     WHERE account_id = ?1 AND community_id = ?2
+                     ORDER BY announcements DESC, subject COLLATE NOCASE, id",
+                )?;
+                let linked = stmt.query_map(params![account.as_str(), group.as_str()], |row| {
+                    Ok(Subgroup {
+                        id: ChatId::new(row.get::<_, String>(0)?),
+                        subject: row.get(1)?,
+                        announcements: row.get(2)?,
+                    })
+                })?;
+                details.subgroups = linked.collect::<Result<_, _>>()?;
             }
             Ok(Some(StoredGroup {
                 group: details,
@@ -562,6 +622,31 @@ impl Store {
                  ORDER BY lower(g.subject), g.id",
             )?;
             let mut rows = stmt.query(params![account.as_str(), contact.as_str()])?;
+            let mut groups = Vec::new();
+            while let Some(row) = rows.next()? {
+                groups.push((ChatId::new(row.get::<_, String>(0)?), row.get(1)?));
+            }
+            Ok(groups)
+        })
+    }
+
+    /// The groups an admin of the account could link to a community, by
+    /// subject: the account is an admin of them, and they are no
+    /// community, are in none, and the account has not left them. As far
+    /// as the store holds their participants.
+    pub fn groups_to_link(&self, account: &AccountId) -> StoreResult<Vec<(ChatId, String)>> {
+        self.read(|conn| {
+            let mut stmt = conn.prepare_cached(&format!(
+                "SELECT g.id, g.subject FROM groups g
+                 WHERE g.account_id = ?1 AND g.departed = 0 AND g.community = 0
+                   AND g.community_id IS NULL
+                   AND EXISTS (SELECT 1 FROM group_participants p
+                               WHERE p.account_id = g.account_id AND p.group_id = g.id
+                                 AND p.role IN ('owner', 'admin')
+                                 AND p.contact_id IN {MY_IDS})
+                 ORDER BY lower(g.subject), g.id"
+            ))?;
+            let mut rows = stmt.query(params![account.as_str()])?;
             let mut groups = Vec::new();
             while let Some(row) = rows.next()? {
                 groups.push((ChatId::new(row.get::<_, String>(0)?), row.get(1)?));

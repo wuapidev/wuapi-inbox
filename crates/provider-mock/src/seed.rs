@@ -459,6 +459,7 @@ pub(crate) fn build(seed: u64, now: Timestamp) -> World {
         }
     }
     crate::showcase::add(&mut world);
+    crate::community::add(&mut world, now);
     world
 }
 

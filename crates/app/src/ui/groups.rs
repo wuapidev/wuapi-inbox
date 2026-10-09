@@ -12,8 +12,8 @@ use super::numbers::{error_line, input_box, small_button};
 use super::profiles::{edit_buttons, HERO_PICTURE};
 use super::shell::Shell;
 use super::social::{
-    action_row, badge, block, hero, hint, paragraph, question, toggle_row, Confirm, EditWhat,
-    GroupTab, People, PictureFor, Target, PEOPLE_SHOWN,
+    action_row, badge, block, hero, hint, paragraph, question, toggle_row, CommunityPeople,
+    Confirm, EditWhat, GroupKind, GroupTab, People, PictureFor, Target, PEOPLE_SHOWN,
 };
 use super::widgets::{avatar_or, mono, segmented, text_button, AvatarKind};
 use crate::format;
@@ -24,6 +24,20 @@ use client_core::{StoredGroup, StoredParticipant};
 use client_provider::{AccountId, ChatId, ContactId, GroupChange, GroupRole, ParticipantChange};
 use gpui_kit::prelude::*;
 use gpui_kit::{div, img, Context, Div, ObjectFit, SharedString, Stateful, StyledImage};
+
+/// The line under a group's name in its panel. A community (`groups` is
+/// how many groups it links) says that, not how many people its own group
+/// holds, so that it is told apart from a group.
+pub(super) fn title_line(kind: &str, groups: Option<usize>, participants: Option<usize>) -> String {
+    match (groups, participants) {
+        (Some(0), _) => kind.to_owned(),
+        (Some(1), _) => format!("{kind} · 1 group"),
+        (Some(groups), _) => format!("{kind} · {groups} groups"),
+        (None, Some(1)) => format!("{kind} · 1 participant"),
+        (None, Some(count)) => format!("{kind} · {count} participants"),
+        (None, None) => kind.to_owned(),
+    }
+}
 
 impl Shell {
     pub(super) fn render_group(
@@ -55,15 +69,17 @@ impl Shell {
             Some(stored) if stored.group.community => "Community",
             _ => "Group",
         };
-        let lines = vec![hint(
-            match count {
-                Some(1) => format!("{kind} · 1 participant"),
-                Some(count) => format!("{kind} · {count} participants"),
-                None => kind.to_owned(),
-            },
-            palette,
-        )
-        .debug_selector(|| "group-count".into())];
+        // A community says how many groups it links, not how many people
+        // its own group holds, so that it is told apart from a group.
+        let summary = title_line(
+            kind,
+            stored
+                .as_ref()
+                .filter(|stored| stored.group.community)
+                .map(|stored| stored.group.subgroups.len()),
+            count,
+        );
+        let lines = vec![hint(summary, palette).debug_selector(|| "group-count".into())];
         let mut panel = div()
             .debug_selector(|| "group-info".into())
             .flex()
@@ -86,11 +102,18 @@ impl Shell {
         if let Some(people) = &self.social.adding {
             return panel.child(self.render_adding(account, group, people, palette, cx));
         }
+        if self.social.linking {
+            return panel.child(self.render_linking(account, palette, cx));
+        }
 
         let view = cx.entity().downgrade();
+        let community = stored.group.community;
         let mut tabs = vec![
             (GroupTab::Overview, "Overview"),
-            (GroupTab::People, "Participants"),
+            (
+                GroupTab::People,
+                if community { "Members" } else { "Participants" },
+            ),
         ];
         if can_manage {
             tabs.push((GroupTab::Manage, "Manage"));
@@ -119,6 +142,9 @@ impl Shell {
                             this.social.confirm = None;
                             this.social.edit = None;
                             this.social.expanded = None;
+                            if community && tab == GroupTab::People {
+                                this.load_community_people(cx);
+                            }
                             cx.notify();
                         })
                         .ok();
@@ -127,6 +153,7 @@ impl Shell {
         );
         panel.child(match tab {
             GroupTab::Overview => self.render_group_overview(&stored, palette, cx),
+            GroupTab::People if community => self.render_community_members(&stored, palette, cx),
             GroupTab::People => self.render_group_people(&stored, can_manage, palette, cx),
             GroupTab::Manage => self.render_group_manage(&stored, palette, cx),
         })
@@ -196,18 +223,114 @@ impl Shell {
         }
         page = page.child(facts);
 
-        // A community's groups: shown, not managed from here.
-        if !details.subgroups.is_empty() {
+        // The community this group is in, which opens in this panel, and
+        // whether the group is its announcement group.
+        if let Some(community) = &details.community_id {
+            let name = store
+                .group(account, community)
+                .ok()
+                .flatten()
+                .map(|stored| stored.group.subject)
+                .filter(|subject| !subject.is_empty())
+                .unwrap_or_else(|| "Community".to_owned());
+            let target = Target::Group {
+                account: account.clone(),
+                group: community.clone(),
+            };
+            let line = block("Community", palette).child(
+                action_row("group-community", IconName::Users, name, false, palette)
+                    .tooltip(|window, cx| {
+                        gpui_kit::component::tooltip::Tooltip::new("Open community")
+                            .build(window, cx)
+                    })
+                    .on_click(cx.listener(move |this, _, window, cx| {
+                        cx.stop_propagation();
+                        this.push_info(target.clone(), window, cx);
+                    }))
+                    .when(details.announcements, |this| {
+                        this.child(
+                            badge("Announcements", palette)
+                                .debug_selector(|| "group-announcements".into()),
+                        )
+                    })
+                    .child(icon(IconName::ChevronRight, px(16.), palette.text_faint)),
+            );
+            page = page.child(line);
+        }
+
+        // A community's groups: the ones with a chat here open it, and
+        // an admin adds groups to it and takes them out.
+        let can_link = details.community && caps.community_manage && self.can_manage(stored);
+        if details.community && (!details.subgroups.is_empty() || can_link) {
             let mut linked = block("Groups in this community", palette)
                 .debug_selector(|| "group-subgroups".into());
-            for subgroup in &details.subgroups {
+            if can_link {
+                let (community, name) = (group.clone(), details.subject.clone());
                 linked = linked.child(
                     div()
+                        .px_2()
+                        .py_2()
+                        .flex()
+                        .flex_col()
+                        .child(
+                            action_row(
+                                "community-add-group",
+                                IconName::Users,
+                                "Add an existing group",
+                                false,
+                                palette,
+                            )
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                cx.stop_propagation();
+                                this.begin_linking(cx);
+                            })),
+                        )
+                        .child(
+                            action_row(
+                                "community-new-group",
+                                IconName::UserPlus,
+                                "New group in this community",
+                                false,
+                                palette,
+                            )
+                            .on_click(cx.listener(
+                                move |this, _, window, cx| {
+                                    cx.stop_propagation();
+                                    this.open_new_group(
+                                        GroupKind::InCommunity {
+                                            community: community.clone(),
+                                            name: name.clone(),
+                                        },
+                                        window,
+                                        cx,
+                                    );
+                                },
+                            )),
+                        ),
+                );
+            }
+            for (index, subgroup) in details.subgroups.iter().enumerate() {
+                let has_chat = store.chat(account, &subgroup.id).ok().flatten().is_some();
+                let opens = subgroup.id.clone();
+                let removes = subgroup.id.clone();
+                linked = linked.child(
+                    div()
+                        .id(("subgroup", index))
+                        .debug_selector(move || format!("subgroup-{index}"))
                         .py_1()
                         .flex()
                         .items_center()
                         .justify_between()
                         .gap_3()
+                        .when(has_chat, |this| {
+                            this.cursor_pointer().on_click(cx.listener(
+                                move |this, _, window, cx| {
+                                    cx.stop_propagation();
+                                    this.close_overlay(window, cx);
+                                    this.open_chat(opens.clone(), Some(window), cx);
+                                },
+                            ))
+                        })
                         .child(
                             div()
                                 .min_w_0()
@@ -215,10 +338,93 @@ impl Shell {
                                 .text_size(metrics::TEXT_BODY())
                                 .child(SharedString::from(subgroup.subject.clone())),
                         )
-                        .when(subgroup.announcements, |this| {
-                            this.child(badge("Announcements", palette))
-                        }),
+                        .child(
+                            div()
+                                .flex_none()
+                                .flex()
+                                .items_center()
+                                .gap_2()
+                                .when(subgroup.announcements, |this| {
+                                    this.child(badge("Announcements", palette).debug_selector(
+                                        move || format!("subgroup-announcements-{index}"),
+                                    ))
+                                })
+                                .when(!has_chat, |this| {
+                                    this.child(badge("Not joined", palette).debug_selector(
+                                        move || format!("subgroup-unjoined-{index}"),
+                                    ))
+                                })
+                                // The announcement group stays in its
+                                // community.
+                                .when(can_link && !subgroup.announcements, |this| {
+                                    this.child(
+                                        small_button(
+                                            ("subgroup-remove", index),
+                                            format!("subgroup-remove-{index}"),
+                                            "Remove",
+                                            palette,
+                                        )
+                                        .on_click(
+                                            cx.listener(move |this, _, _, cx| {
+                                                cx.stop_propagation();
+                                                this.ask(Confirm::Unlink(removes.clone()), cx);
+                                            }),
+                                        ),
+                                    )
+                                }),
+                        ),
                 );
+                if self.social.confirm == Some(Confirm::Unlink(subgroup.id.clone())) {
+                    let name = subgroup.subject.clone();
+                    let busy = self.social.busy;
+                    linked = linked.child(
+                        question(
+                            "subgroup-unlink-question",
+                            format!(
+                                "Take \"{name}\" out of \"{}\"? The group and its chat stay; \
+                                 it is no longer part of the community.",
+                                details.subject
+                            ),
+                            palette,
+                        )
+                        .child(
+                            div()
+                                .flex()
+                                .justify_end()
+                                .gap_2()
+                                .child(
+                                    text_button(
+                                        "subgroup-unlink-cancel",
+                                        "Keep it",
+                                        None,
+                                        false,
+                                        palette,
+                                    )
+                                    .on_click(cx.listener(
+                                        |this, _, window, cx| {
+                                            cx.stop_propagation();
+                                            this.info_back(window, cx);
+                                        },
+                                    )),
+                                )
+                                .child(
+                                    text_button(
+                                        "subgroup-unlink-confirm",
+                                        if busy { "Removing…" } else { "Remove" },
+                                        None,
+                                        false,
+                                        palette,
+                                    )
+                                    .on_click(cx.listener(
+                                        |this, _, _, cx| {
+                                            cx.stop_propagation();
+                                            this.confirmed(cx);
+                                        },
+                                    )),
+                                ),
+                        ),
+                    );
+                }
             }
             page = page.child(linked);
         }
@@ -265,7 +471,8 @@ impl Shell {
                 })),
             );
         }
-        if caps.group_leave && !stored.departed {
+        // Leaving a community is not offered here.
+        if caps.group_leave && !stored.departed && !details.community {
             actions = actions.child(
                 action_row(
                     "group-leave",
@@ -1081,6 +1288,139 @@ impl Shell {
         picker
     }
 
+    // ----- a community's groups and members -------------------------------
+
+    /// "Add an existing group": the groups the number could link to the
+    /// community in the panel.
+    fn render_linking(
+        &self,
+        account: &AccountId,
+        palette: &Palette,
+        cx: &mut Context<Self>,
+    ) -> Div {
+        let choices = self
+            .engine
+            .store()
+            .groups_to_link(account)
+            .unwrap_or_default();
+        let mut list = div()
+            .debug_selector(|| "group-linking".into())
+            .px_4()
+            .py_3()
+            .flex()
+            .flex_col()
+            .gap_2()
+            .child(super::widgets::label("Add a group", palette))
+            .child(hint(
+                "Groups you are an admin of that are not in a community.",
+                palette,
+            ));
+        if choices.is_empty() {
+            list = list.child(
+                hint("There is no group to add.", palette).debug_selector(|| "link-none".into()),
+            );
+        }
+        for (index, (id, subject)) in choices.into_iter().take(PEOPLE_SHOWN).enumerate() {
+            list = list.child(
+                div()
+                    .id(("link-choice", index))
+                    .debug_selector(move || format!("link-choice-{index}"))
+                    .py_1()
+                    .cursor_pointer()
+                    .text_size(metrics::TEXT_BODY())
+                    .truncate()
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        cx.stop_propagation();
+                        this.link_group(id.clone(), cx);
+                    }))
+                    .child(SharedString::from(subject)),
+            );
+        }
+        list.child(div().flex().justify_end().child(
+            text_button("link-cancel", "Cancel", None, false, palette).on_click(cx.listener(
+                |this, _, window, cx| {
+                    cx.stop_propagation();
+                    this.info_back(window, cx);
+                },
+            )),
+        ))
+    }
+
+    /// The people in all of a community's groups, as the provider listed
+    /// them when the page was opened.
+    fn render_community_members(
+        &self,
+        stored: &StoredGroup,
+        palette: &Palette,
+        cx: &mut Context<Self>,
+    ) -> Div {
+        let account = &stored.group.account_id;
+        let mut page = block("Members of the community", palette);
+        match &self.social.community_people {
+            None | Some(CommunityPeople::Loading) => {
+                page = page.child(
+                    hint("Reading the members…", palette)
+                        .debug_selector(|| "community-members-loading".into()),
+                );
+            }
+            Some(CommunityPeople::Failed(sentence)) => {
+                page = page
+                    .child(error_line(
+                        "community-members-error",
+                        sentence.clone(),
+                        palette,
+                    ))
+                    .child(
+                        div().flex().child(
+                            small_button(
+                                "community-members-retry",
+                                "community-members-retry".into(),
+                                "Try again",
+                                palette,
+                            )
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                cx.stop_propagation();
+                                this.social.community_people = None;
+                                this.load_community_people(cx);
+                            })),
+                        ),
+                    );
+            }
+            Some(CommunityPeople::Loaded(people)) if people.is_empty() => {
+                page = page.child(
+                    hint("There are no members to show.", palette)
+                        .debug_selector(|| "community-members-none".into()),
+                );
+            }
+            Some(CommunityPeople::Loaded(people)) => {
+                let store = self.engine.store();
+                for (index, person) in people.iter().take(PEOPLE_SHOWN).enumerate() {
+                    let name = store
+                        .contact(account, person)
+                        .ok()
+                        .flatten()
+                        .map(|known| known.display_name())
+                        .unwrap_or_else(|| format::phone(person.as_str()));
+                    page = page.child(
+                        div()
+                            .debug_selector(move || format!("community-member-{index}"))
+                            .py_1()
+                            .truncate()
+                            .text_size(metrics::TEXT_BODY())
+                            .child(SharedString::from(name)),
+                    );
+                }
+                if people.len() > PEOPLE_SHOWN {
+                    page = page.child(hint(
+                        format!("And {} more.", people.len() - PEOPLE_SHOWN),
+                        palette,
+                    ));
+                }
+            }
+        }
+        page
+    }
+
     // ----- a new group ----------------------------------------------------
 
     /// The "New group" form.
@@ -1090,6 +1430,13 @@ impl Shell {
         cx: &mut Context<Self>,
     ) -> Option<Stateful<Div>> {
         let form = self.social.new_group.as_ref()?;
+        let (title, create, busy) = match &form.kind {
+            GroupKind::Group => ("New group".to_owned(), "Create group", "Creating…"),
+            GroupKind::Community => ("New community".to_owned(), "Create community", "Creating…"),
+            GroupKind::InCommunity { name, .. } => {
+                (format!("New group in {name}"), "Create group", "Creating…")
+            }
+        };
         let picture: Div = match &form.picture {
             Some((_, drawn)) => div()
                 .debug_selector(|| "new-group-picture-shown".into())
@@ -1114,7 +1461,7 @@ impl Shell {
                 .flex()
                 .flex_col()
                 .child(panel_header(
-                    "New group",
+                    &title,
                     palette,
                     cx.listener(|this, _, window, cx| {
                         cx.stop_propagation();
@@ -1167,8 +1514,16 @@ impl Shell {
                                     ),
                             ),
                         )
-                        .child(super::widgets::label("Participants", palette))
-                        .child(self.render_people(&form.account, &form.people, &[], palette, cx))
+                        .when(form.kind != GroupKind::Community, |this| {
+                            this.child(super::widgets::label("Participants", palette))
+                                .child(self.render_people(
+                                    &form.account,
+                                    &form.people,
+                                    &[],
+                                    palette,
+                                    cx,
+                                ))
+                        })
                         .children(
                             form.error
                                 .clone()
@@ -1193,11 +1548,7 @@ impl Shell {
                         .child(
                             text_button(
                                 "new-group-create",
-                                if form.busy {
-                                    "Creating…"
-                                } else {
-                                    "Create group"
-                                },
+                                if form.busy { busy } else { create },
                                 Some(IconName::Users),
                                 true,
                                 palette,

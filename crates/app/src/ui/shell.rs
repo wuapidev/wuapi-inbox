@@ -307,6 +307,7 @@ pub(super) enum SettingsSection {
 pub(super) enum MenuAction {
     NewChat,
     NewGroup,
+    NewCommunity,
     MarkAllRead,
     /// Marks the menu's chat as read.
     MarkRead,
@@ -375,13 +376,67 @@ pub(super) enum ChatFilter {
     All,
     Unread,
     Groups,
+    /// The chats that are in a community, under a heading for each. Only
+    /// offered while there is such a chat.
+    Communities,
     /// The archive: the chats the other filters leave out.
     Archived,
 }
 
+/// The heading of a community in the chat list.
+pub(super) struct CommunityHeading {
+    /// The community's group id.
+    pub(super) id: ChatId,
+    /// What the heading reads: the community's name, once it is known.
+    pub(super) name: SharedString,
+}
+
+/// The rows of [`ChatFilter::Communities`]: for each community, in the
+/// order its first chat comes in, its heading, then its announcement
+/// group, then its other chats in the order they came in. Chats that are
+/// in no community are left out.
+fn community_rows(chats: Vec<ChatSummary>) -> Vec<ListRow> {
+    let mut communities: Vec<(CommunityHeading, Vec<ChatSummary>)> = Vec::new();
+    for chat in chats {
+        let Some(community) = chat.community.clone() else {
+            continue;
+        };
+        let at = match communities
+            .iter()
+            .position(|(heading, _)| heading.id == community.id)
+        {
+            Some(at) => at,
+            None => {
+                let name = if community.name.is_empty() {
+                    "Community".into()
+                } else {
+                    community.name.clone().into()
+                };
+                let id = community.id.clone();
+                communities.push((CommunityHeading { id, name }, Vec::new()));
+                communities.len() - 1
+            }
+        };
+        communities[at].1.push(chat);
+    }
+    let mut rows = Vec::new();
+    for (heading, mut chats) in communities {
+        rows.push(ListRow::Community(heading));
+        // Stable: the rest keep the chat list's order.
+        chats.sort_by_key(|chat| !chat.community.as_ref().is_some_and(|c| c.announcements));
+        rows.extend(chats.into_iter().map(ListRow::Chat));
+    }
+    rows
+}
+
 /// One row of the chat list.
+// A chat is nearly every row; boxing it would be an allocation for each.
+#[allow(clippy::large_enum_variant)]
 pub(super) enum ListRow {
     Chat(ChatSummary),
+    /// A community's heading, above its chats, under
+    /// [`ChatFilter::Communities`].
+    Community(CommunityHeading),
     /// A section title, shown while searching.
     Section(&'static str),
     /// A message matching the search.
@@ -431,6 +486,9 @@ pub struct Shell {
     pub(super) filter: ChatFilter,
     pub(super) query: String,
     pub(super) list_rows: Vec<ListRow>,
+    /// Some chat of the number on screen is in a community: the
+    /// [`ChatFilter::Communities`] chip is offered.
+    pub(super) has_communities: bool,
     pub(super) chat_scroll: UniformListScrollHandle,
     pub(super) search: Entity<InputState>,
 
@@ -806,6 +864,7 @@ impl Shell {
             account: None,
             unread: HashMap::new(),
             filter: ChatFilter::All,
+            has_communities: false,
             query: String::new(),
             list_rows: Vec::new(),
             chat_scroll: UniformListScrollHandle::new(),
@@ -978,6 +1037,15 @@ impl Shell {
 
     pub(super) fn reload_chats(&mut self, cx: &mut Context<Self>) {
         self.unread.clear();
+        self.has_communities = self
+            .account
+            .as_ref()
+            .and_then(|account| self.store.chats(account, None).ok())
+            .is_some_and(|chats| chats.iter().any(|chat| chat.community.is_some()));
+        // The last chat left its community while its view was on.
+        if self.filter == ChatFilter::Communities && !self.has_communities {
+            self.filter = ChatFilter::All;
+        }
         let mut rows = Vec::new();
         for account in &self.accounts {
             let is_current = Some(&account.id) == self.account.as_ref();
@@ -1018,11 +1086,16 @@ impl Shell {
             if !is_current {
                 continue;
             }
+            if self.filter == ChatFilter::Communities {
+                rows.extend(community_rows(chats));
+                continue;
+            }
             for chat in chats {
                 let keep = match self.filter {
                     ChatFilter::All | ChatFilter::Archived => true,
                     ChatFilter::Unread => chat.unread_count > 0,
                     ChatFilter::Groups => chat.kind == ChatKind::Group,
+                    ChatFilter::Communities => false,
                 };
                 if keep {
                     rows.push(ListRow::Chat(chat));
@@ -1822,6 +1895,14 @@ impl Shell {
                         NOT_HERE,
                     ),
                     item(
+                        "menu-new-community",
+                        "New community",
+                        I::Users,
+                        (caps.group_create && caps.community_manage && self.account.is_some())
+                            .then_some(MenuAction::NewCommunity),
+                        NOT_HERE,
+                    ),
+                    item(
                         "menu-read-all",
                         "Mark all as read",
                         I::CheckCheck,
@@ -1998,6 +2079,9 @@ impl Shell {
         match action {
             MenuAction::NewChat => return self.open_overlay(Overlay::NewChat, window, cx),
             MenuAction::NewGroup => return self.open_overlay(Overlay::NewGroup, window, cx),
+            MenuAction::NewCommunity => {
+                return self.open_new_group(super::social::GroupKind::Community, window, cx)
+            }
             MenuAction::OpenSettings => return self.open_overlay(Overlay::Settings, window, cx),
             MenuAction::ContactInfo => {
                 return match self.menu_chat() {

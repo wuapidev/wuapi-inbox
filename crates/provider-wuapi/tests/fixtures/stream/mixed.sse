@@ -60,7 +60,7 @@ data: {"id":"evt_mix15","object":"event","type":"contact.updated","createdAt":"2
 
 id: c1.mfx2ke016
 event: group.updated
-data: {"id":"evt_mix16","object":"event","type":"group.updated","createdAt":"2026-09-24T08:16:00.000Z","organizationId":"org_acme","projectId":null,"data":{"object":{"object":"group_change","accountId":"k57a8m2x9d3f0q1wjh6ypc4n2d7s0vbr","groupId":"120363041234567890@g.us","actorId":"+584121234567","added":[],"removed":[],"promoted":[],"demoted":[],"name":"Launch crew","description":null,"locked":null,"announce":null,"changes":[],"changedAt":"2026-09-24T09:20:00.000Z"}}}
+data: {"id":"evt_mix16","object":"event","type":"group.updated","createdAt":"2026-09-24T08:16:00.000Z","organizationId":"org_acme","projectId":null,"data":{"object":{"object":"group_change","accountId":"k57a8m2x9d3f0q1wjh6ypc4n2d7s0vbr","groupId":"120363041234567890@g.us","communityId":null,"actorId":"+584121234567","added":[],"removed":[],"promoted":[],"demoted":[],"linked":[],"unlinked":[],"name":"Launch crew","description":null,"locked":null,"announce":null,"changes":[],"changedAt":"2026-09-24T09:20:00.000Z"}}}
 
 id: c1.mfx2ke017
 event: chat.updated
@@ -72,7 +72,7 @@ data: {"id":"evt_mix18","object":"event","type":"contact.picture_updated","creat
 
 id: c1.mfx2ke019
 event: group.joined
-data: {"id":"evt_mix19","object":"event","type":"group.joined","createdAt":"2026-09-24T08:16:00.000Z","organizationId":"org_acme","projectId":null,"data":{"object":{"object":"group","id":"120363041234567890@g.us","accountId":"k57a8m2x9d3f0q1wjh6ypc4n2d7s0vbr","name":"Launch team","description":"Coordination for the September launch.","ownerId":"+584121234567","community":false,"locked":false,"announce":false,"participants":[{"contactId":"+584121234567","name":"Acme Support","role":"owner"},{"contactId":"+584245550199","name":"Maria","role":"member"},{"contactId":"lid:200055501000001","name":null,"role":"member"}],"createdAt":"2026-09-01T12:00:00.000Z"}}}
+data: {"id":"evt_mix19","object":"event","type":"group.joined","createdAt":"2026-09-24T08:16:00.000Z","organizationId":"org_acme","projectId":null,"data":{"object":{"object":"group","id":"120363041234567890@g.us","accountId":"k57a8m2x9d3f0q1wjh6ypc4n2d7s0vbr","name":"Launch team","description":"Coordination for the September launch.","ownerId":"+584121234567","community":false,"communityId":null,"default":false,"locked":false,"announce":false,"participants":[{"contactId":"+584121234567","name":"Acme Support","role":"owner"},{"contactId":"+584245550199","name":"Maria","role":"member"},{"contactId":"lid:200055501000001","name":null,"role":"member"}],"createdAt":"2026-09-01T12:00:00.000Z"}}}
 
 id: c1.mfx2ke020
 event: history.synced

@@ -1,0 +1,18 @@
+retry: 3000
+
+id: c1.mgc0kf001
+event: group.updated
+data: {"id":"evt_com1","object":"event","type":"group.updated","createdAt":"2026-10-05T08:16:00.000Z","organizationId":"org_acme","projectId":null,"data":{"object":{"object":"group_change","accountId":"k57a8m2x9d3f0q1wjh6ypc4n2d7s0vbr","groupId":"120363041234567890@g.us","communityId":"120363041234567890@g.us","actorId":"+584121234567","added":[],"removed":[],"promoted":[],"demoted":[],"linked":["120363055512345679@g.us"],"unlinked":[],"name":null,"description":null,"locked":null,"announce":null,"changes":["subgroups_linked"],"changedAt":"2026-10-05T08:15:59.000Z"}}}
+
+id: c1.mgc0kf002
+event: group.updated
+data: {"id":"evt_com2","object":"event","type":"group.updated","createdAt":"2026-10-05T08:16:00.000Z","organizationId":"org_acme","projectId":null,"data":{"object":{"object":"group_change","accountId":"k57a8m2x9d3f0q1wjh6ypc4n2d7s0vbr","groupId":"120363055512345679@g.us","communityId":"120363041234567890@g.us","actorId":"+584121234567","added":[],"removed":[],"promoted":[],"demoted":[],"linked":[],"unlinked":["120363055512345679@g.us"],"name":null,"description":null,"locked":null,"announce":null,"changes":["subgroups_unlinked"],"changedAt":"2026-10-05T08:15:59.000Z"}}}
+
+id: c1.mgc0kf003
+event: group.joined
+data: {"id":"evt_com3","object":"event","type":"group.joined","createdAt":"2026-10-05T08:16:00.000Z","organizationId":"org_acme","projectId":null,"data":{"object":{"object":"group","id":"120363055512345680@g.us","accountId":"k57a8m2x9d3f0q1wjh6ypc4n2d7s0vbr","name":"Carpool","description":null,"ownerId":"+584121234567","community":false,"communityId":"120363041234567890@g.us","default":false,"locked":false,"announce":false,"participants":[{"contactId":"+584121234567","name":"Acme Support","role":"owner"},{"contactId":"+584245550199","name":"Maria","role":"member"}],"createdAt":"2026-09-01T12:00:00.000Z"}}}
+
+id: c1.mgc0kf004
+event: group.joined
+data: {"id":"evt_com4","object":"event","type":"group.joined","createdAt":"2026-10-05T08:16:00.000Z","organizationId":"org_acme","projectId":null,"data":{"object":{"object":"group","id":"120363041234567890@g.us","accountId":"k57a8m2x9d3f0q1wjh6ypc4n2d7s0vbr","name":"Neighbours","description":null,"ownerId":"+584121234567","community":true,"communityId":null,"default":false,"locked":false,"announce":true,"participants":[{"contactId":"+584121234567","name":"Acme Support","role":"owner"},{"contactId":"+584245550199","name":"Maria","role":"member"}],"createdAt":"2026-09-01T12:00:00.000Z"}}}
+

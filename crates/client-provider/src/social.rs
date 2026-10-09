@@ -102,6 +102,12 @@ pub struct Group {
     pub created_at: Option<Timestamp>,
     /// It is a community: it links other groups (see `subgroups`).
     pub community: bool,
+    /// The community this group is linked to, by its group id. `None` for
+    /// a group that is in no community, for a community itself, and when
+    /// the provider does not say.
+    pub community_id: Option<ChatId>,
+    /// It is its community's announcement group.
+    pub announcements: bool,
     /// Only admins can send messages.
     pub announce: bool,
     /// Only admins can edit the subject, description and picture.
@@ -114,7 +120,8 @@ pub struct Group {
     /// Everyone in the group, the account included.
     pub participants: Vec<GroupParticipant>,
     /// The groups a community links. Empty for a plain group, and when
-    /// the provider does not say.
+    /// the provider does not say: a listing of every group may leave them
+    /// out, and the client then keeps the ones it holds.
     pub subgroups: Vec<Subgroup>,
 }
 
@@ -123,12 +130,20 @@ pub struct Group {
 pub struct NewGroup {
     /// Its name.
     pub subject: String,
-    /// Who to put in it, besides the account. Not empty.
+    /// Who to put in it, besides the account. Not empty, unless a
+    /// community is being created.
     pub participants: Vec<ContactId>,
     /// Made once per attempt by the client and sent again on every retry,
     /// so that a request repeated after a dropped connection creates one
     /// group, not two.
     pub request_id: String,
+    /// Create a community instead of a group; `participants` may then be
+    /// empty. Cannot be combined with `in_community`.
+    pub community: bool,
+    /// Create the group inside this community, as one of its groups.
+    /// Where the account's engine cannot do that the provider answers
+    /// [`ProviderError::Rejected`](crate::ProviderError::Rejected).
+    pub in_community: Option<ChatId>,
 }
 
 /// A change to a group's details or settings. Every variant sets a value,
