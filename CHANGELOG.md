@@ -2,7 +2,15 @@
 
 ## [Unreleased]
 
+* The app is called Wuapi, and its macOS bundle is `Wuapi.app`. The name in the menu bar and the About window is the same.
+* A menu bar item on macOS: the chats, the status and the updates, from the menu bar.
+* Search does not block: the chat list finds messages a moment after the last key, and a word typed is one question.
+* Updates install themselves: an installed copy checks, downloads and asks you to restart. A copy that runs from a disk image is asked once to move to Applications.
+* The macOS disk image is designed (`cargo xtask dmg`).
 * Communities. A "Communities" filter above the chat list groups the chats of each community under its name, the announcement group first. A group's details say which community it is in. A click on a community opens it: the groups it links (the ones you have not joined are marked), its members, and, for an admin, adding an existing group, making a new group inside it and taking a group out. "New community" in the chat list's menu makes a community.
+* Linux: an AppImage in every release, one file that runs without installing. The application tells about new versions instead of replacing it, as with the packages.
+* Linux: a one-line installer (`install.sh`), which installs under `~/.local` and keeps the self-updater working.
+* Linux: `.deb` and `.rpm` packages, which install under `/usr` and are updated by the system's package manager.
 
 ## [0.1.1]
 

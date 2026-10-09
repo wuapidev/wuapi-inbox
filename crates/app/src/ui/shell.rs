@@ -23,11 +23,11 @@ use gpui_kit::{
     ListAlignment, ListOffset, ListState, SharedString, Subscription, Task,
     UniformListScrollHandle, Window,
 };
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::hash::{Hash, Hasher};
 use std::rc::Rc;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 /// How many contacts "New chat" lists at once.
 const NEW_CHAT_ROWS: usize = 7;
@@ -163,6 +163,10 @@ const MAX_HITS: usize = 40;
 /// of them is the slowest question the store can be asked; the chats are
 /// filtered by it all the same.
 const MIN_MESSAGE_SEARCH: usize = 2;
+/// Address-book contacts shown under the matching chats.
+const MAX_CONTACT_HITS: usize = 20;
+/// The chats are asked for again while searching, at most this often.
+const SEARCH_REFRESH_EVERY: Duration = Duration::from_secs(30);
 /// How many of an account's matches are read to find those of one chat.
 const THREAD_SEARCH_SCAN: usize = 400;
 
@@ -446,6 +450,8 @@ pub(super) enum ListRow {
     Section(&'static str),
     /// A message matching the search.
     Hit(Box<SearchHit>),
+    /// An address-book contact matching the search, with no chat yet.
+    Contact(Contact),
 }
 
 /// The messages the chat list's search found. They are read off this
@@ -463,9 +469,10 @@ pub(super) struct FoundMessages {
 
 /// Lists `hits` under the chats of `rows`, in place of what was there.
 fn list_found(rows: &mut Vec<ListRow>, hits: &[SearchHit]) {
+    // The messages are the last section; the contacts above them stay.
     if let Some(section) = rows
         .iter()
-        .position(|row| matches!(row, ListRow::Section(_)))
+        .position(|row| matches!(row, ListRow::Section("Messages")))
     {
         rows.truncate(section);
     }
@@ -518,6 +525,8 @@ pub struct Shell {
     pub(super) filter: ChatFilter,
     pub(super) query: String,
     pub(super) found: FoundMessages,
+    /// When the chats were last asked for because of a search.
+    pub(super) search_refreshed: Option<Instant>,
     pub(super) list_rows: Vec<ListRow>,
     /// Some chat of the number on screen is in a community: the
     /// [`ChatFilter::Communities`] chip is offered.
@@ -807,7 +816,7 @@ impl Shell {
             cx.subscribe_in(&search, window, |this, state, event: &InputEvent, _, cx| {
                 if matches!(event, InputEvent::Change) {
                     this.query = state.read(cx).value().trim().to_owned();
-                    this.reload_chats(cx);
+                    this.search_changed(cx);
                     cx.notify();
                 }
             }),
@@ -900,6 +909,7 @@ impl Shell {
             has_communities: false,
             query: String::new(),
             found: FoundMessages::default(),
+            search_refreshed: None,
             list_rows: Vec::new(),
             chat_scroll: UniformListScrollHandle::new(),
             search,
@@ -1069,6 +1079,33 @@ impl Shell {
         self.reload_chats(cx);
     }
 
+    /// The search text changed: the list is filtered again, and the chats
+    /// are asked for again (at most every [`SEARCH_REFRESH_EVERY`]), so a
+    /// chat the phone sent late can be found by typing.
+    pub(super) fn search_changed(&mut self, cx: &mut Context<Self>) {
+        self.reload_chats(cx);
+        self.refresh_for_search();
+    }
+
+    fn refresh_for_search(&mut self) {
+        if self.query.is_empty() || self.account.is_none() {
+            return;
+        }
+        if self
+            .search_refreshed
+            .is_some_and(|at| at.elapsed() < SEARCH_REFRESH_EVERY)
+        {
+            return;
+        }
+        self.search_refreshed = Some(Instant::now());
+        let engine = self.engine.clone();
+        self.engine.runtime().spawn(async move {
+            if let Err(error) = engine.refresh().await {
+                tracing::warn!(%error, "could not refresh the chats for a search");
+            }
+        });
+    }
+
     pub(super) fn reload_chats(&mut self, cx: &mut Context<Self>) {
         self.unread.clear();
         self.has_communities = self
@@ -1134,6 +1171,31 @@ impl Shell {
                 if keep {
                     rows.push(ListRow::Chat(chat));
                 }
+            }
+        }
+
+        // Contacts that match and have no chat yet: one with a chat is
+        // already listed above, so it is not listed twice.
+        if let (Some(account), false, ChatFilter::All) =
+            (&self.account, self.query.is_empty(), self.filter)
+        {
+            let listed: HashSet<ChatId> = rows
+                .iter()
+                .filter_map(|row| match row {
+                    ListRow::Chat(chat) => Some(chat.id.clone()),
+                    _ => None,
+                })
+                .collect();
+            let people: Vec<Contact> = self
+                .store
+                .contacts(account, Some(&self.query), MAX_CONTACT_HITS)
+                .unwrap_or_default()
+                .into_iter()
+                .filter(|contact| !listed.contains(&ChatId::new(contact.id.as_str())))
+                .collect();
+            if !people.is_empty() {
+                rows.push(ListRow::Section("Contacts"));
+                rows.extend(people.into_iter().map(ListRow::Contact));
             }
         }
 

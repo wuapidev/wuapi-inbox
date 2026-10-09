@@ -3236,6 +3236,50 @@ fn waiting_for_the_phone_gives_up_after_a_quarter_of_an_hour(cx: &mut TestAppCon
 // ----- contacts -----------------------------------------------------------
 
 #[gpui_kit::test]
+fn searching_lists_matching_contacts_and_asks_for_chats_again(cx: &mut TestAppContext) {
+    let harness = open(cx, ShellOptions::default());
+    let account = stored_accounts(&harness)[0].id.clone();
+    let mut ana = client_provider::Contact::new(
+        account.clone(),
+        client_provider::ContactId::new("+584140000009"),
+    );
+    ana.phone = Some("+584140000009".to_owned());
+    ana.saved_name = Some("Ana Quintero".to_owned());
+    harness.mock.set_contacts(&account, vec![ana]);
+    harness
+        .runtime
+        .block_on(harness.engine.sync_contacts(&account))
+        .unwrap();
+    cx.run_until_parked();
+
+    let search = cx.update(|cx| harness.shell.read(cx).search.clone());
+    let field: ElementId = ("input", search.entity_id()).into();
+    let lists = harness.mock.account_calls();
+    cx.update_window(harness.window.into(), |_, window, cx| {
+        window.click(field, cx);
+        window.input("quintero", cx);
+    })
+    .unwrap();
+    harness.settle(cx);
+    cx.update(|cx| {
+        let shell = harness.shell.read(cx);
+        assert!(shell.list_rows.iter().any(|row| matches!(
+            row,
+            ListRow::Contact(contact) if contact.saved_name.as_deref() == Some("Ana Quintero")
+        )));
+    });
+    // The first letters asked the phone for the chats, once: the next
+    // ones within the same half minute do not ask again.
+    assert_eq!(harness.mock.account_calls(), lists + 1);
+    cx.update_window(harness.window.into(), |_, window, cx| {
+        window.input("s", cx);
+    })
+    .unwrap();
+    harness.settle(cx);
+    assert_eq!(harness.mock.account_calls(), lists + 1);
+}
+
+#[gpui_kit::test]
 fn new_chat_lists_the_address_book_and_checks_a_new_number(cx: &mut TestAppContext) {
     let harness = open(cx, ShellOptions::default());
     let account = stored_accounts(&harness)[0].id.clone();

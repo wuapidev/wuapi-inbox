@@ -328,6 +328,20 @@ jobs:
           bash packaging/linux/package.sh --out dist
           cp packaging/linux/install.sh dist/install.sh
 
+      # The AppImage: the same files as the archive, in one file that runs
+      # without installing. appimagetool is pinned and its checksum checked
+      # before it runs; it runs without FUSE, which the runner may not have.
+      - name: Build the AppImage
+        env:
+          APPIMAGETOOL_SHA256: ed4ce84f0d9caff66f50bcca6ff6f35aae54ce8135408b3fa33abfc3cb384eb0
+        run: |
+          tool="$RUNNER_TEMP/appimagetool-x86_64.AppImage"
+          curl -fsSL -o "$tool" \
+            https://github.com/AppImage/appimagetool/releases/download/1.9.1/appimagetool-x86_64.AppImage
+          echo "$APPIMAGETOOL_SHA256  $tool" | sha256sum -c -
+          chmod 755 "$tool"
+          APPIMAGETOOL="$tool" sh packaging/linux/appimage.sh --out dist
+
       - name: Write the checksums
         working-directory: dist
         run: |

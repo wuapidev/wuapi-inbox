@@ -10,7 +10,7 @@ use crate::icons::{icon, IconName};
 use crate::theme::px;
 use crate::theme::{metrics, Palette};
 use client_core::{message_preview, ChatSummary, SearchHit};
-use client_provider::{ChatKind, Direction, PresenceState, Timestamp};
+use client_provider::{ChatKind, Contact, Direction, PresenceState, Timestamp};
 use gpui_kit::component::input::Input;
 use gpui_kit::component::scroll::Scrollbar;
 use gpui_kit::prelude::*;
@@ -410,6 +410,7 @@ impl Shell {
                 self.render_chat_row(index, chat, now, cursor == Some(&chat.id), palette, cx)
             }
             Some(ListRow::Hit(hit)) => self.render_hit_row(index, hit, now, palette, cx),
+            Some(ListRow::Contact(contact)) => self.render_contact_row(index, contact, palette, cx),
             Some(ListRow::Section(name)) => div()
                 .h(metrics::CHAT_ROW_HEIGHT())
                 .px_4()
@@ -843,6 +844,53 @@ impl Shell {
     }
 
     /// A message found by the search field.
+    /// A contact of the address book who matches the search and has no
+    /// chat yet. A click opens their chat, which is made in the store.
+    fn render_contact_row(
+        &self,
+        index: usize,
+        contact: &Contact,
+        palette: &Palette,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let hover = palette.hover;
+        let contact = contact.clone();
+        div()
+            .id(("contact", index))
+            .w_full()
+            .h(metrics::CHAT_ROW_HEIGHT())
+            .px_4()
+            .flex()
+            .flex_col()
+            .justify_center()
+            .gap(px(3.))
+            .cursor_pointer()
+            .hover(move |style| style.bg(hover))
+            .child(
+                div()
+                    .min_w_0()
+                    .truncate()
+                    .text_size(metrics::TEXT_NAME())
+                    .font_weight(FontWeight::MEDIUM)
+                    .text_color(palette.text)
+                    .child(SharedString::from(contact.display_name())),
+            )
+            .child(
+                div()
+                    .min_w_0()
+                    .truncate()
+                    .text_size(metrics::TEXT_SMALL())
+                    .text_color(palette.text_muted)
+                    .child(SharedString::from(
+                        contact.phone.clone().unwrap_or_default(),
+                    )),
+            )
+            .on_click(cx.listener(move |this, _, window, cx| {
+                this.open_contact(contact.clone(), window, cx);
+            }))
+            .into_any_element()
+    }
+
     fn render_hit_row(
         &self,
         index: usize,
