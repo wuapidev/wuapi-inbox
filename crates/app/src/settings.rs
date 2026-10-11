@@ -164,6 +164,10 @@ pub struct Settings {
     /// The strip of status updates above the chats is open. Off: it is
     /// folded to one line.
     pub story_strip: bool,
+    /// Where voice notes are transcribed. Off: the action is not offered
+    /// and no audio is sent anywhere. The server's address and model are in
+    /// `transcription.json`, the key in the keychain.
+    pub transcription: crate::transcribe::Mode,
 }
 
 impl Default for Settings {
@@ -192,6 +196,7 @@ impl Default for Settings {
             sticker_hover_animation: true,
             auto_update: true,
             story_strip: true,
+            transcription: crate::transcribe::Mode::Off,
         }
     }
 }
@@ -392,6 +397,7 @@ mod tests {
             sticker_hover_animation: false,
             auto_update: false,
             story_strip: false,
+            transcription: crate::transcribe::Mode::Online,
         };
         chosen.save(&path).unwrap();
         assert_eq!(Settings::load(&path), chosen);
@@ -418,6 +424,11 @@ mod tests {
         assert!(
             loaded.auto_update,
             "updates are looked for unless turned off"
+        );
+        assert_eq!(
+            loaded.transcription,
+            crate::transcribe::Mode::Off,
+            "nothing is sent anywhere unless asked for"
         );
     }
 

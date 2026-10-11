@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+* Voice notes as text. A voice note has a Transcribe action (its menu, the `t` key, or the link under its waveform), and the words show under the waveform and are kept, so the same note is never sent twice. It is off by default (Settings > Audio > Transcription), and nothing is sent anywhere while it is off.
+* Transcription through a server of your choice: any service that speaks OpenAI's `/audio/transcriptions` (OpenAI, Groq, or whisper.cpp and faster-whisper on your own computer). The address, model and language are saved; the API key stays in the system keychain.
+* Windows: transcription on this computer with the speech recogniser Windows ships, which sends nothing anywhere. It understands the languages whose speech pack is installed in Windows.
+
 ## [0.2.0]
 
 * The app is called Wuapi, and its macOS bundle is `Wuapi.app`. The name in the menu bar and the About window is the same.

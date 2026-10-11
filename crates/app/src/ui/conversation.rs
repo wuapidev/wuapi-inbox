@@ -364,7 +364,12 @@ impl Shell {
                 .as_ref()
                 .map(|picked| std::rc::Rc::new(picked.clone())),
             view: cx.entity().downgrade(),
-            audio: self.audio.view(),
+            audio: {
+                let mut audio = self.audio.view();
+                audio.can_transcribe =
+                    settings::get(cx).transcription != crate::transcribe::Mode::Off;
+                audio
+            },
             tiles: self.tile_context(),
         };
         let zone = palette.accent;

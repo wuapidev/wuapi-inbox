@@ -45,6 +45,7 @@ mod storage;
 mod stories;
 mod stretch;
 mod theme;
+mod transcribe;
 mod ui;
 mod update;
 mod video;

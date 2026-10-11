@@ -1067,5 +1067,6 @@ impl Shell {
                 "What voice notes and audio are played on.",
                 output,
             ))
+            .child(self.render_transcription_settings(palette, cx))
     }
 }

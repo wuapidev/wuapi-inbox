@@ -376,18 +376,26 @@ pub trait SecretStore: Send + Sync {
 /// The key in the OS keychain, filed under the application.
 pub struct KeychainSecret {
     service: String,
+    /// The entry's name under the application's service.
+    user: &'static str,
 }
 
 impl KeychainSecret {
-    /// The application's own entry.
+    /// The application's own entry for the GIF search.
     pub fn new() -> Self {
+        Self::named("gif-search-key:giphy")
+    }
+
+    /// Another entry of the application's, by name.
+    pub fn named(user: &'static str) -> Self {
         Self {
             service: crate::product::slug(),
+            user,
         }
     }
 
     fn entry(&self) -> Result<keyring::Entry, String> {
-        crate::storage::keyring_entry(&self.service, "gif-search-key:giphy")
+        crate::storage::keyring_entry(&self.service, self.user)
     }
 }
 

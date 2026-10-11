@@ -408,6 +408,8 @@ pub enum Command {
     SaveSticker,
     /// Keeps its GIF in the library.
     SaveGif,
+    /// Turns a voice note into text.
+    Transcribe,
     /// Its menu.
     MessageMenu,
     /// Starts selecting messages, with this one.
@@ -1477,6 +1479,13 @@ pub const BINDINGS: &[Binding] = &[
         S::Message,
         W::Message,
         &[key("g")],
+    ),
+    bind(
+        C::Transcribe,
+        "Transcribe the voice note",
+        S::Message,
+        W::Message,
+        &[key("t")],
     ),
     bind(
         C::MessageMenu,

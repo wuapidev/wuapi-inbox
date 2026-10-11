@@ -32,7 +32,7 @@ async-trait = "0.1"
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 futures = "0.3"
 keyring = "4"
-reqwest = { version = "0.13", default-features = false, features = ["json", "rustls", "stream"] }
+reqwest = { version = "0.13", default-features = false, features = ["json", "multipart", "rustls", "stream"] }
 # SQLite with SQLCipher: the database on disk is encrypted. The vendored
 # OpenSSL supplies the cipher, so nothing has to be installed on Linux,
 # macOS or Windows (building it needs perl and make).
