@@ -706,6 +706,12 @@ pub trait Session: Send + Sync + 'static {
         unsupported("calls")
     }
 
+    /// Asks somebody else into a call that is on.
+    async fn invite_to_call(&self, id: &str, guest: &Jid) -> SessionResult<()> {
+        let _ = (id, guest);
+        unsupported("calls with several people")
+    }
+
     /// Turns the camera off or on again in a call with video.
     async fn set_call_camera(&self, id: &str, on: bool) -> SessionResult<()> {
         let _ = (id, on);

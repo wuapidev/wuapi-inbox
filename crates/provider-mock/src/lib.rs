@@ -117,6 +117,8 @@ struct State {
     next_call: u64,
     /// What calls were last told to use.
     call_devices: client_provider::CallDevices,
+    /// Who was asked into which call.
+    call_invites: Vec<(String, ContactId)>,
     /// Receipts by client id: the idempotency table of `send`.
     sent: HashMap<ClientMessageId, SendReceipt>,
     /// Failures to return from upcoming `send` calls, in order.
@@ -319,6 +321,7 @@ impl MockProvider {
                     calls: HashMap::new(),
                     next_call: 0,
                     call_devices: Default::default(),
+                    call_invites: Vec::new(),
                     sent: HashMap::new(),
                     send_failures: VecDeque::new(),
                     send_calls: 0,
@@ -2518,6 +2521,16 @@ impl Provider for MockProvider {
         _call: &str,
         _muted: bool,
     ) -> ProviderResult<()> {
+        Ok(())
+    }
+
+    async fn invite_to_call(
+        &self,
+        _account: &AccountId,
+        call: &str,
+        contact: &ContactId,
+    ) -> ProviderResult<()> {
+        self.call_invite(call, contact);
         Ok(())
     }
 

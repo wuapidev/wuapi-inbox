@@ -14,11 +14,12 @@ use crate::theme::px;
 use crate::theme::{metrics, Palette};
 use client_core::LiveCall;
 use client_provider::{CallPicture, CallScreen, CallState, ChatKind, Timestamp};
+use gpui_kit::component::input::{InputEvent, InputState};
 use gpui_kit::component::tooltip::Tooltip;
 use gpui_kit::prelude::*;
 use gpui_kit::{
-    div, img, AnyElement, Context, Div, FontWeight, Hsla, ObjectFit, Pixels, Point, RenderImage,
-    SharedString, Stateful, Task,
+    div, img, AnyElement, Context, Div, Entity, FontWeight, Hsla, ObjectFit, Pixels, Point,
+    RenderImage, SharedString, Stateful, Task,
 };
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -40,7 +41,7 @@ type Drawn = (u64, Option<Arc<RenderImage>>);
 pub(super) struct CallDeck {
     /// The picture drawn for each side of each call, with the count it
     /// had on the provider's screen.
-    drawn: RefCell<HashMap<(String, bool), Drawn>>,
+    drawn: RefCell<HashMap<(String, String), Drawn>>,
     /// Pictures that were replaced, which the window still holds.
     stale: RefCell<Vec<Arc<RenderImage>>>,
     /// The sound of a call that rings.
@@ -51,8 +52,30 @@ pub(super) struct CallDeck {
     /// While a card is held: where the pointer was when it was pressed,
     /// less how far the cards had been moved already.
     held: Option<Point<Pixels>>,
+    /// How wide the cards were made by their corner; `None`: as they
+    /// come. Kept from one call to the next.
+    pub(super) width: Option<Pixels>,
+    /// While a card's corner is held: where the pointer was when it was
+    /// pressed, and how wide and how far right the cards were then.
+    sizing: Option<(Point<Pixels>, Pixels, Pixels)>,
+    /// The call somebody is being added to, and what is typed to find
+    /// them.
+    adding: Option<Adding>,
     _tick: Option<Task<()>>,
 }
+
+/// Somebody is being looked for, to be added to a call.
+struct Adding {
+    call: String,
+    search: Entity<InputState>,
+    _typed: gpui_kit::Subscription,
+}
+
+/// The slots of a call's pictures that are not a guest's.
+const REMOTE: &str = "remote";
+const LOCAL: &str = "local";
+/// How many people are offered at once to be added to a call.
+const ADD_SHOWN: usize = 5;
 
 /// What should ring for these calls: somebody calling before anything
 /// else, and nothing over a call that is on, which is not to be talked
@@ -85,10 +108,10 @@ pub(super) fn what_rings(calls: &[LiveCall]) -> Option<crate::ring::Ringing> {
 
 impl CallDeck {
     /// The newest picture of one side of a call, ready to draw.
-    fn picture(&self, call: &str, local: bool, screen: &CallScreen) -> Option<Arc<RenderImage>> {
+    fn picture(&self, call: &str, slot: &str, screen: &CallScreen) -> Option<Arc<RenderImage>> {
         let (count, newest) = screen.newest();
         let mut drawn = self.drawn.borrow_mut();
-        let key = (call.to_owned(), local);
+        let key = (call.to_owned(), slot.to_owned());
         if let Some((seen, image)) = drawn.get(&key) {
             if *seen == count {
                 return image.clone();
@@ -140,10 +163,28 @@ fn CARD_MARGIN() -> Pixels {
     px(16.)
 }
 
-/// How tall the pictures of a call with video are drawn.
+/// The narrowest and the widest a card is made by its corner.
 #[allow(non_snake_case)]
-fn STAGE_HEIGHT() -> Pixels {
-    px(340.)
+fn CARD_NARROWEST() -> Pixels {
+    px(260.)
+}
+
+#[allow(non_snake_case)]
+fn CARD_WIDEST() -> Pixels {
+    px(900.)
+}
+
+/// How the people of a call with several share its pictures: how many
+/// across, how many down, and how tall a place is for its width. Two
+/// stand side by side, upright as a phone films; more make a grid of
+/// squares.
+pub(super) fn grid_of(people: usize) -> (usize, usize, f32) {
+    match people {
+        0 | 1 => (1, 1, 1.0),
+        2 => (2, 1, 1.5),
+        3 | 4 => (2, 2, 1.0),
+        more => (3, more.div_ceil(3), 1.0),
+    }
 }
 
 /// One of the round buttons under a call.
@@ -267,16 +308,29 @@ impl Shell {
         // moves with no button down holds nothing.
         if !pressed {
             self.call_deck.held = None;
+            self.call_deck.sizing = None;
+        }
+        let room = window.viewport_size();
+        let (left, top) = (CARD_MARGIN(), metrics::HEADER_HEIGHT() + px(12.));
+        // Held by its corner, the card grows and shrinks with the
+        // pointer, its other corner staying where it is.
+        if let Some((from, width, right)) = self.call_deck.sizing {
+            let most = (room.width - left * 2.)
+                .min(CARD_WIDEST())
+                .max(CARD_NARROWEST());
+            let wanted = (width + (at.x - from.x)).clamp(CARD_NARROWEST(), most);
+            self.call_deck.width = Some(wanted);
+            self.call_deck.moved.x = right + (wanted - width);
+            cx.notify();
+            return;
         }
         let Some(from) = self.call_deck.held else {
             return;
         };
-        let room = window.viewport_size();
-        let (left, top) = (CARD_MARGIN(), metrics::HEADER_HEIGHT() + px(12.));
         // The corner it starts in is the top right. It may go left until
         // its left edge meets the window's, and down while its top with
         // its name is still in the window.
-        let most_left = (room.width - CARD_WIDTH() - left).max(px(0.));
+        let most_left = (room.width - self.card_width() - left).max(px(0.));
         let most_down = (room.height - top - px(96.)).max(px(0.));
         let moved = at - from;
         self.call_deck.moved = gpui_kit::point(
@@ -289,6 +343,105 @@ impl Shell {
     /// The pointer was let go.
     pub(super) fn drop_call_card(&mut self) {
         self.call_deck.held = None;
+        self.call_deck.sizing = None;
+    }
+
+    /// How wide a call's card is: as the user made it, or as it comes.
+    pub(super) fn card_width(&self) -> Pixels {
+        self.call_deck.width.unwrap_or(CARD_WIDTH())
+    }
+
+    /// Opens or closes the search for somebody to add to a call.
+    fn toggle_adding(&mut self, call: &str, window: &mut gpui_kit::Window, cx: &mut Context<Self>) {
+        let open = self
+            .call_deck
+            .adding
+            .as_ref()
+            .is_some_and(|adding| adding.call == call);
+        self.call_deck.adding = None;
+        if !open {
+            let search = cx.new(|cx| InputState::new(window, cx).placeholder("Search a contact"));
+            let typed = cx.subscribe(&search, |_, _, event: &InputEvent, cx| {
+                if matches!(event, InputEvent::Change) {
+                    cx.notify();
+                }
+            });
+            search.update(cx, |search, cx| search.focus(window, cx));
+            self.call_deck.adding = Some(Adding {
+                call: call.to_owned(),
+                search,
+                _typed: typed,
+            });
+        }
+        cx.notify();
+    }
+
+    /// The people who can be added to `call`: who the number has a chat
+    /// with, then its other contacts, that match what is typed, less who
+    /// the call is with already.
+    fn people_to_add(
+        &self,
+        call: &LiveCall,
+        cx: &gpui_kit::App,
+    ) -> Vec<(client_provider::ContactId, SharedString)> {
+        let Some(adding) = &self.call_deck.adding else {
+            return Vec::new();
+        };
+        let typed = adding.search.read(cx).value().trim().to_lowercase();
+        let there: Vec<client_provider::ContactId> = self
+            .engine
+            .call_video(&call.event.call_id)
+            .map(|video| video.guests.all().into_iter().map(|(who, _)| who).collect())
+            .unwrap_or_default();
+        let store = self.engine.store();
+        let account = &call.event.account_id;
+        let mut people: Vec<(client_provider::ContactId, SharedString)> = Vec::new();
+        let chats = store.chats(account, Some(&typed)).unwrap_or_default();
+        let from_chats = chats
+            .into_iter()
+            .filter(|chat| chat.kind == ChatKind::Direct)
+            .map(|chat| {
+                (
+                    client_provider::ContactId::new(chat.id.as_str()),
+                    chat.title,
+                )
+            });
+        let contacts = store
+            .contacts(account, Some(&typed), ADD_SHOWN * 4)
+            .unwrap_or_default();
+        let from_contacts = contacts.into_iter().map(|contact| {
+            let name = contact
+                .name
+                .or(contact.phone)
+                .unwrap_or_else(|| contact.id.to_string());
+            (contact.id, name)
+        });
+        for (who, name) in from_chats.chain(from_contacts) {
+            let known = who == call.event.peer
+                || there.contains(&who)
+                || people.iter().any(|(listed, _)| *listed == who);
+            if !known {
+                people.push((who, name.into()));
+            }
+            if people.len() == ADD_SHOWN {
+                break;
+            }
+        }
+        people
+    }
+
+    /// What somebody in a call is called: their chat's name, their
+    /// contact's, or their number.
+    fn guest_name(&self, call: &LiveCall, who: &client_provider::ContactId) -> SharedString {
+        let store = self.engine.store();
+        let account = &call.event.account_id;
+        store
+            .chat(account, &client_provider::ChatId::new(who.as_str()))
+            .ok()
+            .flatten()
+            .map(|chat| chat.title)
+            .unwrap_or_else(|| who.to_string())
+            .into()
     }
 
     /// Whether the chat that is open can be called: a person, on a number
@@ -366,18 +519,69 @@ impl Shell {
         }
         let id = &call.event.call_id;
         let video = self.engine.call_video(id)?;
-        let remote = self.call_deck.picture(id, false, &video.remote);
+        let guests = video.guests.all();
+        let remote = guests
+            .is_empty()
+            .then(|| self.call_deck.picture(id, REMOTE, &video.remote))
+            .flatten();
         let local = (!call.camera_off)
-            .then(|| self.call_deck.picture(id, true, &video.local))
+            .then(|| self.call_deck.picture(id, LOCAL, &video.local))
             .flatten();
         let ink = gpui_kit::white();
-        let waiting = remote.is_none();
+        // The pictures are as wide as the card, less its border, and
+        // between two as tall as wide: a phone is held upright or
+        // sideways, and turns during a call.
+        let side = self.card_width() - gpui_kit::px(2.);
+        let (across, down, tall) = grid_of(guests.len());
+        let place = side / across as f32;
+        let height = place * tall * down as f32;
+        let tiles: Vec<AnyElement> = guests
+            .iter()
+            .enumerate()
+            .map(|(index, (who, screen))| {
+                let image = self.call_deck.picture(id, who.as_str(), screen);
+                let label = self.guest_name(call, who);
+                div()
+                    .debug_selector(move || format!("call-video-guest-{index}"))
+                    .absolute()
+                    .left(place * (index % across) as f32)
+                    .top(place * tall * (index / across) as f32)
+                    .w(place)
+                    .h(place * tall)
+                    .overflow_hidden()
+                    .border_1()
+                    .border_color(gpui_kit::black())
+                    .children(image.map(|image| {
+                        img(image)
+                            .w(place)
+                            .h(place * tall)
+                            .object_fit(ObjectFit::Cover)
+                    }))
+                    .child(
+                        div()
+                            .absolute()
+                            .left(px(6.))
+                            .bottom(px(6.))
+                            .max_w(place - px(12.))
+                            .px(px(6.))
+                            .py(px(1.))
+                            .rounded(px(4.))
+                            .bg(gpui_kit::black().opacity(0.55))
+                            .truncate()
+                            .text_size(metrics::TEXT_SMALL())
+                            .text_color(ink)
+                            .child(label),
+                    )
+                    .into_any_element()
+            })
+            .collect();
+        let waiting = remote.is_none() && guests.is_empty();
         Some(
             div()
                 .debug_selector(|| "call-video".into())
                 .relative()
                 .w_full()
-                .h(STAGE_HEIGHT())
+                .h(height)
                 .bg(gpui_kit::black())
                 .overflow_hidden()
                 .flex()
@@ -393,13 +597,9 @@ impl Shell {
                         .left_0()
                         .right_0()
                         .bottom_0()
-                        .child(
-                            img(image)
-                                .w_full()
-                                .h(STAGE_HEIGHT())
-                                .object_fit(ObjectFit::Contain),
-                        )
+                        .child(img(image).w_full().h(height).object_fit(ObjectFit::Contain))
                 }))
+                .children(tiles)
                 .when(waiting, |this| {
                     this.child(
                         div()
@@ -466,8 +666,8 @@ impl Shell {
                         .absolute()
                         .right(px(12.))
                         .bottom(px(12.))
-                        .w(px(104.))
-                        .h(px(58.5))
+                        .w(side * 0.3)
+                        .h(side * 0.3 * 9. / 16.)
                         .rounded(px(10.))
                         .overflow_hidden()
                         .border_1()
@@ -577,8 +777,15 @@ impl Shell {
             Some(time) => format!("{} · {time}", call_words(call)).into(),
             None => call_words(call).into(),
         };
-        let (accept_id, end_id, mute_id, camera_id) =
-            (id.clone(), id.clone(), id.clone(), id.clone());
+        let (accept_id, end_id, mute_id, camera_id, add_id) =
+            (id.clone(), id.clone(), id.clone(), id.clone(), id.clone());
+        let adding = on
+            && self
+                .call_deck
+                .adding
+                .as_ref()
+                .is_some_and(|adding| adding.call == id);
+        let add_panel = adding.then(|| self.call_add_panel(call, palette, cx));
         let stage = self.call_stage(call, &name, &words);
         let face = stage
             .is_none()
@@ -595,7 +802,8 @@ impl Shell {
         div()
             .id(SharedString::from(format!("call-{id}")))
             .debug_selector(|| "call-card".into())
-            .w(CARD_WIDTH())
+            .relative()
+            .w(self.card_width())
             .rounded(px(16.))
             .overflow_hidden()
             .border_1()
@@ -675,6 +883,22 @@ impl Shell {
                             )),
                         )
                     })
+                    .when(on, |this| {
+                        this.child(
+                            switch(
+                                "call-add",
+                                "Add somebody to the call",
+                                IconName::UserPlus,
+                                adding,
+                            )
+                            .on_click(cx.listener(
+                                move |this, _, window, cx| {
+                                    cx.stop_propagation();
+                                    this.toggle_adding(&add_id, window, cx);
+                                },
+                            )),
+                        )
+                    })
                     .when(on && call.event.video, |this| {
                         this.child(
                             switch(
@@ -745,6 +969,117 @@ impl Shell {
                         )
                     }),
             )
+            .children(add_panel)
+            // The corner the card is made larger and smaller by.
+            .child(
+                div()
+                    .id(SharedString::from(format!("call-size-{id}")))
+                    .debug_selector(|| "call-size".into())
+                    .absolute()
+                    .right_0()
+                    .bottom_0()
+                    .size(px(20.))
+                    .cursor_nwse_resize()
+                    .flex()
+                    .items_end()
+                    .justify_end()
+                    .p(px(5.))
+                    .child(
+                        div()
+                            .size(px(8.))
+                            .border_r_2()
+                            .border_b_2()
+                            .border_color(palette.text_faint)
+                            .rounded_br(px(3.)),
+                    )
+                    .on_mouse_down(
+                        gpui_kit::MouseButton::Left,
+                        cx.listener(|this, event: &gpui_kit::MouseDownEvent, _, cx| {
+                            cx.stop_propagation();
+                            let width = this.card_width();
+                            this.call_deck.sizing =
+                                Some((event.position, width, this.call_deck.moved.x));
+                        }),
+                    ),
+            )
+            .into_any_element()
+    }
+
+    /// The search for somebody to add to a call, under its switches.
+    fn call_add_panel(
+        &self,
+        call: &LiveCall,
+        palette: &Palette,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let people = self.people_to_add(call, cx);
+        let search = self
+            .call_deck
+            .adding
+            .as_ref()
+            .map(|adding| adding.search.clone());
+        let id = call.event.call_id.clone();
+        let hover = palette.hover;
+        let mut list = div().flex().flex_col();
+        for (index, (who, name)) in people.iter().enumerate() {
+            let name = name.clone();
+            let (call_id, who) = (id.clone(), who.clone());
+            list = list.child(
+                div()
+                    .id(("call-add-person", index))
+                    .debug_selector(move || format!("call-add-{index}"))
+                    .h(px(36.))
+                    .px_2()
+                    .rounded(px(6.))
+                    .flex()
+                    .items_center()
+                    .gap_2()
+                    .cursor_pointer()
+                    .hover(move |style| style.bg(hover))
+                    .child(avatar_or(None, &name, AvatarKind::Person, px(24.), palette))
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .truncate()
+                            .text_size(metrics::TEXT_SMALL())
+                            .child(name.clone()),
+                    )
+                    .child(icon(IconName::Plus, px(14.), palette.icon))
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        cx.stop_propagation();
+                        this.engine.invite_to_call(&call_id, &who);
+                        this.call_deck.adding = None;
+                        cx.notify();
+                    })),
+            );
+        }
+        div()
+            .debug_selector(|| "call-add-panel".into())
+            .w_full()
+            .px_3()
+            .pb_4()
+            .flex()
+            .flex_col()
+            .gap_1()
+            // Typing here is not taking hold of the card.
+            .on_mouse_down(gpui_kit::MouseButton::Left, |_, _, cx| {
+                cx.stop_propagation()
+            })
+            .children(search.map(|search| {
+                super::numbers::input_box("call-add-search", &search, false, palette)
+            }))
+            .child(list)
+            .when(people.is_empty(), |this| {
+                this.child(
+                    div()
+                        .px_2()
+                        .py_1()
+                        .text_size(metrics::TEXT_SMALL())
+                        .text_color(palette.text_muted)
+                        .child("Nobody to add by that name."),
+                )
+            })
             .into_any_element()
     }
 
@@ -777,7 +1112,7 @@ impl Shell {
                 .children(problem.map(|problem| {
                     div()
                         .debug_selector(|| "call-problem".into())
-                        .w(CARD_WIDTH())
+                        .w(self.card_width())
                         .px_4()
                         .py_3()
                         .rounded(px(12.))

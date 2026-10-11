@@ -2290,6 +2290,21 @@ impl Provider for NativeProvider {
             .map_err(fail)
     }
 
+    async fn invite_to_call(
+        &self,
+        account: &AccountId,
+        call: &str,
+        contact: &ContactId,
+    ) -> ProviderResult<()> {
+        let inner = &self.inner;
+        let guest = inner.jid(contact.as_str())?;
+        inner
+            .session(account)?
+            .invite_to_call(call, &guest)
+            .await
+            .map_err(fail)
+    }
+
     async fn set_call_camera(
         &self,
         account: &AccountId,

@@ -8,7 +8,8 @@
 * Calls use the microphone and speakers chosen in Settings > Audio and video, which also chooses the camera. A call's card shows how long it has been on.
 * A call rings: a chord that repeats when somebody calls, a soft tone while a call the account placed rings there, on the speakers chosen in the settings.
 * Every call leaves its line in the chat and moves the chat up: which way it went and how long it lasted, or that it was declined or not answered.
-* A call's card is dragged to wherever it is wanted in the window.
+* A call's card is dragged to wherever it is wanted in the window, and made larger or smaller by its corner.
+* Somebody is added to a call that is on, from its card: a search of the number's chats and contacts. In a call with several and video, each person has a place in the picture. On the native provider.
 * The native provider links as "Wuapi", a desktop application, in the phone's list of linked devices (it was an unnamed "other device"). Read by WhatsApp when a number is linked.
 * Linking a number: Wuapi Cloud is offered first, with what each place means for the number, and it can be connected from the form. The place a number connects from is chosen from the number and the computer's time zone, and the list to change it is folded.
 * Starting with several numbers that have many chats no longer holds the window: a change reads the chats of the number on screen only, and counts the others.

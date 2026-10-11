@@ -29,7 +29,7 @@ mod stickers;
 mod stories;
 
 pub use calls::{
-    CallCamera, CallDevices, CallEvent, CallPicture, CallScreen, CallState, CallVideo,
+    CallCamera, CallDevices, CallEvent, CallGuests, CallPicture, CallScreen, CallState, CallVideo,
 };
 pub use capabilities::{Capabilities, Feature};
 pub use content::{

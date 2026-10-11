@@ -11,7 +11,8 @@
 use super::SyncEngine;
 use crate::StoreChange;
 use client_provider::{
-    AccountId, CallCamera, CallDevices, CallEvent, CallState, CallVideo, ChatId, Timestamp,
+    AccountId, CallCamera, CallDevices, CallEvent, CallState, CallVideo, ChatId, ContactId,
+    Timestamp,
 };
 use std::collections::HashMap;
 use std::sync::Mutex;
@@ -225,6 +226,27 @@ impl SyncEngine {
         self.inner.runtime.spawn(async move {
             if let Err(error) = this.inner.provider.set_call_camera(&account, &id, on).await {
                 tracing::debug!("a call's camera could not be switched on the provider: {error}");
+            }
+        });
+    }
+
+    /// Asks somebody else into a call that is on. Why it could not be
+    /// done is in [`call_problem`](Self::call_problem).
+    pub fn invite_to_call(&self, id: &str, contact: &ContactId) {
+        let Some(call) = self.call(id) else {
+            return;
+        };
+        let account = call.event.account_id.clone();
+        self.call_failed(&account, None);
+        let this = self.clone();
+        let (id, contact) = (id.to_owned(), contact.clone());
+        self.inner.runtime.spawn(async move {
+            let asked = this.inner.provider.invite_to_call(&account, &id, &contact);
+            if let Err(error) = asked.await {
+                this.call_failed(
+                    &account,
+                    Some(super::failure_sentence(&super::SyncError::Provider(error))),
+                );
             }
         });
     }

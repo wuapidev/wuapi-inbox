@@ -1092,6 +1092,20 @@ pub trait Provider: Send + Sync + 'static {
         Err(ProviderError::Unsupported("calls"))
     }
 
+    /// Asks somebody else into a call that is on: it rings for them, and
+    /// when they answer the call is between several people. Safe to
+    /// repeat. Behind [`Capabilities::calls`]; a provider whose calls are
+    /// between two only refuses with `Unsupported`.
+    async fn invite_to_call(
+        &self,
+        account: &AccountId,
+        call: &str,
+        contact: &ContactId,
+    ) -> ProviderResult<()> {
+        let _ = (account, call, contact);
+        Err(ProviderError::Unsupported("calls with several people"))
+    }
+
     /// Turns the account's camera off or on again in a call with video.
     /// The call goes on either way. Only called when
     /// [`Capabilities::video_calls`] is set.

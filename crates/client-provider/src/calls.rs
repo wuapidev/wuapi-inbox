@@ -135,8 +135,44 @@ impl CallScreen {
 /// The pictures of a call with video.
 #[derive(Clone, Debug, Default)]
 pub struct CallVideo {
-    /// The other side.
+    /// The other side, in a call between two.
     pub remote: CallScreen,
+    /// Everybody else, in a call with several people: one screen each.
+    /// Empty in a call between two.
+    pub guests: CallGuests,
     /// The account's own camera, as the other side sees it.
     pub local: CallScreen,
+}
+
+/// The screens of the people in a call with several, in the order they
+/// were first seen. The provider adds one when somebody's video starts
+/// and takes it away when it stops.
+#[derive(Clone, Debug, Default)]
+pub struct CallGuests(Arc<Mutex<Vec<(ContactId, CallScreen)>>>);
+
+impl CallGuests {
+    /// The screen of `who`, added if this is the first that is seen of
+    /// them.
+    pub fn screen_of(&self, who: &ContactId) -> CallScreen {
+        let mut held = self.0.lock().expect("call guests lock");
+        if let Some((_, screen)) = held.iter().find(|(guest, _)| guest == who) {
+            return screen.clone();
+        }
+        let screen = CallScreen::default();
+        held.push((who.clone(), screen.clone()));
+        screen
+    }
+
+    /// `who` shows nothing any more.
+    pub fn remove(&self, who: &ContactId) {
+        self.0
+            .lock()
+            .expect("call guests lock")
+            .retain(|(guest, _)| guest != who);
+    }
+
+    /// Who is there, with their screens.
+    pub fn all(&self) -> Vec<(ContactId, CallScreen)> {
+        self.0.lock().expect("call guests lock").clone()
+    }
 }

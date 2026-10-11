@@ -220,4 +220,39 @@ impl MockProvider {
     pub fn call_devices(&self) -> CallDevices {
         self.state().call_devices.clone()
     }
+
+    /// Somebody is asked into a call: in a call with video they show up
+    /// beside the others, with a pattern of their own.
+    pub(crate) fn call_invite(&self, call: &str, contact: &ContactId) {
+        let (screens, chat) = {
+            let mut state = self.state();
+            state.call_invites.push((call.to_owned(), contact.clone()));
+            let held = state.calls.get(call);
+            (
+                held.and_then(|held| held.screens.clone()),
+                held.map(|held| held.chat.clone()),
+            )
+        };
+        if let (Some(screens), Some(chat)) = (screens, chat) {
+            // A call with several: the one it started with is a guest
+            // like the others.
+            if screens.guests.all().is_empty() {
+                screens
+                    .guests
+                    .screen_of(&ContactId::new(chat.as_str()))
+                    .show(Some(pattern(360, 480, [160, 120, 60])));
+            }
+            let shade = 60 + (screens.guests.all().len() as u8) * 45;
+            screens.guests.screen_of(contact).show(Some(pattern(
+                480,
+                360,
+                [shade, 90, 200 - shade / 2],
+            )));
+        }
+    }
+
+    /// Who was asked into which call, in order.
+    pub fn call_invites(&self) -> Vec<(String, ContactId)> {
+        self.state().call_invites.clone()
+    }
 }

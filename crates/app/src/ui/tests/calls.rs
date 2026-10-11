@@ -348,3 +348,129 @@ fn a_calls_card_is_dragged_to_where_it_is_wanted_and_stays_in_the_window(cx: &mu
     });
     assert!(far.right() <= window.width && far.top() < window.height);
 }
+
+#[gpui_kit::test]
+fn a_calls_card_is_made_larger_and_smaller_by_its_corner(cx: &mut TestAppContext) {
+    use gpui_kit::{point, px, Modifiers, MouseButton, VisualTestContext};
+    let harness = open_chat_one(cx);
+    signal(&harness, cx, CallState::Connected, false);
+    // Moved away from the window's edge first, so that there is room to
+    // pull its corner out.
+    {
+        let mut visual = VisualTestContext::from_window(harness.window.into(), cx);
+        let from = visual.debug_bounds("call-name").unwrap().center();
+        let to = from + point(px(-400.), px(0.));
+        visual.simulate_mouse_down(from, MouseButton::Left, Modifiers::none());
+        visual.simulate_mouse_move(to, Some(MouseButton::Left), Modifiers::none());
+        visual.simulate_mouse_up(to, MouseButton::Left, Modifiers::none());
+        visual.run_until_parked();
+    }
+    let before = bounds(harness.window, "call-card", cx);
+    let pull = |by: f32, cx: &mut TestAppContext| {
+        let mut visual = VisualTestContext::from_window(harness.window.into(), cx);
+        let from = visual.debug_bounds("call-size").unwrap().center();
+        visual.simulate_mouse_down(from, MouseButton::Left, Modifiers::none());
+        let to = from + point(px(by), px(0.));
+        visual.simulate_mouse_move(to, Some(MouseButton::Left), Modifiers::none());
+        visual.simulate_mouse_up(to, MouseButton::Left, Modifiers::none());
+        visual.run_until_parked();
+    };
+    // Pulled out by its corner it is wider, and the corner across from it
+    // has not moved.
+    pull(120., cx);
+    let larger = bounds(harness.window, "call-card", cx);
+    assert_eq!(larger.size.width, before.size.width + px(120.));
+    assert_eq!(larger.left(), before.left());
+    assert_eq!(larger.top(), before.top());
+    // Pushed in past the least it can be, it stops there, still a card.
+    pull(-380., cx);
+    let least = bounds(harness.window, "call-card", cx);
+    assert!(least.size.width < before.size.width && least.size.width > px(200.));
+    assert_eq!(least.left(), before.left());
+    assert!(within(bounds(harness.window, "call-mute", cx), least));
+    // It is the card that was sized, not moved: the pointer let go, it
+    // stays.
+    {
+        let mut visual = VisualTestContext::from_window(harness.window.into(), cx);
+        visual.simulate_mouse_move(point(px(40.), px(40.)), None, Modifiers::none());
+        visual.run_until_parked();
+    }
+    assert_eq!(bounds(harness.window, "call-card", cx), least);
+}
+
+#[gpui_kit::test]
+fn somebody_is_added_to_a_call_and_shows_beside_the_others(cx: &mut TestAppContext) {
+    let harness = open_chat_one(cx);
+    click(harness.window, "chat-video-call", cx);
+    harness.settle(cx);
+    let (account, chat) = open_ids(&harness, cx);
+    let says = |state: CallState| {
+        ProviderEvent::Call(CallEvent {
+            account_id: account.clone(),
+            call_id: "mock-call-1".into(),
+            peer: ContactId::new(chat.as_str()),
+            chat_id: chat.clone(),
+            video: true,
+            state,
+            at: Timestamp::now(),
+        })
+    };
+    // While it rings nobody can be added: there is no call yet.
+    let rings = CallState::Ringing {
+        incoming: false,
+        group: false,
+    };
+    harness.engine.apply_event(says(rings)).unwrap();
+    cx.run_until_parked();
+    assert!(!shows(harness.window, "call-add", cx));
+    harness
+        .engine
+        .apply_event(says(CallState::Connected))
+        .unwrap();
+    cx.run_until_parked();
+    assert!(shows(harness.window, "call-video-remote", cx));
+    assert!(!shows(harness.window, "call-video-guest-0", cx));
+
+    // The switch opens a search of the contacts, less who is there.
+    click(harness.window, "call-add", cx);
+    cx.run_until_parked();
+    assert!(shows(harness.window, "call-add-search", cx));
+    assert!(shows(harness.window, "call-add-0", cx));
+    click(harness.window, "call-add-0", cx);
+    harness.settle(cx);
+    let asked = harness.mock.call_invites();
+    assert_eq!(asked.len(), 1);
+    assert_eq!(asked[0].0, "mock-call-1");
+    assert_ne!(
+        asked[0].1.as_str(),
+        chat.as_str(),
+        "not who it is with already"
+    );
+    // Asked, the search is done with.
+    assert!(!shows(harness.window, "call-add-search", cx));
+
+    // A call with several: each has a place, side by side, in the stage.
+    cx.executor()
+        .advance_clock(std::time::Duration::from_millis(100));
+    cx.run_until_parked();
+    let stage = bounds(harness.window, "call-video", cx);
+    let (first, second) = (
+        bounds(harness.window, "call-video-guest-0", cx),
+        bounds(harness.window, "call-video-guest-1", cx),
+    );
+    assert!(within(first, stage) && within(second, stage));
+    assert!(first.right() <= second.left(), "side by side");
+    assert!(!shows(harness.window, "call-video-remote", cx));
+    // The own camera keeps its corner.
+    assert!(shows(harness.window, "call-video-local", cx));
+}
+
+#[test]
+fn the_people_of_a_call_share_its_pictures() {
+    use super::super::calls::grid_of;
+    assert_eq!(grid_of(1), (1, 1, 1.0));
+    assert_eq!(grid_of(2), (2, 1, 1.5));
+    assert_eq!(grid_of(4), (2, 2, 1.0));
+    assert_eq!(grid_of(5), (3, 2, 1.0));
+    assert_eq!(grid_of(7), (3, 3, 1.0));
+}

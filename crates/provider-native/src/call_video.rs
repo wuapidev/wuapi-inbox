@@ -13,7 +13,8 @@
 //! by counting bytes. The account's own picture is decoded from what is
 //! sent: it shows what the other side sees.
 
-use client_provider::{CallCamera, CallPicture, CallScreen, CallVideo};
+use client_provider::{CallCamera, CallPicture, CallScreen, CallVideo, ContactId};
+use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::{Arc, Mutex, OnceLock};
@@ -49,6 +50,10 @@ const WAITING_UNITS: usize = 4;
 const WAITING_TO_DECODE: usize = 64;
 /// How many parameter sets of a stream are remembered.
 const KEPT_SETS: usize = 16;
+
+/// How long somebody in a call with several may send no video before
+/// their place in the picture is given up.
+const GUEST_QUIET: Duration = Duration::from_secs(4);
 
 /// How often the other side is asked for a first picture until one is
 /// there.
@@ -363,100 +368,179 @@ struct Decoding {
     orientation: u8,
 }
 
-/// Decodes the access units of `units` onto `screen` until the channel
-/// closes. The decoder is started at a picture that can be started from,
-/// after the parameter sets the stream has sent, and again whenever it
-/// dies or the pictures are turned another way. `stuck` is told when
-/// there is nothing it can start from.
-fn decode(units: Receiver<VideoFrame>, screen: CallScreen, size: (u32, u32), stuck: Option<Stuck>) {
+/// One person's video as it is decoded: their decoder, the parameter
+/// sets they sent, and the screen their pictures go to.
+struct Stream {
+    screen: CallScreen,
+    running: Option<Decoding>,
+    sets: ParameterSets,
+    began: Instant,
+    seen: u32,
+    waited: u32,
+    last: Instant,
+}
+
+impl Stream {
+    fn new(screen: CallScreen) -> Self {
+        Self {
+            screen,
+            running: None,
+            sets: ParameterSets::default(),
+            began: Instant::now(),
+            seen: 0,
+            waited: 0,
+            last: Instant::now(),
+        }
+    }
+
+    /// Takes one access unit. The decoder is started at a picture that
+    /// can be started from, after the parameter sets the stream has sent,
+    /// and again whenever it dies or the pictures are turned another way.
+    fn take(&mut self, unit: &VideoFrame, size: (u32, u32), stuck: &Option<Stuck>) {
+        self.last = Instant::now();
+        self.sets.learn(&unit.data);
+        let starts = au_has_idr(&unit.data);
+        self.seen += 1;
+        if self.seen == 1 {
+            tracing::info!(
+                after = ?self.began.elapsed(),
+                width = size.0,
+                starts,
+                "the first access unit of a video arrived"
+            );
+        }
+        if starts && self.running.is_none() {
+            tracing::info!(
+                after = ?self.began.elapsed(),
+                width = size.0,
+                waited = self.waited,
+                "a video can be started from: decoding"
+            );
+        }
+        let turned = self
+            .running
+            .as_ref()
+            .is_some_and(|decoding| decoding.orientation != unit.orientation);
+        if turned && starts {
+            self.stop();
+        }
+        if self.running.is_none() {
+            if !starts {
+                self.waited += 1;
+                tracing::info!(
+                    after = ?self.began.elapsed(),
+                    bytes = unit.data.len(),
+                    sets = unit.keyframe,
+                    "an access unit that cannot be started from"
+                );
+                if let Some(stuck) = stuck {
+                    stuck();
+                }
+                return;
+            }
+            self.running = start_decoder(&self.screen, size, unit.orientation, stuck.clone());
+            if let Some(decoding) = self.running.as_mut() {
+                let _ = decoding.stdin.write_all(&self.sets.written());
+            }
+        }
+        let Some(decoding) = self.running.as_mut() else {
+            return;
+        };
+        if decoding.stdin.write_all(&unit.data).is_err() {
+            // It died: the next key picture starts another.
+            self.stop();
+        }
+    }
+
+    fn stop(&mut self) {
+        if let Some(mut old) = self.running.take() {
+            stop(&mut old.child);
+        }
+    }
+}
+
+/// Where the pictures of what is decoded go.
+enum Screens {
+    /// One stream, one screen: the account's own camera.
+    One(CallScreen),
+    /// The other side. In a call between two there is one stream; in a
+    /// call with several each access unit says whose it is, and each
+    /// person has a decoder and a screen of their own.
+    Call(CallVideo),
+}
+
+/// Decodes the access units of `units` until the channel closes. `stuck`
+/// is told when there is nothing a decoder can start from.
+fn decode(units: Receiver<VideoFrame>, screens: Screens, size: (u32, u32), stuck: Option<Stuck>) {
     let spawned = std::thread::Builder::new()
         .name("call-video-decode".into())
         .spawn(move || {
-            let mut running: Option<Decoding> = None;
-            let mut sets = ParameterSets::default();
-            let began = Instant::now();
-            let (mut seen, mut waited) = (0u32, 0u32);
+            // By whose video it is; `None` is the one of a call between
+            // two.
+            let mut streams: HashMap<Option<ContactId>, Stream> = HashMap::new();
             // Until the first access unit is here, the other side is
             // asked for a picture to start from, again and again. Their
             // first one is easily lost while the call is set up, nothing
             // that follows it can be put together without it, and they
             // send another only when asked (or many seconds later).
-            let unit_or_ask = |seen: u32| loop {
-                if seen > 0 || stuck.is_none() {
-                    return units.recv_blocking().ok();
-                }
+            let unit_or_wait = |any: bool| loop {
                 match units.try_recv() {
-                    Ok(unit) => return Some(unit),
+                    Ok(unit) => return Some(Some(unit)),
                     Err(async_channel::TryRecvError::Closed) => return None,
-                    Err(async_channel::TryRecvError::Empty) => {
+                    Err(async_channel::TryRecvError::Empty) if !any => {
                         if let Some(stuck) = &stuck {
                             stuck();
                         }
                         std::thread::sleep(ASK_EVERY);
                     }
+                    // Nothing for a moment: time to see who went quiet.
+                    Err(async_channel::TryRecvError::Empty) => {
+                        std::thread::sleep(Duration::from_millis(5));
+                        return Some(None);
+                    }
                 }
             };
-            while let Some(unit) = unit_or_ask(seen) {
-                sets.learn(&unit.data);
-                let starts = au_has_idr(&unit.data);
-                seen += 1;
-                if seen == 1 {
-                    tracing::info!(
-                        after = ?began.elapsed(),
-                        width = size.0,
-                        starts,
-                        "the first access unit of a video arrived"
-                    );
+            let mut swept = Instant::now();
+            while let Some(unit) = unit_or_wait(!streams.is_empty() || stuck.is_none()) {
+                if let Some(unit) = unit {
+                    let who = unit
+                        .sender
+                        .as_ref()
+                        .map(|jid| ContactId::new(crate::ids::id_of(jid)));
+                    let stream = streams.entry(who.clone()).or_insert_with(|| {
+                        Stream::new(match (&screens, &who) {
+                            (Screens::One(screen), _) => screen.clone(),
+                            (Screens::Call(video), None) => video.remote.clone(),
+                            (Screens::Call(video), Some(who)) => video.guests.screen_of(who),
+                        })
+                    });
+                    stream.take(&unit, size, &stuck);
                 }
-                if starts && running.is_none() {
-                    tracing::info!(
-                        after = ?began.elapsed(),
-                        width = size.0,
-                        waited,
-                        "a video can be started from: decoding"
-                    );
-                }
-                let turned = running
-                    .as_ref()
-                    .is_some_and(|decoding| decoding.orientation != unit.orientation);
-                if turned && starts {
-                    if let Some(mut old) = running.take() {
-                        stop(&mut old.child);
-                    }
-                }
-                if running.is_none() {
-                    if !starts {
-                        waited += 1;
-                        tracing::info!(
-                            after = ?began.elapsed(),
-                            bytes = unit.data.len(),
-                            sets = unit.keyframe,
-                            "an access unit that cannot be started from"
-                        );
-                        if let Some(stuck) = &stuck {
-                            stuck();
+                // Somebody in a call with several whose video stopped
+                // coming (they left, or turned their camera off) gives
+                // their place up.
+                if swept.elapsed() > Duration::from_secs(1) {
+                    swept = Instant::now();
+                    streams.retain(|who, stream| {
+                        let quiet = stream.last.elapsed() > GUEST_QUIET;
+                        match (who, &screens) {
+                            (Some(who), Screens::Call(video)) if quiet => {
+                                stream.stop();
+                                video.guests.remove(who);
+                                false
+                            }
+                            _ => true,
                         }
-                        continue;
-                    }
-                    running = start_decoder(&screen, size, unit.orientation, stuck.clone());
-                    if let Some(decoding) = running.as_mut() {
-                        let _ = decoding.stdin.write_all(&sets.written());
-                    }
-                }
-                let Some(decoding) = running.as_mut() else {
-                    continue;
-                };
-                if decoding.stdin.write_all(&unit.data).is_err() {
-                    // It died: the next key picture starts another.
-                    if let Some(mut old) = running.take() {
-                        stop(&mut old.child);
-                    }
+                    });
                 }
             }
-            if let Some(mut old) = running.take() {
-                stop(&mut old.child);
+            for (who, mut stream) in streams {
+                stream.stop();
+                stream.screen.show(None);
+                if let (Some(who), Screens::Call(video)) = (who, &screens) {
+                    video.guests.remove(&who);
+                }
             }
-            screen.show(None);
         });
     if let Err(error) = spawned {
         tracing::warn!(%error, "a call's video could not be decoded");
@@ -677,11 +761,16 @@ fn open_on(input: Input, wait: bool) -> Result<(VideoLink, Receiver<Vec<u8>>), S
     });
     decode(
         shown,
-        pictures.remote.clone(),
+        Screens::Call(pictures.clone()),
         (REMOTE_SIDE, REMOTE_SIDE),
         Some(asks),
     );
-    decode(previewed, pictures.local.clone(), PREVIEW, None);
+    decode(
+        previewed,
+        Screens::One(pictures.local.clone()),
+        PREVIEW,
+        None,
+    );
     let link = VideoLink {
         screen,
         pictures,
@@ -799,6 +888,28 @@ mod tests {
             theirs.bgra.chunks(4).any(|pixel| pixel != first_pixel),
             "a picture, not a blank"
         );
+
+        // In a call with several, an access unit says whose it is: each
+        // person gets a screen of their own.
+        assert!(link.pictures.guests.all().is_empty());
+        let ana: whatsapp_rust::Jid = "5491100000001@s.whatsapp.net".parse().unwrap();
+        let from_ana = |unit: Vec<u8>| {
+            let mut frame = VideoFrame::new(unit);
+            frame.sender = Some(ana.clone());
+            frame
+        };
+        let hers = wait_for(|| {
+            while let Ok(unit) = camera.try_recv() {
+                let _ = link.screen.try_send(from_ana(unit));
+            }
+            let guests = link.pictures.guests.all();
+            guests.first().and_then(|(_, screen)| screen.newest().1)
+        })
+        .expect("a guest's picture");
+        assert_eq!((hers.width, hers.height), (REMOTE_SIDE, REMOTE_SIDE));
+        let guests = link.pictures.guests.all();
+        assert_eq!(guests.len(), 1);
+        assert_eq!(guests[0].0.as_str(), "+5491100000001");
 
         // The camera off: the own picture goes, theirs stays.
         link.stop_camera();

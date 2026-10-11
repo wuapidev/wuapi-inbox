@@ -999,6 +999,15 @@ impl Provider for HubProvider {
         route!(self, account, |p| p.mute_call(account, call, muted))
     }
 
+    async fn invite_to_call(
+        &self,
+        account: &AccountId,
+        call: &str,
+        contact: &ContactId,
+    ) -> ProviderResult<()> {
+        route!(self, account, |p| p.invite_to_call(account, call, contact))
+    }
+
     async fn set_call_camera(
         &self,
         account: &AccountId,

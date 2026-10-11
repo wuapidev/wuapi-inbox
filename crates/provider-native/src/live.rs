@@ -2120,6 +2120,23 @@ impl Session for LiveSession {
         .await
     }
 
+    async fn invite_to_call(&self, id: &str, guest: &Jid) -> SessionResult<()> {
+        let handle = {
+            let active = self.hearing.calls.active();
+            active.get(id).map(|call| call.handle.clone())
+        };
+        let Some(handle) = handle else {
+            return Err(SessionError::refused(
+                refusal::NOT_FOUND,
+                "Somebody can be added once the call is on.",
+            ));
+        };
+        bounded(REQUEST_TIMEOUT, async {
+            handle.invite_participant(guest).await.map_err(failed)
+        })
+        .await
+    }
+
     async fn set_call_camera(&self, id: &str, on: bool) -> SessionResult<()> {
         let held = {
             let active = self.hearing.calls.active();
