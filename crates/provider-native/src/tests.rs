@@ -73,13 +73,18 @@ impl Session for FakeSession {
             .lock()
             .unwrap()
             .push((convert::wire(to), id.to_owned(), message));
-        let lose = self
-            .0
-            .lost_answers
-            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |left| {
-                left.checked_sub(1)
-            })
-            .is_ok();
+        // One fewer answer to lose, if any is left to lose.
+        let left = &self.0.lost_answers;
+        let mut seen = left.load(Ordering::SeqCst);
+        let lose = loop {
+            let Some(fewer) = seen.checked_sub(1) else {
+                break false;
+            };
+            match left.compare_exchange(seen, fewer, Ordering::SeqCst, Ordering::SeqCst) {
+                Ok(_) => break true,
+                Err(now) => seen = now,
+            }
+        };
         if lose {
             return Err(SessionError::NotNow("the answer was lost".into()));
         }
