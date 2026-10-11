@@ -450,9 +450,8 @@ fn somebody_is_added_to_a_call_and_shows_beside_the_others(cx: &mut TestAppConte
     assert!(!shows(harness.window, "call-add-search", cx));
 
     // A call with several: each has a place, side by side, in the stage.
-    cx.executor()
-        .advance_clock(std::time::Duration::from_millis(100));
-    cx.run_until_parked();
+    // (The engine says the call changed when the asking is done, so the
+    // card is drawn again without waiting for its clock.)
     let stage = bounds(harness.window, "call-video", cx);
     let (first, second) = (
         bounds(harness.window, "call-video-guest-0", cx),

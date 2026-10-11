@@ -242,11 +242,15 @@ impl SyncEngine {
         let (id, contact) = (id.to_owned(), contact.clone());
         self.inner.runtime.spawn(async move {
             let asked = this.inner.provider.invite_to_call(&account, &id, &contact);
-            if let Err(error) = asked.await {
-                this.call_failed(
+            match asked.await {
+                // Who is in the call may have changed: it is drawn again.
+                Ok(()) => this.inner.store.notify(StoreChange::Calls {
+                    account_id: account,
+                }),
+                Err(error) => this.call_failed(
                     &account,
                     Some(super::failure_sentence(&super::SyncError::Provider(error))),
-                );
+                ),
             }
         });
     }
