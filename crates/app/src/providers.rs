@@ -5,7 +5,7 @@ use crate::login::{BoxFuture, Identity, IdentityLoader, KeySaved, LoginFlow, Ses
 use crate::product;
 use crate::settings::{self, Settings};
 use crate::storage::{self, KeyVault, OsKeychain, Prepared, Recovery, Storage};
-use crate::ui::SessionKind;
+use crate::ui::{CloudOffer, SessionKind};
 use client_core::{HistoryMode, SyncConfig, SyncEngine};
 use client_provider::{Provider, ProviderError};
 use provider_mock::MockProvider;
@@ -33,6 +33,9 @@ pub enum Launch {
         /// What to say on screen about where the chats are kept, when
         /// they are not being saved.
         storage_note: Option<String>,
+        /// Set when wuapi is an addition to the session and not the
+        /// session itself: see [`Cloud`].
+        cloud: Option<Cloud>,
     },
     /// The sign-in screen first: there is no API key yet.
     Login {
@@ -53,6 +56,16 @@ pub enum Launch {
     },
 }
 
+/// wuapi beside the numbers of this machine: the session runs with or
+/// without it, `login` signs in to it without starting another session,
+/// and signing out takes its numbers away and leaves the rest.
+pub struct Cloud {
+    /// Whether it is signed in to as the application starts.
+    pub offer: CloudOffer,
+    /// Says when wuapi no longer accepts the key.
+    pub refusals: tokio::sync::watch::Receiver<Option<provider_hub::Refusal>>,
+}
+
 /// Picks the provider the user asked for and starts whatever can start
 /// without the network or the user.
 pub fn launch(options: &Options, runtime: &Handle) -> Result<Launch, String> {
@@ -68,6 +81,13 @@ pub fn launch(options: &Options, runtime: &Handle) -> Result<Launch, String> {
         (ProviderKind::Wuapi, dir) => Some(database_in(
             &dir.clone().unwrap_or_else(product::data_dir),
             "wuapi",
+        )?),
+        // provider-native: its chats in a file of their own, beside the
+        // sessions' keys and what the sessions were handed.
+        #[cfg(feature = "provider-native")]
+        (ProviderKind::Native | ProviderKind::Both, dir) => Some(database_in(
+            &dir.clone().unwrap_or_else(product::data_dir),
+            "native",
         )?),
     };
     let mut home = None;
@@ -112,7 +132,16 @@ const DIAGNOSED_SENDS: usize = 20;
 /// durations only: no text, no number, no key.
 fn diagnose_sends(options: &Options) -> Result<Vec<String>, String> {
     let dir = options.data_dir.clone().unwrap_or_else(product::data_dir);
-    let path = dir.join("wuapi.db");
+    // Where this run's chats are: with this machine's numbers in the
+    // session, in their file.
+    #[cfg(feature = "provider-native")]
+    let name = match options.provider {
+        ProviderKind::Both => "native.db",
+        _ => "wuapi.db",
+    };
+    #[cfg(not(feature = "provider-native"))]
+    let name = "wuapi.db";
+    let path = dir.join(name);
     let key = match client_core::file_state(&path).map_err(|error| error.to_string())? {
         client_core::FileState::Missing => {
             return Err(format!("there is no database at {}", path.display()))
@@ -260,6 +289,7 @@ fn launch_on(
                 login: None,
                 identity: None,
                 storage_note,
+                cloud: None,
             })
         }
         // A provider that needs no sign-in is this much: build it, start
@@ -276,7 +306,26 @@ fn launch_on(
             login: None,
             identity: None,
             storage_note,
+            cloud: None,
         }),
+        // No sign-in: the numbers are linked from the window, by QR code
+        // or by a code typed on the phone.
+        #[cfg(feature = "provider-native")]
+        ProviderKind::Native => Ok(Launch::Chats {
+            engine: start_engine(
+                Arc::new(native_provider(&storage, runtime)?),
+                &storage,
+                history,
+                runtime,
+            )?,
+            session: SessionKind::Local,
+            login: None,
+            identity: None,
+            storage_note,
+            cloud: None,
+        }),
+        #[cfg(feature = "provider-native")]
+        ProviderKind::Both => launch_both(options, runtime, &storage, history),
         ProviderKind::Wuapi => {
             let login = Arc::new(WuapiLogin::new(options, storage, home, runtime)?);
             // A key in the environment wins and is never stored.
@@ -293,6 +342,7 @@ fn launch_on(
                     login: Some(login),
                     identity: Some(identity),
                     storage_note,
+                    cloud: None,
                 });
             }
             let stored = if options.no_keychain {
@@ -311,6 +361,7 @@ fn launch_on(
                         login: Some(login),
                         identity: Some(identity),
                         storage_note,
+                        cloud: None,
                     })
                 }
                 Ok(None) => Ok(Launch::Login {
@@ -350,6 +401,275 @@ fn start_engine(
     );
     engine.start();
     Ok(engine)
+}
+
+/// The provider that speaks WhatsApp's protocol from this machine. Its
+/// two files (the sessions' keys, and what the sessions were handed) sit
+/// beside the chats and are encrypted under the same key: a session's keys
+/// are what links this computer to a number, and are never written plain.
+#[cfg(feature = "provider-native")]
+fn native_provider(
+    storage: &Storage,
+    runtime: &Handle,
+) -> Result<provider_native::NativeProvider, String> {
+    let Storage::Encrypted { path, key } = storage else {
+        return Err(
+            "the native provider keeps each number's keys encrypted on this computer, and \
+             needs the system keychain for that: start without --no-keychain"
+                .to_owned(),
+        );
+    };
+    let dir = path.parent().unwrap_or(Path::new("."));
+    let key = key.to_hex();
+    let sessions = runtime.block_on(provider_native::live::LiveSessions::open(
+        &dir.join("native-sessions.db"),
+        Some(key.clone()),
+    ))?;
+    let archive =
+        provider_native::archive::Archive::open(&dir.join("native-archive.db"), Some(&key))
+            .map_err(|error| format!("cannot open the sessions' archive: {error}"))?;
+    Ok(provider_native::NativeProvider::new(
+        Arc::new(sessions),
+        archive,
+        runtime,
+    ))
+}
+
+/// The numbers of this machine and wuapi's side by side: one engine on a
+/// hub of the two. The chats start at once on what is linked here; wuapi
+/// joins if its key is at hand, and from the window otherwise.
+#[cfg(feature = "provider-native")]
+fn launch_both(
+    options: &Options,
+    runtime: &Handle,
+    storage: &Storage,
+    history: HistoryMode,
+) -> Result<Launch, String> {
+    let hub = provider_hub::HubProvider::new(vec![Arc::new(native_provider(storage, runtime)?)]);
+    let store = Arc::new(storage.open()?);
+    let (config, profile) = wuapi_config(options);
+    let service = product::slug();
+
+    // A key in the environment wins and is never stored.
+    let from_environment = std::env::var("WUAPI_API_KEY")
+        .ok()
+        .filter(|key| !key.is_empty())
+        .map(ApiKey::new);
+    let stored = if from_environment.is_some() || options.no_keychain {
+        Ok(None)
+    } else if options.relogin {
+        provider_wuapi::delete_api_key(&service, &profile).map(|()| None)
+    } else {
+        provider_wuapi::load_api_key(&service, &profile)
+    };
+    let key = from_environment.or_else(|| {
+        stored.unwrap_or_else(|error| {
+            // The numbers of this machine do not wait for it.
+            tracing::warn!(%error, "the OS keychain is not available; wuapi is not signed in to");
+            None
+        })
+    });
+
+    let mut identity = None;
+    if let Some(key) = key {
+        let provider =
+            Arc::new(WuapiProvider::new(config.clone(), key).map_err(|e| e.to_string())?);
+        // Its numbers as the last run left them stand in until it lists
+        // them: a start without the network forgets nothing.
+        let known = store
+            .accounts_of(provider.id())
+            .map_err(|error| format!("cannot read the local database: {error}"))?;
+        hub.attach(provider.clone(), Some(known));
+        identity = Some(identity_of(provider, runtime.clone()));
+    }
+    let offer = match identity {
+        Some(_) => CloudOffer::Connected,
+        None => CloudOffer::Offered,
+    };
+
+    let engine = SyncEngine::new(
+        store,
+        Arc::new(hub.clone()),
+        SyncConfig {
+            history,
+            ..SyncConfig::default()
+        },
+        runtime.clone(),
+    );
+    engine.start();
+    let login = Arc::new(CloudLogin {
+        device: Arc::new(DeviceLogin::new(&config).map_err(|e| e.to_string())?),
+        config,
+        hub: hub.clone(),
+        engine: engine.clone(),
+        runtime: runtime.clone(),
+        service,
+        profile,
+        use_keychain: !options.no_keychain,
+    });
+    Ok(Launch::Chats {
+        engine,
+        session: SessionKind::Local,
+        login: Some(login),
+        identity,
+        storage_note: storage.note(),
+        cloud: Some(Cloud {
+            offer,
+            refusals: hub.refusals(),
+        }),
+    })
+}
+
+/// The wuapi sign-in of a session that runs on this machine's numbers
+/// too: signing in adds wuapi to the hub the engine is on, and signing out
+/// takes it out. The engine, the database and the other numbers stay.
+#[cfg(feature = "provider-native")]
+struct CloudLogin {
+    config: WuapiConfig,
+    device: Arc<DeviceLogin>,
+    hub: provider_hub::HubProvider,
+    engine: SyncEngine,
+    runtime: Handle,
+    service: String,
+    profile: String,
+    use_keychain: bool,
+}
+
+/// The [`Provider::id`] of wuapi, which is what it is a member of the hub
+/// under.
+pub(crate) const WUAPI_ID: &str = "wuapi";
+
+#[cfg(feature = "provider-native")]
+impl LoginFlow for CloudLogin {
+    fn request_code(&self) -> BoxFuture<Result<DeviceCode, LoginError>> {
+        let device = self.device.clone();
+        let name = product::client_name();
+        off_thread(
+            &self.runtime,
+            |e| Err(LoginError::Unexpected(e)),
+            async move { device.request_code(&name).await },
+        )
+    }
+
+    fn poll(&self, code: &DeviceCode) -> BoxFuture<Result<PollOutcome, LoginError>> {
+        let (device, code) = (self.device.clone(), code.clone());
+        off_thread(
+            &self.runtime,
+            |e| Err(LoginError::Unexpected(e)),
+            async move { device.poll_once(&code).await },
+        )
+    }
+
+    fn open_session(&self, grant: TokenGrant) -> BoxFuture<Result<Session, String>> {
+        let config = self.config.clone();
+        let (hub, engine) = (self.hub.clone(), self.engine.clone());
+        let (service, profile) = (self.service.clone(), self.profile.clone());
+        let use_keychain = self.use_keychain;
+        off_thread(&self.runtime, Err, async move {
+            let key = grant.api_key;
+            let provider =
+                Arc::new(WuapiProvider::new(config, key.clone()).map_err(|e| e.to_string())?);
+            // As in a session of wuapi alone: the first look at the
+            // numbers is the check that the key works, and weather is not
+            // a reason to stay on the sign-in screen.
+            let accounts = match provider.list_accounts().await {
+                Ok(accounts) => accounts,
+                Err(ProviderError::Unauthorized(reason)) => {
+                    return Err(format!("wuapi did not accept the new API key: {reason}"))
+                }
+                Err(error) => {
+                    tracing::debug!(%error, "the accounts are not available yet");
+                    Vec::new()
+                }
+            };
+            let key_saved = save_key(use_keychain, service, profile, key).await;
+            // The engine hears the hub change, and comes back for the new
+            // numbers by itself.
+            hub.attach(provider, Some(accounts));
+            let identity = Identity {
+                organization: grant.organization.name,
+                project: grant.project.map(|project| project.name),
+                key_prefix: grant.key_prefix,
+            };
+            Ok(Session {
+                engine,
+                storage_note: None,
+                identity: Some(Arc::new(move || {
+                    Box::pin(std::future::ready(Ok(identity.clone())))
+                })),
+                key_saved,
+            })
+        })
+    }
+
+    /// Forgets the key and takes wuapi out of the hub: the engine stops
+    /// hearing of its numbers, and deletes what it kept of them. What is
+    /// linked to this machine is not touched.
+    fn sign_out(&self) -> BoxFuture<Result<(), String>> {
+        let forgotten = self.forget_key();
+        self.hub.detach(WUAPI_ID);
+        Box::pin(async move {
+            forgotten
+                .await
+                .map_err(|error| format!("The API key could not be removed: {error}"))
+        })
+    }
+
+    fn forget_key(&self) -> BoxFuture<Result<(), String>> {
+        forget_key(
+            &self.runtime,
+            self.use_keychain,
+            self.service.clone(),
+            self.profile.clone(),
+        )
+    }
+}
+
+/// Runs `work` on the Tokio runtime and hands its result to whoever
+/// awaits, on any executor.
+fn off_thread<T: Send + 'static>(
+    runtime: &Handle,
+    failed: fn(String) -> T,
+    work: impl Future<Output = T> + Send + 'static,
+) -> BoxFuture<T> {
+    let task = runtime.spawn(work);
+    Box::pin(async move { task.await.unwrap_or_else(|error| failed(error.to_string())) })
+}
+
+/// Puts a new API key in the OS keychain, when the keychain is in use.
+async fn save_key(use_keychain: bool, service: String, profile: String, key: ApiKey) -> KeySaved {
+    if !use_keychain {
+        return KeySaved::NotAsked;
+    }
+    // The keychain blocks (D-Bus on Linux).
+    let stored = tokio::task::spawn_blocking(move || {
+        provider_wuapi::store_api_key(&service, &profile, &key).map_err(|e| e.to_string())
+    })
+    .await
+    .unwrap_or_else(|error| Err(error.to_string()));
+    match stored {
+        Ok(()) => KeySaved::Yes,
+        Err(error) => {
+            tracing::warn!(%error, "the API key could not be saved to the OS keychain");
+            KeySaved::No(error)
+        }
+    }
+}
+
+/// Takes the API key out of the OS keychain, when the keychain is in use.
+fn forget_key(
+    runtime: &Handle,
+    use_keychain: bool,
+    service: String,
+    profile: String,
+) -> BoxFuture<Result<(), String>> {
+    if !use_keychain {
+        return Box::pin(std::future::ready(Ok(())));
+    }
+    let task = runtime.spawn_blocking(move || {
+        provider_wuapi::delete_api_key(&service, &profile).map_err(|e| e.to_string())
+    });
+    Box::pin(async move { task.await.unwrap_or_else(|error| Err(error.to_string())) })
 }
 
 /// Who a stored key belongs to: `GET /v1/me`, asked on the Tokio runtime
@@ -434,8 +754,7 @@ impl WuapiLogin {
         failed: fn(String) -> T,
         work: impl Future<Output = T> + Send + 'static,
     ) -> BoxFuture<T> {
-        let task = self.runtime.spawn(work);
-        Box::pin(async move { task.await.unwrap_or_else(|error| failed(error.to_string())) })
+        off_thread(&self.runtime, failed, work)
     }
 }
 
@@ -480,24 +799,7 @@ impl LoginFlow for WuapiLogin {
                     Vec::new()
                 }
             };
-            let key_saved = if use_keychain {
-                // The keychain blocks (D-Bus on Linux).
-                let stored = tokio::task::spawn_blocking(move || {
-                    provider_wuapi::store_api_key(&service, &profile, &key)
-                        .map_err(|e| e.to_string())
-                })
-                .await
-                .unwrap_or_else(|error| Err(error.to_string()));
-                match stored {
-                    Ok(()) => KeySaved::Yes,
-                    Err(error) => {
-                        tracing::warn!(%error, "the API key could not be saved to the OS keychain");
-                        KeySaved::No(error)
-                    }
-                }
-            } else {
-                KeySaved::NotAsked
-            };
+            let key_saved = save_key(use_keychain, service, profile, key).await;
 
             // Whose chats are these? Data left by another organization (or
             // another project's key) is deleted before this one syncs: it
@@ -579,14 +881,12 @@ impl LoginFlow for WuapiLogin {
     }
 
     fn forget_key(&self) -> BoxFuture<Result<(), String>> {
-        if !self.use_keychain {
-            return Box::pin(std::future::ready(Ok(())));
-        }
-        let (service, profile) = (self.service.clone(), self.profile.clone());
-        let task = self.runtime.spawn_blocking(move || {
-            provider_wuapi::delete_api_key(&service, &profile).map_err(|e| e.to_string())
-        });
-        Box::pin(async move { task.await.unwrap_or_else(|error| Err(error.to_string())) })
+        forget_key(
+            &self.runtime,
+            self.use_keychain,
+            self.service.clone(),
+            self.profile.clone(),
+        )
     }
 }
 

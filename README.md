@@ -194,6 +194,8 @@ Building needs `perl` and `make` as well (for the vendored OpenSSL that encrypts
 | [`crates/client-core`](crates/client-core) | The local SQLite store, the outbox and the sync engine. |
 | [`crates/provider-mock`](crates/provider-mock) | An in-memory provider with seeded data and fake live events, for development and tests. |
 | [`crates/provider-wuapi`](crates/provider-wuapi) | The reference adapter, for wuapi. |
+| [`crates/provider-native`](crates/provider-native) | WhatsApp's own protocol from this machine, through whatsapp-rust: no API in between. Behind the `provider-native` feature. |
+| [`crates/provider-hub`](crates/provider-hub) | Several providers behind one: the numbers linked to this computer beside wuapi's, in the same window. |
 | [`crates/provider-example`](crates/provider-example) | The worked example of the provider guide: an in-memory backend that says back what it is sent. Not in a release build. |
 | [`crates/brand-mark`](crates/brand-mark) | The animated wuapi mark, as a GPUI element. |
 | [`crates/app`](crates/app) | The GPUI application. |

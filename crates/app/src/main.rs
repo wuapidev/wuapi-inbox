@@ -40,6 +40,7 @@ mod providers;
 mod rail;
 mod record;
 mod rename;
+mod ring;
 mod settings;
 mod storage;
 mod stories;

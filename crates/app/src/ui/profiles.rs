@@ -103,7 +103,7 @@ impl Shell {
         palette: &Palette,
         cx: &mut Context<Self>,
     ) -> Div {
-        let caps = self.engine.capabilities();
+        let caps = self.caps_here();
         let store = self.engine.store();
         // Looking is what refreshes: WhatsApp is asked about the contact,
         // the blocklist and (for "groups in common") every group, each at

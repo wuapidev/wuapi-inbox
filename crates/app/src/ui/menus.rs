@@ -466,7 +466,7 @@ impl Shell {
             None
         } else if typed {
             Some("No contact matches. To write to a number, type it with its country code.")
-        } else if !self.engine.capabilities().contacts {
+        } else if !self.caps_here().contacts {
             Some("Write to a number, with its country code.")
         } else if synced {
             Some("No contacts yet: the phone's address book is empty, or has not been shared.")
@@ -811,12 +811,17 @@ impl Shell {
                             .text_size(metrics::TEXT_BODY())
                             .line_height(px(21.))
                             .text_color(palette.text_muted)
-                            .child(
+                            .child(if self.cloud == super::shell::CloudOffer::Connected {
+                                "Signing out of Wuapi Cloud removes its API key from your \
+                                 system keychain and deletes its numbers' chats from this \
+                                 computer. The numbers linked to this computer stay, and \
+                                 Wuapi Cloud's come back when you sign in again."
+                            } else {
                                 "Signing out removes the API key from your system keychain and \
                                  deletes the chats stored on this computer, with their key. \
                                  Your settings stay, and the chats come back from wuapi when \
-                                 you sign in again.",
-                            ),
+                                 you sign in again."
+                            }),
                     )
                     .when(unsent > 0, |this| {
                         this.child(

@@ -304,7 +304,7 @@ impl SyncEngine {
             | MessageContent::Unsupported { .. } => return Some(R::Kind),
             _ => {}
         }
-        let capabilities = &self.inner.capabilities;
+        let capabilities = &self.capabilities_for(&message.account_id);
         if !capabilities.forward_any
             || self.feature_unavailable(&message.account_id, Feature::ForwardAny)
         {

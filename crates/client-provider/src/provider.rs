@@ -1,5 +1,6 @@
 //! The [`Provider`] trait.
 
+use crate::calls::{CallCamera, CallDevices, CallVideo};
 use crate::capabilities::Capabilities;
 use crate::error::ProviderError;
 use crate::error::ProviderResult;
@@ -92,6 +93,24 @@ pub trait Provider: Send + Sync + 'static {
     /// What this provider supports. Must be cheap and must not touch the
     /// network; the answer may be cached for the lifetime of the provider.
     fn capabilities(&self) -> Capabilities;
+
+    /// What this provider supports for `account`. The same as
+    /// [`capabilities`](Provider::capabilities) for a provider that speaks
+    /// to one backend, which is the default; a provider made of several
+    /// answers with those of the one the account belongs to. Cheap and
+    /// without I/O, as `capabilities` is.
+    fn capabilities_for(&self, account: &AccountId) -> Capabilities {
+        let _ = account;
+        self.capabilities()
+    }
+
+    /// The [`id`](Provider::id) of the provider that serves `account`:
+    /// this one's, unless it is made of several. Stored next to the
+    /// account.
+    fn owner_of(&self, account: &AccountId) -> &'static str {
+        let _ = account;
+        self.id()
+    }
 
     /// Whether a part the capabilities promise is known not to work right
     /// now for `account`: the backend does not have its routes yet, or it
@@ -1035,6 +1054,88 @@ pub trait Provider: Send + Sync + 'static {
     async fn delete_account(&self, account: &AccountId) -> ProviderResult<()> {
         let _ = account;
         Err(ProviderError::Unsupported("deleting a number"))
+    }
+
+    // ----- calls --------------------------------------------------------
+
+    /// Calls the chat's contact (a voice call, or with video when the
+    /// provider has [`Capabilities::video_calls`]). Answers the call's id;
+    /// how it goes on arrives as [`ProviderEvent::Call`](crate::ProviderEvent::Call).
+    /// Behind [`Capabilities::calls`].
+    async fn start_call(
+        &self,
+        account: &AccountId,
+        chat: &ChatId,
+        video: bool,
+    ) -> ProviderResult<String> {
+        let _ = (account, chat, video);
+        Err(ProviderError::Unsupported("calls"))
+    }
+
+    /// Answers a call that is ringing. Safe to repeat: answering a call
+    /// that is already on succeeds.
+    async fn accept_call(&self, account: &AccountId, call: &str) -> ProviderResult<()> {
+        let _ = (account, call);
+        Err(ProviderError::Unsupported("calls"))
+    }
+
+    /// Declines a call that is ringing, or hangs up one that is on. Safe
+    /// to repeat: ending a call that is over succeeds.
+    async fn end_call(&self, account: &AccountId, call: &str) -> ProviderResult<()> {
+        let _ = (account, call);
+        Err(ProviderError::Unsupported("calls"))
+    }
+
+    /// Silences or restores the account's microphone in a call.
+    async fn mute_call(&self, account: &AccountId, call: &str, muted: bool) -> ProviderResult<()> {
+        let _ = (account, call, muted);
+        Err(ProviderError::Unsupported("calls"))
+    }
+
+    /// Asks somebody else into a call that is on: it rings for them, and
+    /// when they answer the call is between several people. Safe to
+    /// repeat. Behind [`Capabilities::calls`]; a provider whose calls are
+    /// between two only refuses with `Unsupported`.
+    async fn invite_to_call(
+        &self,
+        account: &AccountId,
+        call: &str,
+        contact: &ContactId,
+    ) -> ProviderResult<()> {
+        let _ = (account, call, contact);
+        Err(ProviderError::Unsupported("calls with several people"))
+    }
+
+    /// Turns the account's camera off or on again in a call with video.
+    /// The call goes on either way. Only called when
+    /// [`Capabilities::video_calls`] is set.
+    async fn set_call_camera(
+        &self,
+        account: &AccountId,
+        call: &str,
+        on: bool,
+    ) -> ProviderResult<()> {
+        let _ = (account, call, on);
+        Err(ProviderError::Unsupported("video calls"))
+    }
+
+    /// The pictures of a call with video, to draw: `None` for a call
+    /// without video, or one that is over. Cheap: asked when drawing.
+    fn call_video(&self, account: &AccountId, call: &str) -> Option<CallVideo> {
+        let _ = (account, call);
+        None
+    }
+
+    /// The microphone, speakers and camera the user chose for calls. They
+    /// are used from the next call on; the default ignores them (a
+    /// provider that carries no sound has nothing to choose).
+    fn set_call_devices(&self, devices: CallDevices) {
+        let _ = devices;
+    }
+
+    /// The cameras a call with video can use here. The default is none.
+    fn call_cameras(&self) -> Vec<CallCamera> {
+        Vec::new()
     }
 
     /// Opens the stream of live updates for every account.

@@ -22,17 +22,56 @@ pub const GIVE_UP: Duration = Duration::from_secs(15 * 60);
 
 use client_core::phone::{calling_code, calling_code_of, country_of};
 
-/// The place to preselect: the first one in the country of the number
-/// being linked, or else of a number already linked. `None` when nothing
-/// points at a country: the user chooses.
+/// The place to preselect. The country comes from the number being
+/// linked, or else from a number already linked; within it, the city the
+/// computer's clock is set to when the provider has it, or else the
+/// country's first. With no number to go by, that city alone decides.
+/// `None` when nothing points anywhere: the user chooses.
 pub fn default_place<'a>(
     places: &'a [LinkPlace],
     phones: impl IntoIterator<Item = &'a str>,
+    city: Option<&str>,
 ) -> Option<&'a LinkPlace> {
-    phones
-        .into_iter()
-        .filter_map(country_of)
-        .find_map(|country| places.iter().find(|place| place.country == country))
+    let here =
+        |place: &&LinkPlace| city.is_some_and(|city| place.city_name.eq_ignore_ascii_case(city));
+    let mut countries = phones.into_iter().filter_map(country_of).peekable();
+    if countries.peek().is_none() {
+        return places.iter().find(here);
+    }
+    countries.find_map(|country| {
+        let mut there = places.iter().filter(|place| place.country == country);
+        let first = there.next()?;
+        Some(
+            std::iter::once(first)
+                .chain(there)
+                .find(here)
+                .unwrap_or(first),
+        )
+    })
+}
+
+/// The city a time zone is named after: `America/Santiago` is Santiago.
+/// `None` for a zone that names no city (`UTC`, `Chile/Continental`
+/// names a region: it matches no place and does no harm).
+pub fn city_of_time_zone(zone: &str) -> Option<String> {
+    let (_, city) = zone.trim().rsplit_once('/')?;
+    (!city.is_empty()).then(|| city.replace('_', " "))
+}
+
+/// The city this computer's clock is set to, when the system says:
+/// the `TZ` variable, or where `/etc/localtime` points. Nothing is asked
+/// of the network.
+pub fn system_city() -> Option<String> {
+    let zone = std::env::var("TZ")
+        .ok()
+        .filter(|zone| zone.contains('/'))
+        .or_else(|| {
+            let link = std::fs::read_link("/etc/localtime").ok()?;
+            let path = link.to_string_lossy().into_owned();
+            let (_, zone) = path.split_once("zoneinfo/")?;
+            Some(zone.to_owned())
+        })?;
+    city_of_time_zone(&zone)
 }
 
 /// The places matching what was typed: by city, country or country code,
@@ -265,16 +304,43 @@ mod tests {
     fn the_default_place_follows_the_number_then_the_numbers_already_linked() {
         let places = places();
         // The number being linked decides.
-        let chosen = default_place(&places, ["+56 9 5550 1234", "+58 424 555 0199"]).unwrap();
+        let chosen = default_place(&places, ["+56 9 5550 1234", "+58 424 555 0199"], None).unwrap();
         assert_eq!(chosen.city, "santiago");
         // No number typed: the country of a number already linked.
-        let chosen = default_place(&places, ["+58 424 555 0199"]).unwrap();
+        let chosen = default_place(&places, ["+58 424 555 0199"], None).unwrap();
         assert_eq!(chosen.country, "VE");
         // A country with no place is skipped for the next hint.
-        let chosen = default_place(&places, ["+91 98 7654 3210", "+1 415 555 0142"]).unwrap();
+        let chosen = default_place(&places, ["+91 98 7654 3210", "+1 415 555 0142"], None).unwrap();
         assert_eq!(chosen.country, "US");
         // Nothing to go by: the user chooses.
-        assert_eq!(default_place(&places, []), None);
+        assert_eq!(default_place(&places, [], None), None);
+    }
+
+    #[test]
+    fn the_default_place_is_the_computers_city_where_the_number_allows() {
+        let places = places();
+        // In the number's country, the city the computer is in rather
+        // than the country's first.
+        let chosen = default_place(&places, ["+58 424 555 0199"], Some("maracaibo")).unwrap();
+        assert_eq!(chosen.city, "maracaibo");
+        // The number's country comes first: a computer in Miami linking a
+        // number of Venezuela connects from Venezuela.
+        let chosen = default_place(&places, ["+58 424 555 0199"], Some("Miami")).unwrap();
+        assert_eq!(chosen.country, "VE");
+        // No number to go by: where the computer is.
+        let chosen = default_place(&places, [], Some("Miami")).unwrap();
+        assert_eq!(chosen.city, "miami");
+        assert_eq!(default_place(&places, [], Some("Atlantis")), None);
+
+        assert_eq!(
+            city_of_time_zone("America/Santiago").as_deref(),
+            Some("Santiago")
+        );
+        assert_eq!(
+            city_of_time_zone("America/Argentina/Buenos_Aires").as_deref(),
+            Some("Buenos Aires")
+        );
+        assert_eq!(city_of_time_zone("UTC"), None);
     }
 
     #[test]

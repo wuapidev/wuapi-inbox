@@ -1,0 +1,21 @@
+[package]
+name = "provider-hub"
+description = "Several providers behind one: each number is served by the provider it was linked through, and the client sees them side by side"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+client-provider.workspace = true
+async-trait.workspace = true
+futures.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+# The engine over a hub of two real providers.
+client-core.workspace = true
+provider-example.workspace = true
+provider-mock.workspace = true
+tokio = { workspace = true, features = ["test-util"] }

@@ -14,6 +14,34 @@ pub enum ProviderKind {
     /// The worked example of `docs/PROVIDERS.md`: says back what it is sent.
     #[cfg(feature = "provider-example")]
     Example,
+    /// WhatsApp's own protocol, spoken from this machine: no API in
+    /// between (`provider-native`).
+    #[cfg(feature = "provider-native")]
+    Native,
+    /// The numbers linked to this machine and, once signed in, the ones of
+    /// wuapi, side by side (`provider-hub` over the two).
+    #[cfg(feature = "provider-native")]
+    Both,
+}
+
+impl ProviderKind {
+    /// What a run that names no provider is on: this machine and wuapi
+    /// together where the build has both, wuapi where it has not.
+    pub const fn standard() -> Self {
+        #[cfg(feature = "provider-native")]
+        return Self::Both;
+        #[cfg(not(feature = "provider-native"))]
+        return Self::Wuapi;
+    }
+
+    /// Whether wuapi is part of the session, so that its options apply.
+    pub fn has_wuapi(self) -> bool {
+        #[cfg(feature = "provider-native")]
+        if self == Self::Both {
+            return true;
+        }
+        self == Self::Wuapi
+    }
 }
 
 /// What the user asked for.
@@ -91,7 +119,9 @@ pub fn usage() -> String {
 Usage: {bin} [OPTIONS]
 
 Options:
-  --provider <mock|wuapi>   Backend to use [default: wuapi]
+  --provider <mock|wuapi>   Backend to use [default: wuapi]. A build with provider-native
+                            adds `native` (WhatsApp's own protocol, from this computer)
+                            and `both` (the two side by side), which is then the default
   --theme <light|dark>      Theme for this run [default: the one in Settings]
   --data-dir <PATH>         Where to keep the local database
   --login                   wuapi: sign in again, replacing the stored API key
@@ -116,7 +146,7 @@ Options:
 /// Parses the arguments after the program name.
 pub fn parse(args: impl Iterator<Item = String>) -> Result<Command, String> {
     let mut options = Options {
-        provider: ProviderKind::Wuapi,
+        provider: ProviderKind::standard(),
         appearance: None,
         data_dir: None,
         open_chat: None,
@@ -154,6 +184,10 @@ pub fn parse(args: impl Iterator<Item = String>) -> Result<Command, String> {
                     "wuapi" => ProviderKind::Wuapi,
                     #[cfg(feature = "provider-example")]
                     "example" => ProviderKind::Example,
+                    #[cfg(feature = "provider-native")]
+                    "native" => ProviderKind::Native,
+                    #[cfg(feature = "provider-native")]
+                    "both" => ProviderKind::Both,
                     other => return Err(format!("unknown provider `{other}`")),
                 }
             }
@@ -225,10 +259,10 @@ pub fn parse(args: impl Iterator<Item = String>) -> Result<Command, String> {
             other => return Err(format!("unknown option `{other}`")),
         }
     }
-    if options.diagnose.is_some() && options.provider != ProviderKind::Wuapi {
+    if options.diagnose.is_some() && !options.provider.has_wuapi() {
         return Err("--diagnose needs the wuapi provider".to_owned());
     }
-    if options.provider != ProviderKind::Wuapi {
+    if !options.provider.has_wuapi() {
         if options.live.is_some() {
             return Err("--live needs the wuapi provider".to_owned());
         }
@@ -257,7 +291,12 @@ mod tests {
     #[test]
     fn defaults_to_the_wuapi_provider() {
         let options = run(&[]);
+        assert_eq!(options.provider, ProviderKind::standard());
+        #[cfg(not(feature = "provider-native"))]
         assert_eq!(options.provider, ProviderKind::Wuapi);
+        // With this machine's own provider in the build, the two together.
+        #[cfg(feature = "provider-native")]
+        assert_eq!(options.provider, ProviderKind::Both);
         assert_eq!(options.appearance, None, "the saved theme decides");
         assert!(usage().contains("[default: wuapi]"));
     }
@@ -278,6 +317,30 @@ mod tests {
         assert!(
             parse(["--provider=example".to_owned(), "--live=auto".to_owned()].into_iter()).is_err()
         );
+    }
+
+    #[cfg(feature = "provider-native")]
+    #[test]
+    fn the_native_provider_is_asked_for_by_name() {
+        assert_eq!(
+            run(&["--provider", "native"]).provider,
+            ProviderKind::Native
+        );
+        // The options of another provider are refused with it too.
+        assert!(
+            parse(["--provider=native".to_owned(), "--live=auto".to_owned()].into_iter()).is_err()
+        );
+        assert!(parse(
+            [
+                "--provider=native".to_owned(),
+                "--diagnose=sends".to_owned()
+            ]
+            .into_iter()
+        )
+        .is_err());
+        // Side by side, wuapi's options are wuapi's still.
+        assert_eq!(run(&["--provider", "both"]).provider, ProviderKind::Both);
+        assert!(run(&["--provider=both", "--live=auto"]).live.is_some());
     }
 
     #[test]

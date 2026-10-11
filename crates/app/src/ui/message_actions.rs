@@ -442,7 +442,7 @@ impl Shell {
     ) -> Option<Div> {
         let picked = self.acting.selecting.as_ref()?;
         let count = picked.len();
-        let caps = self.engine.capabilities();
+        let caps = self.caps_here();
         let action = |id: &'static str, label: &'static str, glyph, command: Command| {
             text_button(id, label, Some(glyph), false, palette).on_click(cx.listener(
                 move |this, _, window, cx| {
@@ -521,7 +521,7 @@ impl Shell {
     /// everyone only when every one of them is the account's own and the
     /// provider can.
     pub(super) fn delete_choices(&self) -> Vec<DeleteChoice> {
-        let caps = self.engine.capabilities();
+        let caps = self.caps_here();
         let subjects = &self.acting.subjects;
         let all_own = subjects
             .iter()
@@ -726,7 +726,7 @@ impl Shell {
         mine: bool,
         cx: &mut Context<Self>,
     ) {
-        if !self.engine.capabilities().reactions {
+        if !self.caps_here().reactions {
             return;
         }
         let send = if mine { "" } else { emoji.as_str() };

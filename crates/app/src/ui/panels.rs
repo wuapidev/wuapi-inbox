@@ -7,7 +7,7 @@
 
 use super::connection::connection_words;
 use super::menus::{fact, panel_header};
-use super::shell::{IdentityState, Overlay, SessionKind, SettingsSection, Shell};
+use super::shell::{CloudOffer, Home, IdentityState, Overlay, SessionKind, SettingsSection, Shell};
 use super::widgets::{label, led, mono, segmented, status_colour, switch, text_button};
 use crate::icons::IconName;
 use crate::product::MAKER;
@@ -60,7 +60,7 @@ impl Shell {
                 "Notifications",
                 "settings-notifications",
             ),
-            (SettingsSection::Audio, "Audio", "settings-audio"),
+            (SettingsSection::Audio, "Audio and video", "settings-audio"),
             (
                 SettingsSection::Stickers,
                 "Stickers and GIFs",
@@ -229,7 +229,7 @@ impl Shell {
                     palette,
                 ))
             })
-            .when(self.engine.capabilities().quiet_read, |this| {
+            .when(self.caps_here().quiet_read, |this| {
                 this.child(choice_row(
                     "Send read receipts",
                     "Tells the other side when you have read their messages. Off: a chat you \
@@ -245,7 +245,7 @@ impl Shell {
             })
             // The same for status: its own switch, which follows the one
             // above (nothing is sent while that is off).
-            .when(self.engine.capabilities().story_view, |this| {
+            .when(self.caps_here().story_view, |this| {
                 this.child(choice_row(
                     "Status view receipts",
                     if chosen.read_receipts {
@@ -276,7 +276,7 @@ impl Shell {
     /// is told by a notification.
     fn render_status_settings(&self, palette: &Palette, cx: &mut Context<Self>) -> Div {
         let chosen = settings::get(cx);
-        let caps = self.engine.capabilities();
+        let caps = self.caps_here();
         let (audience, count) = self.audience_summary();
         let summary: SharedString = match count {
             Some(n) => format!("{audience} ({n})").into(),
@@ -336,6 +336,12 @@ impl Shell {
         let provider: SharedString = match self.session {
             SessionKind::Demo => "Demo data (nothing leaves this computer)".into(),
             SessionKind::Keychain | SessionKind::Unsaved | SessionKind::Environment => MAKER.into(),
+            #[cfg(feature = "provider-native")]
+            SessionKind::Local if self.cloud == CloudOffer::Connected => {
+                "WhatsApp from this computer, and Wuapi Cloud".into()
+            }
+            #[cfg(feature = "provider-native")]
+            SessionKind::Local => "WhatsApp, directly from this computer".into(),
         };
         let mut account = section("Account", palette)
             .child(fact("Provider", provider, palette))
@@ -403,6 +409,24 @@ impl Shell {
                 "Signed in with WUAPI_API_KEY. Unset it to sign in from here.",
                 false,
             ),
+            #[cfg(feature = "provider-native")]
+            SessionKind::Local if self.cloud == CloudOffer::Connected => (
+                "Signing out of Wuapi Cloud removes its API key and its numbers' chats from \
+                 this computer. The numbers linked to this computer stay.",
+                true,
+            ),
+            #[cfg(feature = "provider-native")]
+            SessionKind::Local if self.cloud == CloudOffer::Offered => (
+                "Numbers linked to this computer work while this application is open. With \
+                 Wuapi Cloud a number stays connected when the computer is off.",
+                false,
+            ),
+            #[cfg(feature = "provider-native")]
+            SessionKind::Local => (
+                "There is no account to sign out of: each number is linked to this computer \
+                 and is unlinked on its own, under Numbers.",
+                false,
+            ),
         };
         account = account.child(
             div()
@@ -420,6 +444,21 @@ impl Shell {
                         .text_color(palette.text_muted)
                         .child(note),
                 )
+                .when(self.cloud == CloudOffer::Offered, |this| {
+                    this.child(
+                        text_button(
+                            "connect-cloud",
+                            "Connect Wuapi Cloud",
+                            Some(IconName::Globe),
+                            false,
+                            palette,
+                        )
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            cx.stop_propagation();
+                            this.connect_cloud(cx);
+                        })),
+                    )
+                })
                 .when(can_sign_out, |this| {
                     this.child(
                         text_button(
@@ -446,7 +485,7 @@ impl Shell {
                 .items_center()
                 .justify_between()
                 .child(label("Linked numbers", palette))
-                .when(self.engine.capabilities().link_accounts, |this| {
+                .when(self.caps_here().link_accounts, |this| {
                     this.child(
                         text_button(
                             "add-number-settings",
@@ -474,56 +513,78 @@ impl Shell {
         for (index, number) in self.accounts.iter().enumerate() {
             let words = connection_words(number);
             let state = words.label.to_uppercase();
-            account =
-                account.child(
-                    div()
-                        .border_b_1()
-                        .border_color(palette.border)
-                        .flex()
-                        .flex_col()
-                        .child(
-                            div()
-                                .min_h(px(40.))
-                                .py_2()
-                                .flex()
-                                .items_center()
-                                .gap_3()
-                                .child(led(if number.never_linked() {
-                                    palette.text_faint
-                                } else {
-                                    status_colour(&number.connection, palette)
-                                }))
-                                .child(
-                                    div()
-                                        .flex_1()
-                                        .min_w_0()
-                                        .flex()
-                                        .flex_col()
-                                        .child(
-                                            div().truncate().text_size(metrics::TEXT_BODY()).child(
-                                                SharedString::from(number.display_name.clone()),
-                                            ),
-                                        )
-                                        .children(number.phone.clone().map(|phone| {
+            let home = self.home_of(&number.id);
+            account = account.child(
+                div()
+                    .border_b_1()
+                    .border_color(palette.border)
+                    .flex()
+                    .flex_col()
+                    .child(
+                        div()
+                            .min_h(px(40.))
+                            .py_2()
+                            .flex()
+                            .items_center()
+                            .gap_3()
+                            .child(led(if number.never_linked() {
+                                palette.text_faint
+                            } else {
+                                status_colour(&number.connection, palette)
+                            }))
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .min_w_0()
+                                    .flex()
+                                    .flex_col()
+                                    .child(
+                                        div()
+                                            .truncate()
+                                            .text_size(metrics::TEXT_BODY())
+                                            .child(SharedString::from(number.display_name.clone())),
+                                    )
+                                    .children(
+                                        number.phone.clone().map(|phone| {
                                             mono(phone).text_color(palette.text_muted)
-                                        }))
-                                        // Why it is off, when the provider
-                                        // said.
-                                        .children(words.reason.is_some().then(|| {
-                                            div()
-                                                .debug_selector(move || {
-                                                    format!("number-reason-{index}")
-                                                })
-                                                .text_size(metrics::TEXT_SMALL())
-                                                .line_height(px(18.))
-                                                .text_color(palette.text_muted)
-                                                .child(SharedString::from(words.summary.clone()))
-                                        })),
-                                )
-                                .child(mono(state).text_color(palette.text_muted)),
-                        )
-                        .child(self.render_number_extras(index, number, palette, cx)),
-                );
+                                        }),
+                                    )
+                                    // Where it is connected from, and
+                                    // what that means for it.
+                                    .children(home.map(|home| {
+                                        div()
+                                            .debug_selector(move || format!("number-home-{index}"))
+                                            .text_size(metrics::TEXT_SMALL())
+                                            .line_height(px(18.))
+                                            .text_color(palette.text_muted)
+                                            .child(match home {
+                                                Home::Local => {
+                                                    "This computer: connected while this \
+                                                         application is open."
+                                                }
+                                                Home::Cloud => {
+                                                    "Wuapi Cloud: stays connected when this \
+                                                         computer is off."
+                                                }
+                                            })
+                                    }))
+                                    // Why it is off, when the provider
+                                    // said.
+                                    .children(words.reason.is_some().then(|| {
+                                        div()
+                                            .debug_selector(move || {
+                                                format!("number-reason-{index}")
+                                            })
+                                            .text_size(metrics::TEXT_SMALL())
+                                            .line_height(px(18.))
+                                            .text_color(palette.text_muted)
+                                            .child(SharedString::from(words.summary.clone()))
+                                    })),
+                            )
+                            .child(mono(state).text_color(palette.text_muted)),
+                    )
+                    .child(self.render_number_extras(index, number, palette, cx)),
+            );
         }
 
         account

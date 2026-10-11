@@ -1222,7 +1222,7 @@ impl Shell {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if !self.engine.capabilities().profile_edit {
+        if !self.caps_here().profile_edit {
             return;
         }
         let back_to_settings = self.overlay == Overlay::Settings;

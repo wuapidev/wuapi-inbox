@@ -3,7 +3,9 @@
 
 use super::app::{AppView, Screen};
 use super::bubble::Row;
-use super::shell::{ChatFilter, IdentityState, ListRow, Overlay, SessionKind, Shell, ShellOptions};
+use super::shell::{
+    ChatFilter, CloudOffer, IdentityState, ListRow, Overlay, SessionKind, Shell, ShellOptions,
+};
 use crate::login::tests::{code, grant};
 use crate::login::{BoxFuture, Identity, KeySaved, LoginFlow, Phase, Session};
 use crate::providers::Launch;
@@ -986,6 +988,7 @@ fn the_demo_provider_needs_no_sign_in_and_offers_no_sign_out(cx: &mut TestAppCon
             login: None,
             identity: None,
             storage_note: None,
+            cloud: None,
         },
     );
     cx.update(|cx| match &app.read(cx).screen {
@@ -1000,6 +1003,216 @@ fn the_demo_provider_needs_no_sign_in_and_offers_no_sign_out(cx: &mut TestAppCon
     // Escape closes it.
     press(window, "escape", cx);
     assert!(!shows(window, "settings-panel", cx));
+}
+
+// ----- wuapi beside the numbers of this computer -----------------------------
+
+/// The window on a session that runs with or without wuapi: the demo
+/// numbers stand for the ones linked to this computer.
+#[cfg(feature = "provider-native")]
+fn open_beside(
+    cx: &mut TestAppContext,
+    offer: CloudOffer,
+) -> (
+    LoginHarness,
+    tokio::sync::watch::Sender<Option<provider_hub::Refusal>>,
+) {
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    let mock = MockProvider::quiet();
+    let engine = SyncEngine::new(
+        Arc::new(Store::open_in_memory().unwrap()),
+        Arc::new(mock.clone()),
+        SyncConfig::default(),
+        runtime.handle().clone(),
+    );
+    runtime.block_on(engine.refresh()).unwrap();
+    let flow = Arc::new(FakeFlow {
+        codes: Mutex::default(),
+        answers: Mutex::default(),
+        polls: AtomicUsize::new(0),
+        sign_outs: AtomicUsize::new(0),
+        forgotten: AtomicUsize::new(0),
+        key_saved: KeySaved::Yes,
+        engine: engine.clone(),
+        mock,
+    });
+    let (refuse, refusals) = tokio::sync::watch::channel(None);
+    let launch = Launch::Chats {
+        engine,
+        session: SessionKind::Local,
+        login: Some(flow.clone()),
+        identity: None,
+        storage_note: None,
+        cloud: Some(crate::providers::Cloud { offer, refusals }),
+    };
+    let (window, app) = open_app(cx, launch);
+    let harness = LoginHarness {
+        runtime,
+        flow,
+        window,
+        app,
+    };
+    (harness, refuse)
+}
+
+/// What the chats say of wuapi, and how many numbers they show.
+#[cfg(feature = "provider-native")]
+fn beside_state(harness: &LoginHarness, cx: &mut TestAppContext) -> Option<(CloudOffer, usize)> {
+    cx.update(|cx| match &harness.app.read(cx).screen {
+        Screen::Chats(shell) => {
+            let shell = shell.read(cx);
+            Some((shell.cloud, shell.accounts.len()))
+        }
+        _ => None,
+    })
+}
+
+#[cfg(feature = "provider-native")]
+#[gpui_kit::test]
+fn wuapi_is_signed_in_to_and_out_of_without_leaving_the_chats(cx: &mut TestAppContext) {
+    let (harness, _refuse) = open_beside(cx, CloudOffer::Offered);
+    assert_eq!(beside_state(&harness, cx), Some((CloudOffer::Offered, 2)));
+
+    // The settings offer it, and nothing to sign out of yet.
+    harness.click("settings", cx);
+    assert!(harness.has("connect-cloud", cx) && !harness.has("sign-out", cx));
+    harness.click("connect-cloud", cx);
+    assert_eq!(harness.phase(cx), Some(Phase::Start));
+    // The sign-in is over a session that goes on: there is a way back.
+    harness.click("login-back", cx);
+    assert_eq!(beside_state(&harness, cx), Some((CloudOffer::Offered, 2)));
+
+    // Signed in: the same session, with wuapi in it.
+    harness.click("settings", cx);
+    harness.click("connect-cloud", cx);
+    harness.click("connect", cx);
+    harness.flow.answer(Ok(PollOutcome::Granted(grant())));
+    harness.wait(5, cx);
+    assert_eq!(beside_state(&harness, cx), Some((CloudOffer::Connected, 2)));
+    cx.update(|cx| match &harness.app.read(cx).screen {
+        Screen::Chats(shell) => assert_eq!(shell.read(cx).session, SessionKind::Local),
+        _ => unreachable!(),
+    });
+
+    // Signing out is of wuapi alone: the chats stay on screen and the
+    // engine goes on.
+    harness.click("settings", cx);
+    assert!(harness.has("sign-out", cx) && !harness.has("connect-cloud", cx));
+    harness.click("sign-out", cx);
+    harness.click("sign-out-confirm", cx);
+    assert_eq!(beside_state(&harness, cx), Some((CloudOffer::Offered, 2)));
+    assert_eq!(harness.flow.sign_outs.load(Ordering::SeqCst), 1);
+    harness
+        .runtime
+        .block_on(harness.flow.engine.refresh())
+        .expect("the engine was not stopped");
+}
+
+#[cfg(feature = "provider-native")]
+#[gpui_kit::test]
+fn a_key_wuapi_refuses_ends_wuapi_and_not_the_session(cx: &mut TestAppContext) {
+    let (harness, refuse) = open_beside(cx, CloudOffer::Connected);
+    assert_eq!(beside_state(&harness, cx), Some((CloudOffer::Connected, 2)));
+    refuse
+        .send(Some(provider_hub::Refusal {
+            provider: "wuapi",
+            reason: "key revoked".into(),
+        }))
+        .unwrap();
+    harness.wait(1, cx);
+    // The sign-in says why, wuapi is left, and the chats are a click away.
+    assert_eq!(harness.phase(cx), Some(Phase::Start));
+    cx.update(|cx| match &harness.app.read(cx).screen {
+        Screen::Login(screen) => assert_eq!(
+            screen.read(cx).notice.as_deref(),
+            Some(super::app::CLOUD_SIGNED_OUT)
+        ),
+        _ => panic!("the sign-in is not showing"),
+    });
+    assert_eq!(harness.flow.sign_outs.load(Ordering::SeqCst), 1);
+    harness.click("login-back", cx);
+    assert_eq!(beside_state(&harness, cx), Some((CloudOffer::Offered, 2)));
+    harness
+        .runtime
+        .block_on(harness.flow.engine.refresh())
+        .expect("the engine was not stopped");
+}
+
+#[gpui_kit::test]
+fn with_wuapi_beside_a_number_is_linked_to_this_computer_or_to_the_cloud(cx: &mut TestAppContext) {
+    let harness = open(
+        cx,
+        ShellOptions {
+            cloud: CloudOffer::Connected,
+            ..Default::default()
+        },
+    );
+    click(harness.window, "add-number", cx);
+    harness.settle(cx);
+    // The cloud first, recommended and chosen: it is the one that stays
+    // on. It asks where from, as it does alone.
+    assert!(shows(harness.window, "link-home", cx));
+    let (cloud, here) = (
+        bounds(harness.window, "link-home-cloud", cx),
+        bounds(harness.window, "link-home-here", cx),
+    );
+    assert!(cloud.bottom() <= here.top(), "the cloud is offered first");
+    assert!(shows(harness.window, "link-home-cloud-tag", cx));
+    assert!(shows(harness.window, "link-home-cloud-chosen", cx));
+    assert!(cx.update(|cx| harness.shell.read(cx).linking.as_ref().unwrap().in_cloud));
+    assert!(shows(harness.window, "link-place-chosen", cx));
+    // This computer is one click away: it connects from here, so no
+    // place is asked for.
+    click(harness.window, "link-home-here", cx);
+    assert!(cx.update(|cx| !harness.shell.read(cx).linking.as_ref().unwrap().in_cloud));
+    assert!(shows(harness.window, "link-home-here-chosen", cx));
+    assert!(!shows(harness.window, "link-place-chosen", cx));
+    click(harness.window, "link-home-cloud", cx);
+    assert!(cx.update(|cx| harness.shell.read(cx).linking.as_ref().unwrap().in_cloud));
+
+    // Alone, there is nothing to choose.
+    let alone = open(cx, ShellOptions::default());
+    click(alone.window, "add-number", cx);
+    alone.settle(cx);
+    assert!(!shows(alone.window, "link-home", cx));
+}
+
+#[gpui_kit::test]
+fn before_the_cloud_is_connected_the_form_says_what_it_adds_and_connects_it(
+    cx: &mut TestAppContext,
+) {
+    let harness = open(
+        cx,
+        ShellOptions {
+            cloud: CloudOffer::Offered,
+            ..Default::default()
+        },
+    );
+    use crate::ui::shell::ShellEvent;
+    let asked = std::rc::Rc::new(std::cell::Cell::new(0));
+    let counted = asked.clone();
+    let _listening = cx.update(|cx| {
+        cx.subscribe(&harness.shell, move |_, event: &ShellEvent, _| {
+            if matches!(event, ShellEvent::ConnectCloud) {
+                counted.set(counted.get() + 1);
+            }
+        })
+    });
+    click(harness.window, "add-number", cx);
+    harness.settle(cx);
+    // The number links to this computer, which is what there is; the
+    // cloud is shown above it with what it adds.
+    assert!(shows(harness.window, "link-home-cloud-tag", cx));
+    assert!(shows(harness.window, "link-home-here-chosen", cx));
+    assert!(cx.update(|cx| !harness.shell.read(cx).linking.as_ref().unwrap().in_cloud));
+    // Connecting it leaves the form for the sign-in.
+    click(harness.window, "link-home-connect", cx);
+    cx.run_until_parked();
+    assert_eq!(asked.get(), 1);
+    assert!(!shows(harness.window, "link-home", cx));
 }
 
 // ----- menus, settings, new chat ------------------------------------------
@@ -1502,6 +1715,7 @@ fn the_welcome_can_be_looked_at_on_demo_data(cx: &mut TestAppContext) {
         login: None,
         identity: None,
         storage_note: None,
+        cloud: None,
     };
     let engine = fake_flow(&runtime).engine.clone();
 
@@ -1575,6 +1789,7 @@ fn a_database_whose_key_is_lost_is_reset_only_when_asked(cx: &mut TestAppContext
                 login: None,
                 identity: None,
                 storage_note: note,
+                cloud: None,
             })
         }),
     };
@@ -3089,7 +3304,11 @@ fn a_number_links_with_a_code_and_a_stopped_link_can_be_tried_again(cx: &mut Tes
         let flow = harness.shell.read(cx).linking.as_ref().unwrap();
         assert_eq!(flow.place.as_ref().unwrap().country, "CL");
     });
+    // It is chosen for them: the list stays folded until it is asked for.
+    assert!(shows(harness.window, "link-place-chosen", cx));
+    assert!(!shows(harness.window, "link-place-search", cx));
     // Until the user chooses one.
+    click(harness.window, "link-place-change", cx);
     click(harness.window, "link-place-search", cx);
     type_text(harness.window, "miami", cx);
     click(harness.window, "link-place-0", cx);
@@ -3097,6 +3316,8 @@ fn a_number_links_with_a_code_and_a_stopped_link_can_be_tried_again(cx: &mut Tes
         let flow = harness.shell.read(cx).linking.as_ref().unwrap();
         assert_eq!(flow.place.as_ref().unwrap().city, "miami");
     });
+    // Chosen: the list folds again.
+    assert!(!shows(harness.window, "link-place-search", cx));
     click(harness.window, "link-history", cx);
 
     click(harness.window, "link-submit", cx);
@@ -4743,6 +4964,7 @@ fn where_files_cannot_be_sent_the_button_says_so_and_a_paste_is_not_lost_in_sile
 
 mod animated;
 mod attach_files;
+mod calls;
 mod communities;
 mod connection;
 mod design;
@@ -4752,6 +4974,7 @@ mod keyboard;
 mod link_dialog;
 mod media_out;
 mod message_types;
+mod onboarding;
 mod palette;
 mod panes;
 mod people;

@@ -13,6 +13,7 @@
 
 #![warn(missing_docs)]
 
+mod calls;
 mod community;
 mod forward;
 mod seed;
@@ -110,6 +111,14 @@ impl MockConfig {
 
 struct State {
     world: World,
+    /// The calls that ring or are on, by id.
+    calls: HashMap<String, calls::MockCall>,
+    /// How many calls there were, for their ids.
+    next_call: u64,
+    /// What calls were last told to use.
+    call_devices: client_provider::CallDevices,
+    /// Who was asked into which call.
+    call_invites: Vec<(String, ContactId)>,
     /// Receipts by client id: the idempotency table of `send`.
     sent: HashMap<ClientMessageId, SendReceipt>,
     /// Failures to return from upcoming `send` calls, in order.
@@ -309,6 +318,10 @@ impl MockProvider {
             inner: Arc::new(Inner {
                 state: Mutex::new(State {
                     world,
+                    calls: HashMap::new(),
+                    next_call: 0,
+                    call_devices: Default::default(),
+                    call_invites: Vec::new(),
                     sent: HashMap::new(),
                     send_failures: VecDeque::new(),
                     send_calls: 0,
@@ -915,7 +928,8 @@ impl MockProvider {
                 | ProviderEvent::StoryUpserted(_)
                 | ProviderEvent::StoryRemoved { .. }
                 | ProviderEvent::StoryViewed { .. }
-                | ProviderEvent::StoryMuteChanged { .. } => {}
+                | ProviderEvent::StoryMuteChanged { .. }
+                | ProviderEvent::Call(_) => {}
             }
         }
         self.emit(event);
@@ -2482,6 +2496,64 @@ impl Provider for MockProvider {
         privacy: &client_provider::StoryPrivacy,
     ) -> ProviderResult<()> {
         self.story_set_privacy(account, privacy)
+    }
+
+    async fn start_call(
+        &self,
+        account: &AccountId,
+        chat: &ChatId,
+        video: bool,
+    ) -> ProviderResult<String> {
+        self.call_start(account, chat, video).await
+    }
+
+    async fn accept_call(&self, _account: &AccountId, call: &str) -> ProviderResult<()> {
+        self.call_accept(call).await
+    }
+
+    async fn end_call(&self, _account: &AccountId, call: &str) -> ProviderResult<()> {
+        self.call_end(call).await
+    }
+
+    async fn mute_call(
+        &self,
+        _account: &AccountId,
+        _call: &str,
+        _muted: bool,
+    ) -> ProviderResult<()> {
+        Ok(())
+    }
+
+    async fn invite_to_call(
+        &self,
+        _account: &AccountId,
+        call: &str,
+        contact: &ContactId,
+    ) -> ProviderResult<()> {
+        self.call_invite(call, contact);
+        Ok(())
+    }
+
+    async fn set_call_camera(
+        &self,
+        _account: &AccountId,
+        call: &str,
+        on: bool,
+    ) -> ProviderResult<()> {
+        self.call_camera(call, on);
+        Ok(())
+    }
+
+    fn call_video(&self, _account: &AccountId, call: &str) -> Option<client_provider::CallVideo> {
+        self.call_screens(call)
+    }
+
+    fn set_call_devices(&self, devices: client_provider::CallDevices) {
+        self.state().call_devices = devices;
+    }
+
+    fn call_cameras(&self) -> Vec<client_provider::CallCamera> {
+        calls::cameras()
     }
 
     async fn subscribe(&self) -> ProviderResult<EventStream> {

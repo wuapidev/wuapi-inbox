@@ -70,7 +70,7 @@ impl Shell {
     pub(super) fn command_state(&self, command: Command, message: &Message) -> CommandState {
         use Command as C;
         use CommandState::{Disabled, Enabled, Hidden};
-        let caps = self.engine.capabilities();
+        let caps = self.caps_here();
         let own = message.direction == Direction::Outgoing;
         let media = match &message.content {
             MessageContent::Media(media) if !message.extras.view_once => Some(media),

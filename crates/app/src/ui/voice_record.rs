@@ -803,6 +803,16 @@ const DEVICES_FILE: &str = "audio.json";
 pub(super) struct AudioDevices {
     pub(super) input: Option<String>,
     pub(super) output: Option<String>,
+    /// The camera of calls with video, by the provider's id of it.
+    pub(super) camera: Option<String>,
+}
+
+/// One of the devices Settings > Audio chooses.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum Pick {
+    Microphone,
+    Speakers,
+    Camera,
 }
 
 impl AudioDevices {
@@ -845,7 +855,18 @@ impl Shell {
         AudioDevices {
             input: self.voice.device.clone(),
             output: self.audio.output_device.clone(),
+            camera: self.call_camera.clone(),
         }
+    }
+
+    /// Tells the provider which devices calls use: the same microphone
+    /// and speakers as voice notes, and the camera.
+    fn push_call_devices(&self) {
+        self.engine.set_call_devices(client_provider::CallDevices {
+            microphone: self.voice.device.clone(),
+            speaker: self.audio.output_device.clone(),
+            camera: self.call_camera.clone(),
+        });
     }
 
     /// Takes the devices from the settings' file: at the start.
@@ -854,55 +875,84 @@ impl Shell {
         self.voice.device = devices.input;
         self.audio.player.set_output_device(devices.output.clone());
         self.audio.output_device = devices.output;
+        self.call_camera = devices.camera;
+        self.push_call_devices();
     }
 
     /// The next or the previous microphone, or speakers.
-    pub(super) fn step_audio_device(&mut self, input: bool, forward: bool, cx: &mut Context<Self>) {
-        let names = if input {
-            self.voice.recorder.devices()
-        } else {
-            self.audio.player.output_devices()
+    pub(super) fn step_audio_device(&mut self, pick: Pick, forward: bool, cx: &mut Context<Self>) {
+        let names = match pick {
+            Pick::Microphone => self.voice.recorder.devices(),
+            Pick::Speakers => self.audio.player.output_devices(),
+            // A camera is kept by its id: two can have the same name.
+            Pick::Camera => self
+                .engine
+                .call_cameras()
+                .into_iter()
+                .map(|camera| camera.id)
+                .collect(),
         };
         let by = if forward { 1 } else { names.len() };
-        if input {
-            // A level test on the old one ends with it.
-            self.end_level_test();
-            self.voice.device = step_device(self.voice.device.as_deref(), &names, by);
-        } else {
-            let next = step_device(self.audio.output_device.as_deref(), &names, by);
-            self.audio.player.set_output_device(next.clone());
-            self.audio.output_device = next;
+        match pick {
+            Pick::Microphone => {
+                // A level test on the old one ends with it.
+                self.end_level_test();
+                self.voice.device = step_device(self.voice.device.as_deref(), &names, by);
+            }
+            Pick::Speakers => {
+                let next = step_device(self.audio.output_device.as_deref(), &names, by);
+                self.audio.player.set_output_device(next.clone());
+                self.audio.output_device = next;
+            }
+            Pick::Camera => {
+                self.call_camera = step_device(self.call_camera.as_deref(), &names, by);
+            }
         }
         self.audio_devices().save(cx);
+        self.push_call_devices();
         cx.notify();
+    }
+
+    /// What the chosen camera is called.
+    fn camera_name(&self) -> Option<String> {
+        let chosen = self.call_camera.as_deref()?;
+        self.engine
+            .call_cameras()
+            .into_iter()
+            .find(|camera| camera.id == chosen)
+            .map(|camera| camera.name)
     }
 
     /// Settings > Audio: the microphone, the speakers, and a level test.
     pub(super) fn render_audio(&self, palette: &Palette, cx: &mut Context<Self>) -> Div {
         let stepper = |name: &'static str,
                        chosen: Option<&str>,
-                       input: bool,
+                       pick: Pick,
                        cx: &mut Context<Self>| {
             let label: SharedString = chosen.unwrap_or("System default").to_owned().into();
             let step =
                 |id: &'static str, glyph: IconName, forward: bool, cx: &mut Context<Self>| {
                     icon_button(id, glyph, palette).on_click(cx.listener(move |this, _, _, cx| {
                         cx.stop_propagation();
-                        this.step_audio_device(input, forward, cx);
+                        this.step_audio_device(pick, forward, cx);
                     }))
                 };
-            let (previous, next, value): (&'static str, &'static str, &'static str) = if input {
-                (
+            let (previous, next, value): (&'static str, &'static str, &'static str) = match pick {
+                Pick::Microphone => (
                     "audio-input-previous",
                     "audio-input-next",
                     "audio-input-value",
-                )
-            } else {
-                (
+                ),
+                Pick::Speakers => (
                     "audio-output-previous",
                     "audio-output-next",
                     "audio-output-value",
-                )
+                ),
+                Pick::Camera => (
+                    "audio-camera-previous",
+                    "audio-camera-next",
+                    "audio-camera-value",
+                ),
             };
             div()
                 .debug_selector(move || name.into())
@@ -1018,13 +1068,24 @@ impl Shell {
                         this.toggle_level_test(cx);
                     })),
             );
-        let input = stepper("audio-input", self.voice.device.as_deref(), true, cx);
+        let input = stepper(
+            "audio-input",
+            self.voice.device.as_deref(),
+            Pick::Microphone,
+            cx,
+        );
         let output = stepper(
             "audio-output",
             self.audio.output_device.as_deref(),
-            false,
+            Pick::Speakers,
             cx,
         );
+        // A camera only where a call can have video.
+        let calls = self.engine.capabilities().calls;
+        let camera = self.engine.capabilities().video_calls.then(|| {
+            let name = self.camera_name();
+            stepper("audio-camera", name.as_deref(), Pick::Camera, cx)
+        });
         div()
             .px_4()
             .pt_4()
@@ -1034,11 +1095,15 @@ impl Shell {
             .child(
                 div()
                     .pb_2()
-                    .child(mono("[ AUDIO ]").text_color(palette.text_muted)),
+                    .child(mono("[ AUDIO AND VIDEO ]").text_color(palette.text_muted)),
             )
             .child(row(
                 "Microphone",
-                "What voice notes are recorded with.",
+                if calls {
+                    "What voice notes are recorded with, and what a call hears."
+                } else {
+                    "What voice notes are recorded with."
+                },
                 input,
             ))
             .child(row(
@@ -1064,8 +1129,19 @@ impl Shell {
             )
             .child(row(
                 "Speakers",
-                "What voice notes and audio are played on.",
+                if calls {
+                    "What voice notes, audio and calls are played on."
+                } else {
+                    "What voice notes and audio are played on."
+                },
                 output,
             ))
+            .children(camera.map(|camera| {
+                row(
+                    "Camera",
+                    "What a call with video shows. A change applies from the next call.",
+                    camera,
+                )
+            }))
     }
 }

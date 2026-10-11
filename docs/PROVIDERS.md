@@ -2,13 +2,14 @@
 
 A provider connects the client to a WhatsApp backend: a hosted REST API, a self-hosted gateway, a library that speaks the protocol. You implement one trait, `Provider`, from the [`client-provider`](../crates/client-provider) crate. The client does the rest: storage, search, retries, the outbox, the UI.
 
-Three providers are in the repository. Read them alongside this page.
+Four providers are in the repository, and a fifth made of others. Read them alongside this page.
 
 - [`provider-example`](../crates/provider-example): one file, about 320 lines, over an in-memory backend that says back what it is sent. The worked example of this page: copy it to start your own.
 - [`provider-mock`](../crates/provider-mock): the demo data, in memory, built on `Capabilities::all()`. The place to see an optional method honoured.
 - [`provider-wuapi`](../crates/provider-wuapi): a real HTTP API, reached through its generated SDK. The place to see timeouts, error mapping, paging and live updates over a network.
+- [`provider-native`](../crates/provider-native): no API at all. WhatsApp's own protocol, spoken from the user's machine through [whatsapp-rust](https://github.com/oxidezap/whatsapp-rust). The place to see a backend that pushes everything and lists nothing, and calls.
 
-On this page: [a walkthrough](#write-a-provider-in-15-minutes), [every method](#every-method), [the rules](#the-trait), [the model](#the-model), [testing](#testing-a-provider), [wiring it in](#wiring-it-in), [a checklist for a pull request](#checklist-for-a-pull-request), and how the wuapi adapter is built.
+On this page: [a walkthrough](#write-a-provider-in-15-minutes), [every method](#every-method), [the rules](#the-trait), [the model](#the-model), [testing](#testing-a-provider), [wiring it in](#wiring-it-in), [a checklist for a pull request](#checklist-for-a-pull-request), and how the wuapi adapter is built and the native adapter are built.
 
 ## What a provider is, and is not
 
@@ -53,7 +54,7 @@ One number, one chat; what you write comes back.
 
 ## Every method
 
-`Provider` has 69 methods: 9 are required and 60 have defaults. The engine calls an optional method only when the flag beside it is on, so an adapter implements what its backend has and leaves the rest alone. The doc comment of each method in [`provider.rs`](../crates/client-provider/src/provider.rs) is its reference.
+`Provider` has 80 methods: 9 are required and 71 have defaults. The engine calls an optional method only when the flag beside it is on, so an adapter implements what its backend has and leaves the rest alone. The doc comment of each method in [`provider.rs`](../crates/client-provider/src/provider.rs) is its reference.
 
 | Method | Required | Called when |
 |---|---|---|
@@ -109,6 +110,9 @@ One number, one chat; what you write comes back.
 | `pairing_code` | no | `link_by_code` |
 | `scan_instead` | no | `link_back_to_scan` |
 | `update_account`, `reconnect_account`, `unlink_account`, `delete_account` | no | `manage_accounts` (`history_import` for that setting) |
+| `start_call`, `accept_call`, `end_call`, `mute_call` | no | `calls` (`video_calls` for a call with video) |
+| `set_call_camera`, `call_video`, `call_cameras` | no | `video_calls` |
+| `set_call_devices`, `invite_to_call` | no | `calls` |
 
 The flags that gate no method describe what the required ones carry: `groups` (group chats are listed and can be sent to), `contact_names` (names are the address book's), `replies`, `reactions`, `forwards` and `polls` (what `send` takes), `presence` (typing is pushed), `incremental_sync`, `story_contacts`.
 
@@ -191,6 +195,8 @@ Status (stories) is optional too, one flag for each part, answering `Unsupported
 | `story_privacy_edit` | `set_story_privacy`. Without it the audience is shown read-only |
 
 A reply or a reaction to a story reaches the provider through the client's message outbox, so it is retried with the same `client_id`; the provider's own copy of it may come back without the mark that says it answers a story (`MessageExtras::story_reply`), and the client keeps the mark it wrote. A provider that can read a received message's story (the id of what it quotes) sets `story_reply` in `extras` and the conversation shows it the same way.
+
+Calls are optional as well, behind `Capabilities::calls` (the model is in [`calls.rs`](../crates/client-provider/src/calls.rs)). A provider that has them carries the sound itself, between the machine's microphone and speakers and the other side: the client never sees a sample. It says where each call stands with `ProviderEvent::Call` (a `CallEvent` with the call's id, the chat, whether it has video, and a `CallState`: `Ringing` here or there, `Connecting`, `Connected`, `Ended` with whether it was missed), and takes four orders: `start_call` (answers the call's id), `accept_call`, `end_call` (declines a call that rings, hangs up one that is on) and `mute_call`. Each is safe to repeat: answering a call that is on and ending one that is over succeed. Nothing of a call is stored by the client; when a call nobody answered ends, the provider writes its line in the chat as a message (`MessageContent::System` with `MissedVoiceCall` or `MissedVideoCall`), which is what stays. `Capabilities::video_calls` says a call can carry video; without it the client does not offer to answer a video call and says to answer it on the phone. With it, the provider runs the camera too and hands the window pictures to draw: `call_video` answers a `CallVideo`, two `CallScreen`s (the other side, and the account's own camera) on which the provider puts each decoded picture (`CallPicture`, BGRA) as it comes and the window reads the newest when it draws. `set_call_camera` turns the account's camera off and on again while the call goes on. `invite_to_call` asks somebody else into a call that is on (a provider whose calls are between two refuses with `Unsupported`); in a call with several, `CallVideo::guests` holds one screen for each person, added when their video starts and taken away when it stops, and `remote` is left alone. Which microphone, speakers and camera a call uses is the user's choice in Settings: the client tells the provider with `set_call_devices` (names as the system gives them, `None` for its default), from the next call on, and lists the cameras to choose from with `call_cameras`. The native provider encodes and decodes video with `ffmpeg`, run beside the application: where there is none, `video_calls` is off and calls are voice only.
 
 The doc comments in [`provider.rs`](../crates/client-provider/src/provider.rs) are the reference for each method. The rules that matter most follow.
 
@@ -534,3 +540,81 @@ They are limits of wuapi's public API today, not of the trait. Each is marked `T
 | `Account.imageQuality` (and `media.quality` per image) exist; the client has no control for them | Pictures go at the account's quality | Left to the account; only a `.gif` sent as an image asks for `original` |
 | The edit window is described as "about 15 minutes" and enforced by WhatsApp, not by the API | The client cannot know beforehand that an edit will be refused | It lets the API refuse and shows its reason; the old text comes back |
 | No route marks a view-once file as opened, and none should fetch one | A view-once message is a tile that says to open it on the phone | Never downloaded |
+
+## Several providers at once
+
+[`provider-hub`](../crates/provider-hub) is a provider made of others. The engine still speaks to one `Provider`; the hub sends every call about a number to the provider that number was linked through, and gives back the numbers and the live updates of all of them together. The application runs on it by default in a build with `provider-native`: the numbers linked to the computer start at once with no sign-in, and wuapi's are added beside them when the user connects Wuapi Cloud, and taken away alone when they sign out of it.
+
+What the hub does that a provider alone need not:
+
+- **One number, one provider.** It learns whose each number is from `list_accounts` and from `create_account`, and the engine stores that beside the account (`Provider::owner_of`). A number is linked through the member that listed the place asked for (`link_places`), and with no place through the first member that asks for none.
+- **Capabilities per number.** `capabilities()` is everything any member can do; `Provider::capabilities_for(account)` is what that number's member can. The window asks about the number on screen, so a call button is there for a number linked to the computer and not for one of wuapi.
+- **A refused key stops one member, not the session.** `Unauthorized` from a member never reaches the engine, which would stop for good. The member is set aside, its calls answer a rejection with the code `signed_out`, and `HubProvider::refusals` tells the application, which asks to sign in to it again.
+- **Weather is local.** A member whose numbers cannot be listed keeps the ones it listed last (or the ones the store had, at startup), so a network failure never reads as "no numbers" and deletes chats. A member whose live updates cannot be opened is left out and tried again later.
+- **Members come and go.** `attach` and `detach` cut the live updates, so the engine subscribes again and refreshes: it finds the new numbers, or stops finding the old ones and forgets them with their chats.
+
+A capability two members share but mean differently is not reconciled: the engine's own decisions that ask about no number (`chat_list`, `contacts`) take the union.
+
+## How the native adapter is built
+
+`provider-native` has no API behind it. It links [whatsapp-rust](https://github.com/oxidezap/whatsapp-rust), which speaks the WhatsApp Web protocol, and each number is a device linked to the user's phone, as WhatsApp Web is. The messages travel between this machine and WhatsApp and nowhere else. It is behind a cargo feature of the application:
+
+```sh
+cargo run -p wuapi-inbox --features provider-native -- --provider native
+```
+
+A linked device is told things and asked nothing: WhatsApp has no "list my chats" and no "give me this chat's messages". The phone hands its history over once, after linking, and from then on every message, receipt and change of a chat's state is pushed. The trait asks for listings, so this adapter is the one provider that keeps something: what its sessions were handed, in a file of its own. That is the backend's memory, where an API would have a database, and not a second copy of the client's store: nothing in it is searched or shown.
+
+| Module | What it is |
+|---|---|
+| `session.rs` | The seam. `Session` is one linked number (send, mark read, upload, download, and everything optional answering "not supported" by default, as the trait's own methods do), `Sessions` is where they are kept, and `Inbound` is what a session says. The provider names the protocol library only for its addresses and its message type. |
+| `live.rs` | The real sessions: whatsapp-rust's events to `Inbound`, and each thing the provider asks to one or two calls on its client. Every request is bounded; its failures are sorted into "not now" and "no". |
+| `archive.rs` | What the sessions were handed, in SQLite: messages as they travelled (the protobuf, encoded), chats, names, which ids are one person, votes, who saw a story, and the table that makes a send idempotent. |
+| `mapping.rs` | WhatsApp's own message to the neutral model, as pure functions: the wrappers come off, a revoke and an edit name what they change, a file keeps the pointer that downloads it. |
+| `convert.rs` | Between the archive's rows and the model, and the messages this adapter writes itself (a text, a file, a poll, a story, a quote). |
+| `ingest.rs` | What a session says, written to the archive and passed on as `ProviderEvent`s. |
+| `provider.rs` | `impl Provider`: listings answered from the archive, everything else passed to a session. |
+| `call_audio.rs` | A call's sound: the system's microphone and speakers through `cpal`, resampled to and from the 16 kHz the protocol speaks. |
+| `ids.rs` | Addresses and the neutral ids, both ways. |
+
+**Ids.** A person is `+<digits>` by their number and `lid:<digits>` by a hidden-number id, as the wuapi adapter writes them; a direct chat has its contact's id; a group keeps its address. WhatsApp names the same person either way from one message to the next, so a chat is kept under the number as soon as a message, the history or a lookup says both, and what was kept under the hidden id moves over (`Contact::alt_ids` says so to the client).
+
+**A send is one message.** The WhatsApp id a message goes out with is made from the client's id (`3EB0` and eighteen hexadecimal digits of its hash, the shape WhatsApp Web's own ids have), so a send repeated after a lost answer is the same message to WhatsApp, and the archive remembers which id a key went out as, so a send that was answered is not sent again at all. A poll's secret, which its votes are encrypted under, is made from the same key: the same send repeated is the same poll. The copy WhatsApp hands the account's other devices comes back under that id, and carries the client's id because the archive kept it.
+
+**History.** `fetch_messages` pages the archive, newest first. When a page past the oldest message here comes back empty, the phone is asked for what is before it (it must be online), the call waits up to eight seconds for the answer, and a phone that has nothing more is not asked for the same page again.
+
+**Files.** A file stays on WhatsApp, encrypted, until it is wanted; a `MediaRef` is the message's own pointer to it (its path, its key, its hashes), so nothing is downloaded up front and a forward moves no bytes. An upload is remembered under `MediaUpload::key`.
+
+**Linking.** `create_account` starts a session with no keys and answers its QR code as a PNG; `pairing_code` asks for a code to type on the phone instead, and `scan_instead` gives it up for the QR code that kept running behind it. A number that the phone logged out is linked again from nothing by `reconnect_account` and keeps its place and its chats.
+
+**On disk.** Two files beside the client's own, both encrypted under its key (SQLCipher): `native-sessions.db`, the keys that link this computer to each number (whatsapp-rust's own store, keyed through its connection hook), and `native-archive.db`. Without the system keychain the adapter refuses to start: a session's keys are never written plain.
+
+**The dependency.** whatsapp-rust is taken from git at a pinned commit: its crates.io release (0.7.0) links `libsqlite3-sys` 0.37, which cannot be in one binary with the client's `rusqlite`. It needs Rust 1.94. Calls use its pure-Rust codec and its native relay transport (`voip-mlow`, `voip-relay-native`); the C Opus codec is left out.
+
+**Testing.** [`src/tests.rs`](../crates/provider-native/src/tests.rs) runs the provider over a `Session` that is not WhatsApp: the contract of `provider-example`, linking, the phone's history, receipts, edits and revokes, the two ids of one person, forwards, stories, polls (a vote encrypted the way a phone does it, opened with the poll's secret) and calls, and the client's own `SyncEngine` over the provider, from a text queued to its ticks. Nothing there needs the network or a phone. One test does, and only runs when asked for by name: `a_real_session_shows_its_qr_code` opens a session against WhatsApp on encrypted files, waits for its QR code and deletes it, linking nothing. What no test here says is that WhatsApp agrees with the rest: everything in `live.rs` past the QR code compiles against the library and was not run against a linked number.
+
+## Known gaps in the native adapter
+
+They are limits of this adapter or of what a linked device is, not of the trait. The ones in the code are marked `TODO(native)`.
+
+| Gap | Effect | What the adapter does |
+|---|---|---|
+| A linked device only hears while it runs | Nothing arrives while the application is closed; WhatsApp hands over what was missed at the next start. A device the phone has not seen for about two weeks is logged out | Says `LoggedOut`, and links again from the window |
+| While it is connected the number shows as online, as with WhatsApp Web (whatsapp-rust announces it on connect), and WhatsApp takes the device as where the user reads | The phone is not notified of new messages while the application runs | Left as the library does it; a setting that keeps the number unavailable would cost the typing indicators |
+| WhatsApp's terms do not allow unofficial clients, and whatsapp-rust says so | A number may be restricted or banned by WhatsApp | Nothing: it is the user's number and the user's choice. A temporary restriction is shown with its duration |
+| The protocol changes on WhatsApp's side | A build that is too old stops connecting | Says so (`ClientOutdated`) and asks to update. The library is pinned to a commit and moves by hand |
+| Older history needs the phone online, and is asked for one chat at a time | Scrolling back past what was handed over waits, or ends there | Asks once per oldest message, waits eight seconds, ends the listing when nothing came |
+| Favorite stickers are heard (app state) and not written | Stars made here do not reach the phone | `sticker_favorites` is off: favorites stay on this computer |
+| The status audience is read from the phone and not written back | "My contacts except" and "Only share with" cannot be edited here | `story_privacy_edit` is off: shown read-only |
+| A status is sent to the people the adapter works out from the address book and the audience it read | Somebody the phone would include may be left out, where this device does not hold the whole address book | Sends to the saved contacts it knows, less the exceptions |
+| A poll or a calendar event passed on needs a secret, or RSVPs, of its own | They cannot be forwarded | `forward_polls` and `forward_events` are off |
+| A vote is opened with the poll's secret, which travels in the poll | The votes of a poll this device never held (from before it was linked, outside the history) are not counted | Counts what it can open |
+| A receipt in a group says one member got or read the message | The ticks of a group message move at the first member, where WhatsApp waits for all | Takes the first |
+| Video in a call needs a camera and an H.264 encoder | A video call cannot be placed or answered | `video_calls` is off: it rings, says to answer on the phone, and can be declined |
+| Group calls, call links and screen sharing are in the library and not wired | A group call rings and cannot be answered here | Shown as a call that rings |
+| A call has no ringtone | An incoming call is seen, not heard | The card in the window's corner |
+| Channels (newsletters) and broadcast lists are not conversations of the model | They are not listed | Skipped |
+| A message deleted "for me" on another device | The model has no "gone" | Shown as a deleted message |
+| Link previews are read from a message and not made for one that is sent | A link sent from here has no card | Sent as text |
+| A file sent has no thumbnail, size in pixels or duration set | The other side sees a blank tile until the file is there, and a voice note without a length | Sent as it is |
+

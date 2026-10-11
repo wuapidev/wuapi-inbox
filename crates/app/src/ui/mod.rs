@@ -16,6 +16,7 @@
 mod app;
 mod attach;
 mod bubble;
+mod calls;
 mod chat_list;
 mod connection;
 mod conversation;
@@ -32,6 +33,7 @@ mod menus;
 mod message_actions;
 mod message_menu;
 mod numbers;
+mod onboarding;
 mod palette;
 mod palette_steps;
 mod panels;
@@ -69,7 +71,7 @@ mod widgets;
 
 pub use app::AppView;
 pub use media::clear_exports;
-pub use shell::SessionKind;
+pub use shell::{CloudOffer, SessionKind};
 
 #[cfg(test)]
 mod tests;

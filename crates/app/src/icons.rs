@@ -83,6 +83,11 @@ icon_assets!(
         Scan,
         Sticker,
         Film,
+        Globe,
+        MicOff,
+        PhoneOff,
+        VideoOff,
+        Monitor,
     ]
 );
 

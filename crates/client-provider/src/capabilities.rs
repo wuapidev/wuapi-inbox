@@ -200,6 +200,14 @@ pub struct Capabilities {
     pub story_privacy_edit: bool,
     /// The account's own stories can be taken down.
     pub story_delete: bool,
+    /// Voice calls can be placed and answered
+    /// ([`Provider::start_call`](crate::Provider::start_call)), and a call
+    /// that comes in is announced
+    /// ([`ProviderEvent::Call`](crate::ProviderEvent::Call)). The provider
+    /// carries the sound itself.
+    pub calls: bool,
+    /// A call can carry video. Only looked at with [`calls`](Self::calls).
+    pub video_calls: bool,
 }
 
 impl Capabilities {
@@ -264,6 +272,8 @@ impl Capabilities {
             story_privacy: false,
             story_privacy_edit: false,
             story_delete: false,
+            calls: false,
+            video_calls: false,
         }
     }
 
@@ -328,6 +338,76 @@ impl Capabilities {
             story_privacy: true,
             story_privacy_edit: true,
             story_delete: true,
+            calls: true,
+            video_calls: true,
+        }
+    }
+
+    /// What either of two providers supports: everything `self` does and
+    /// everything `other` does. What a provider made of several answers
+    /// for all of them at once.
+    pub const fn union(self, other: Self) -> Self {
+        Self {
+            chat_list: self.chat_list || other.chat_list,
+            chat_state: self.chat_state || other.chat_state,
+            start_chat: self.start_chat || other.start_chat,
+            link_accounts: self.link_accounts || other.link_accounts,
+            link_by_code: self.link_by_code || other.link_by_code,
+            link_back_to_scan: self.link_back_to_scan || other.link_back_to_scan,
+            manage_accounts: self.manage_accounts || other.manage_accounts,
+            history_import: self.history_import || other.history_import,
+            contacts: self.contacts || other.contacts,
+            number_check: self.number_check || other.number_check,
+            contact_names: self.contact_names || other.contact_names,
+            groups: self.groups || other.groups,
+            realtime_push: self.realtime_push || other.realtime_push,
+            incremental_sync: self.incremental_sync || other.incremental_sync,
+            replies: self.replies || other.replies,
+            reactions: self.reactions || other.reactions,
+            edits: self.edits || other.edits,
+            deletes: self.deletes || other.deletes,
+            delete_for_me: self.delete_for_me || other.delete_for_me,
+            delete_received: self.delete_received || other.delete_received,
+            stars: self.stars || other.stars,
+            forwards: self.forwards || other.forwards,
+            polls: self.polls || other.polls,
+            poll_votes: self.poll_votes || other.poll_votes,
+            media_download: self.media_download || other.media_download,
+            avatars: self.avatars || other.avatars,
+            media_upload: self.media_upload || other.media_upload,
+            read_receipts: self.read_receipts || other.read_receipts,
+            quiet_read: self.quiet_read || other.quiet_read,
+            presence: self.presence || other.presence,
+            contact_lookup: self.contact_lookup || other.contact_lookup,
+            business_profiles: self.business_profiles || other.business_profiles,
+            blocking: self.blocking || other.blocking,
+            profile_edit: self.profile_edit || other.profile_edit,
+            group_info: self.group_info || other.group_info,
+            group_create: self.group_create || other.group_create,
+            group_manage: self.group_manage || other.group_manage,
+            group_invites: self.group_invites || other.group_invites,
+            group_join_requests: self.group_join_requests || other.group_join_requests,
+            group_leave: self.group_leave || other.group_leave,
+            community_manage: self.community_manage || other.community_manage,
+            community_members: self.community_members || other.community_members,
+            mentions: self.mentions || other.mentions,
+            sticker_favorites: self.sticker_favorites || other.sticker_favorites,
+            forward_any: self.forward_any || other.forward_any,
+            forward_polls: self.forward_polls || other.forward_polls,
+            forward_events: self.forward_events || other.forward_events,
+            story_list: self.story_list || other.story_list,
+            story_contacts: self.story_contacts || other.story_contacts,
+            story_post: self.story_post || other.story_post,
+            story_view: self.story_view || other.story_view,
+            story_viewers: self.story_viewers || other.story_viewers,
+            story_reply: self.story_reply || other.story_reply,
+            story_react: self.story_react || other.story_react,
+            story_mute: self.story_mute || other.story_mute,
+            story_privacy: self.story_privacy || other.story_privacy,
+            story_privacy_edit: self.story_privacy_edit || other.story_privacy_edit,
+            story_delete: self.story_delete || other.story_delete,
+            calls: self.calls || other.calls,
+            video_calls: self.video_calls || other.video_calls,
         }
     }
 }

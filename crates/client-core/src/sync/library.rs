@@ -309,7 +309,7 @@ impl SyncEngine {
     /// they are reconciled with the account's phone in the background,
     /// unless that was done a few minutes ago.
     pub fn want_favorite_stickers(&self, account: &AccountId) {
-        if !self.inner.capabilities.sticker_favorites || self.is_stopped() {
+        if !self.capabilities_for(account).sticker_favorites || self.is_stopped() {
             return;
         }
         {
@@ -332,7 +332,9 @@ impl SyncEngine {
             return;
         };
         for account in accounts {
-            self.run_favorites(&account.id);
+            if self.capabilities_for(&account.id).sticker_favorites {
+                self.run_favorites(&account.id);
+            }
         }
     }
 

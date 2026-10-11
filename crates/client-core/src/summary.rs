@@ -157,7 +157,14 @@ pub fn system_line(event: &SystemEvent) -> String {
         },
         SystemKind::MissedVoiceCall => "Missed voice call".to_owned(),
         SystemKind::MissedVideoCall => "Missed video call".to_owned(),
-        SystemKind::VoiceCall => "Voice call".to_owned(),
-        SystemKind::VideoCall => "Video call".to_owned(),
+        // The provider says how it went, when it knows: "Outgoing · 2:15".
+        SystemKind::VoiceCall => match named {
+            Some(how) => format!("Voice call · {how}"),
+            None => "Voice call".to_owned(),
+        },
+        SystemKind::VideoCall => match named {
+            Some(how) => format!("Video call · {how}"),
+            None => "Video call".to_owned(),
+        },
     }
 }

@@ -138,7 +138,7 @@ impl Shell {
 
     /// "New status".
     pub(super) fn open_status_post(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if !self.engine.capabilities().story_post {
+        if !self.caps_here().story_post {
             return;
         }
         if !self.status_active() {
@@ -507,7 +507,7 @@ impl Shell {
     fn render_post_sheet(&self, palette: &Palette, cx: &mut Context<Self>) -> Stateful<Div> {
         let draft = &self.status.draft;
         let (audience, count) = self.audience_summary();
-        let can_edit = self.engine.capabilities().story_privacy;
+        let can_edit = self.caps_here().story_privacy;
         let tab = |id: &'static str, name: &'static str, on: bool| {
             div()
                 .id(id)
@@ -917,7 +917,7 @@ impl Shell {
     // ----- who sees ----------------------------------------------------------------------------
 
     fn render_audience_sheet(&self, palette: &Palette, cx: &mut Context<Self>) -> Stateful<Div> {
-        let caps = self.engine.capabilities();
+        let caps = self.caps_here();
         let editable = caps.story_privacy_edit;
         let Some(edit) = self.status.draft.audience.as_ref() else {
             return self.card("status-audience", palette);

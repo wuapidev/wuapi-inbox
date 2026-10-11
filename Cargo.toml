@@ -6,6 +6,8 @@ members = [
     "crates/provider-example",
     "crates/client-core",
     "crates/provider-wuapi",
+    "crates/provider-native",
+    "crates/provider-hub",
     "crates/app",
     "crates/brand-mark",
     "crates/updater",
@@ -16,7 +18,8 @@ members = [
 version = "0.2.0"
 edition = "2021"
 license = "Apache-2.0"
-rust-version = "1.85"
+# whatsapp-rust (provider-native) needs 1.94.
+rust-version = "1.94"
 publish = false
 
 [workspace.dependencies]
@@ -25,6 +28,8 @@ client-core = { path = "crates/client-core" }
 provider-mock = { path = "crates/provider-mock" }
 provider-example = { path = "crates/provider-example" }
 provider-wuapi = { path = "crates/provider-wuapi" }
+provider-native = { path = "crates/provider-native" }
+provider-hub = { path = "crates/provider-hub" }
 brand-mark = { path = "crates/brand-mark" }
 updater = { path = "crates/updater" }
 
@@ -64,6 +69,20 @@ wiremock = "0.6"
 # Source: https://github.com/wuapidev/wuapi-rust
 wuapi = "0.14.0"
 base64 = "0.22"
+
+# The WhatsApp Web protocol itself, spoken from this machine (provider-native).
+# Pinned to a commit: the crates.io release (0.7.0) links libsqlite3-sys 0.37,
+# which cannot be in one binary with rusqlite 0.40's 0.38. Go back to a
+# version number when a release has caught up.
+# Source: https://github.com/oxidezap/whatsapp-rust
+# Calls: the pure-Rust MLOW codec and the native relay transport. `voip-libopus`
+# (the C codec) is left out on purpose: nothing to build in C for a call.
+whatsapp-rust = { git = "https://github.com/oxidezap/whatsapp-rust", rev = "94c53e833805c58c9f5966b08d08c990650a651e", features = ["voip-mlow", "voip-relay-native"] }
+# The key of the sessions' store is given through whatsapp-rust's own
+# connection hook, which hands over a Diesel connection.
+diesel = { version = "2.3", default-features = false, features = ["sqlite"] }
+# The QR code a number is linked with, drawn here.
+qrcode = { version = "0.14", default-features = false }
 
 # UI. gpui-kit pins the matching GPUI snapshot (gpui-pre) and re-exports it
 # together with gpui-component; see docs/ARCHITECTURE.md.

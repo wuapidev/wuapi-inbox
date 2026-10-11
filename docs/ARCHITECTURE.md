@@ -27,6 +27,10 @@ One rule shapes everything: **the UI only reads the local store.** It never call
 
 **`provider-mock`** and **`provider-wuapi`** are two providers. The mock holds a seeded world in memory and plays the other side of conversations; the UI runs on it with `--provider mock` and the tests use it. The wuapi adapter calls the API through `wuapi`, the Rust SDK generated from its OpenAPI spec (the real chat list, with unread counts, pins and saved names, since SDK 0.6.0), and adds what a chat client needs on top: the mapping to the neutral model, the transient-or-terminal classification of errors, the two steps of the browser sign-in, the keychain, and the live transport: wuapi Streams (a connection the client opens, over server-sent events) where the deployment has it, polling where it does not. `--live auto|stream|polling` chooses (`auto` by default); the engine sees one `EventStream` either way.
 
+**`provider-native`** is a third provider, behind the application's `provider-native` feature: WhatsApp's own protocol spoken from this machine through [whatsapp-rust](https://github.com/oxidezap/whatsapp-rust), with no API in between. Each number is a device linked to the user's phone. Since a linked device is pushed everything and can list nothing, this adapter keeps what its sessions were handed in a file of its own and answers the engine's listings from it; it also carries calls. [PROVIDERS.md](PROVIDERS.md) says how it is built and what it cannot do.
+
+**`provider-hub`** is a provider made of others: each number is served by the provider it was linked through, and the engine and the UI see one. In a build with `provider-native` the application runs on a hub of the native provider and, once the user connects it, wuapi; see "Several providers at once" in the provider guide.
+
 **`brand-mark`** is the animated wuapi mark as a GPUI element: it blinks and looks around as it does on the wuapi site, and is still whenever it is told to be.
 
 **`updater`** is the self-update, with no window in it: the signed release manifest, the download, the staging area, the swap of the executable (or the macOS bundle) at the next start, and putting the previous version back when the new one does not come up. **`xtask`** is the release tooling built on it (`cargo xtask`). See "Updates" below and [RELEASING.md](RELEASING.md).
@@ -54,6 +58,16 @@ A status is a text, a picture or a video that its author shows for a day. It is 
 - **The fields that are written in** (the reply under a story, the words and the caption of a post) are "the field being written in" while they are in hand (`Shell::status_writing`, behind `Shell::writing`): a `:shortcode` is offered its emoji over the field, and the emoji picker opens for the field from its button or Cmd or Ctrl with E, emoji only, and gives back what was under it (the story, which waits meanwhile, or the post sheet with what was written). Nobody is listed behind `@`: that list is a group's participants, and a field of Status is not written in a chat (a story's own mentions would need a list of contacts, which is not there yet).
 - **The conversation behind Status is out of reach.** While Status is in the conversation's place, the keys of a chat (`When::Chat`), attaching and the picker of stickers and GIFs do nothing, and the palette says "Show the chats first": nothing is sent to a chat that is not on screen.
 - **Mutes** are local at once and told to the provider when it keeps them (`story_mute`); where it does not they stay here. A provider that can read a mute made on the phone and not write one (wuapi) says it as an event (`StoryMuteChanged`), which is applied whatever the flag says.
+
+## Calls
+
+A call is optional for a provider (`Capabilities::calls`) and, like somebody typing, is never stored: it is true for a while and then it is not.
+
+- **Who does what.** The provider carries the sound, between the microphone and speakers and the other side, and says where each call stands (`ProviderEvent::Call`). The engine remembers the calls that are not over (`SyncEngine::calls`, in `sync/calls.rs`), announces `StoreChange::Calls`, and passes on what the user does: `start_call`, `accept_call`, `end_call`, `mute_call`. Those go straight to the provider on the engine's runtime: a call is not queued and not retried.
+- **In the window** (`ui/calls.rs`): a card in the corner for each call that rings or is on, above whatever else is open, with the name, where the call stands, and Answer, Decline, Hang up, Cancel and the microphone as they apply. A person's chat has a call button in its header where the provider places calls and no call is on.
+- **Leaving the screen is immediate.** Answering shows "Connecting…" at once, and ending a call takes its card away whatever the provider answers: nobody waits for a network to stop looking at a call they hung up.
+- **What stays** is the line a missed call leaves in its chat, which the provider writes as a message.
+- **Video** is offered only with `Capabilities::video_calls`. Without it a video call rings, says to answer it on the phone, and can be declined.
 
 ## What a backend does not have yet
 
@@ -109,6 +123,7 @@ The UI runs on GPUI's executor. The engine runs on a small Tokio runtime owned b
 
 - GPUI comes through [`gpui-kit`](https://crates.io/crates/gpui-kit), which pins a matching snapshot of GPUI (published as `gpui-pre`) together with the `gpui-component` widget library. The text fields, scrollbars and icons are from `gpui-component`; the layout, bubbles and lists are ours. The official `gpui` crate on crates.io is 0.2.2 from October 2025, and current `gpui-component` releases no longer build against it.
 - `wuapi`, the generated Rust SDK of the wuapi API, from crates.io. The adapter turns the SDK's own retries off, because retrying is the engine's job.
+- [whatsapp-rust](https://github.com/oxidezap/whatsapp-rust) (MIT), for `provider-native` only: from git at a pinned commit, because its crates.io release links another `libsqlite3-sys` than `rusqlite` does and two cannot be in one binary. It sets the workspace's Rust version (1.94). With it come Diesel (its store), `ureq` (its file transfers) and, for calls, a DTLS and SCTP stack. Its store is keyed with the same SQLCipher build as ours.
 - `cpal` for audio output. On Linux it links ALSA, so building needs the ALSA development headers (`alsa-lib` on Arch, `libasound2-dev` on Debian and Ubuntu); PipeWire and PulseAudio are reached through their ALSA plugins at run time. macOS (CoreAudio) and Windows (WASAPI) need nothing installed. `symphonia` and `opus-decoder` are pure Rust.
 - `rusqlite` with the bundled SQLCipher (FTS5 included) and a vendored OpenSSL for its cipher, so no system library is needed on Linux, macOS or Windows; building it needs `perl` and `make`. `reqwest` with rustls (shared with the SDK, and used directly for the sign-in and media downloads). `keyring` for the API key and the database key.
 
