@@ -560,7 +560,7 @@ A capability two members share but mean differently is not reconciled: the engin
 `provider-native` has no API behind it. It links [whatsapp-rust](https://github.com/oxidezap/whatsapp-rust), which speaks the WhatsApp Web protocol, and each number is a device linked to the user's phone, as WhatsApp Web is. The messages travel between this machine and WhatsApp and nowhere else. It is behind a cargo feature of the application:
 
 ```sh
-cargo run -p wuapi-inbox --features provider-native -- --provider native
+cargo run -p wuapi-inbox -- --provider native
 ```
 
 A linked device is told things and asked nothing: WhatsApp has no "list my chats" and no "give me this chat's messages". The phone hands its history over once, after linking, and from then on every message, receipt and change of a chat's state is pushed. The trait asks for listings, so this adapter is the one provider that keeps something: what its sessions were handed, in a file of its own. That is the backend's memory, where an API would have a database, and not a second copy of the client's store: nothing in it is searched or shown.
