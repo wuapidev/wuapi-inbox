@@ -1,9 +1,15 @@
 name: CI
 
+# A change that only touches docs/ or the changelog builds nothing.
+# README.md is not in the list: a test holds it to the example it shows.
 on:
   pull_request:
+    paths-ignore: ["docs/**", "CHANGELOG.md"]
   push:
     branches: [main]
+    paths-ignore: ["docs/**", "CHANGELOG.md"]
+  # Every platform, on any branch, when it is asked for.
+  workflow_dispatch:
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -15,6 +21,15 @@ permissions:
 env:
   CARGO_TERM_COLOR: always
   CARGO_INCREMENTAL: "0"
+  # Full debug information is most of what the workspace's own crates
+  # cost to compile and link, and most of the cache. A backtrace still
+  # names the file and the line.
+  CARGO_PROFILE_DEV_DEBUG: line-tables-only
+  # The workspace's own crates are built again on every run, and the
+  # application's test binary is most of the wait: unoptimised it builds
+  # in a third of the time, and its tests run longer by less than that
+  # saves. The dependencies, GPUI among them, keep their optimisation.
+  CARGO_PROFILE_DEV_OPT_LEVEL: "0"
   RUST_BACKTRACE: "1"
 
 jobs:
@@ -29,29 +44,31 @@ jobs:
       - run: cargo fmt --all --check
 
   test:
-    name: ${{ matrix.name }}
+    name: >-
+      ${{ matrix.os == 'ubuntu-latest' && 'Linux x86_64'
+      || matrix.os == 'macos-latest' && 'macOS aarch64'
+      || matrix.os == 'macos-15-intel' && 'macOS x86_64'
+      || 'Windows x86_64' }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 120
     strategy:
       fail-fast: false
       matrix:
-        include:
-          # Clippy builds the workspace a second time, in another profile.
-          # It runs where that is cheap; the two slow runners only test.
-          - name: Linux x86_64
-            os: ubuntu-latest
-            clippy: true
-          - name: macOS aarch64
-            os: macos-latest
-            clippy: true
-          - name: macOS x86_64
-            os: macos-15-intel
-          # The standard Windows runner has two cores in a private repository,
-          # and a build from nothing takes about an hour there. Set the
-          # repository variable WINDOWS_RUNNER to the label of a larger
-          # runner of the organization to use it; unset, the standard one.
-          - name: Windows x86_64
-            os: ${{ vars.WINDOWS_RUNNER || 'windows-latest' }}
+        os:
+          - ubuntu-latest
+          - macos-latest
+          - macos-15-intel
+          # Set the repository variable WINDOWS_RUNNER to the label of a
+          # larger runner of the organization to use it (those are billed,
+          # in a public repository too); unset, the standard one.
+          - ${{ vars.WINDOWS_RUNNER || 'windows-latest' }}
+        # The Intel Mac is the slowest runner by minutes, and what it finds
+        # the other Mac finds too, nearly always: a pull request leaves it
+        # out. It runs on main, on request, and builds every release.
+        # (Nothing here is in `include`: an entry there for a system that
+        # is left out would bring it back.)
+        exclude:
+          - os: ${{ github.event_name == 'pull_request' && 'macos-15-intel' || 'none' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -94,14 +111,19 @@ jobs:
           components: clippy
 
       # Kept after a failed run too: a build from nothing takes most of
-      # the time this job has, on Windows.
+      # the time this job has, on Windows. Only main saves it: a pull
+      # request reads main's, and its own copy would take minutes to
+      # upload and push others out of the repository's 10 GB.
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: ci
           cache-on-failure: true
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
+      # Clippy builds the workspace a second time, in another profile.
+      # It runs where that is cheap; the two slow runners only test.
       - name: Clippy
-        if: matrix.clippy
+        if: matrix.os == 'ubuntu-latest' || matrix.os == 'macos-latest'
         run: |
           cargo clippy --workspace --all-targets --locked -- -D warnings
           # The development features of the app, which a default build leaves out.
