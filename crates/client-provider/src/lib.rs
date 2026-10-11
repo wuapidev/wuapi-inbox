@@ -16,6 +16,7 @@
 
 #![warn(missing_docs)]
 
+mod calls;
 mod capabilities;
 mod content;
 mod error;
@@ -27,6 +28,9 @@ mod social;
 mod stickers;
 mod stories;
 
+pub use calls::{
+    CallCamera, CallDevices, CallEvent, CallPicture, CallScreen, CallState, CallVideo,
+};
 pub use capabilities::{Capabilities, Feature};
 pub use content::{
     mention_handle, CalendarEvent, ContactCard, EventCall, EventPlace, GeoPoint, LinkPreview,

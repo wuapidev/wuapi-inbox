@@ -113,6 +113,9 @@ pub enum ProviderEvent {
         /// Muted now.
         muted: bool,
     },
+
+    /// A call rings, was answered or ended.
+    Call(crate::calls::CallEvent),
 }
 
 /// The stream returned by [`Provider::subscribe`](crate::Provider::subscribe).

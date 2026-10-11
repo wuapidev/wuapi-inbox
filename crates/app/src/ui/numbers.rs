@@ -18,7 +18,7 @@
 //! offer (`Capabilities::link_back_to_scan`).
 
 use super::link_qr::{self, QrLook};
-use super::shell::{Overlay, Shell};
+use super::shell::{CloudOffer, Overlay, Shell};
 use super::widgets::{label, mono, switch, text_button, MarkPlay};
 use crate::icons::{icon, IconName};
 use crate::linking::{self, GIVE_UP, POLL};
@@ -76,6 +76,11 @@ pub(in crate::ui) struct LinkFlow {
     pub(in crate::ui) place: Option<LinkPlace>,
     /// The user chose a place: the default no longer follows the number.
     place_chosen: bool,
+    /// The list of places is open, to choose another than the default.
+    place_open: bool,
+    /// Where the number is linked, in a session with both: through Wuapi
+    /// Cloud, or (the default) to this computer itself.
+    pub(in crate::ui) in_cloud: bool,
     /// Linking with a code to type, not a QR code to scan: what the form
     /// chose, and afterwards what the number is doing.
     pub(in crate::ui) by_code: bool,
@@ -247,6 +252,10 @@ impl Shell {
             places: None,
             place: None,
             place_chosen: false,
+            place_open: false,
+            // With the cloud connected a new number goes there unless it is
+            // said otherwise: it is the one that stays on.
+            in_cloud: self.cloud == CloudOffer::Connected,
             by_code: false,
             ask_phone: false,
             code_busy: false,
@@ -327,7 +336,9 @@ impl Shell {
         let place = flow
             .places
             .as_deref()
-            .and_then(|places| linking::default_place(places, hints))
+            .and_then(|places| {
+                linking::default_place(places, hints, linking::system_city().as_deref())
+            })
             .cloned();
         if let Some(flow) = self.linking.as_mut() {
             flow.place = place;
@@ -353,17 +364,31 @@ impl Shell {
             }
             Err(_) => String::new(),
         };
-        let needs_place = flow
-            .places
-            .as_ref()
-            .is_some_and(|places| !places.is_empty());
-        if flow.places.is_none() || (needs_place && flow.place.is_none()) {
+        // A number linked to this computer connects from here: the places
+        // are the cloud's.
+        let here = self.cloud == CloudOffer::Connected && !flow.in_cloud;
+        // The cloud was chosen and its places are not there: without one
+        // the number would be linked to this computer instead.
+        let no_places = flow.places.as_ref().is_none_or(|places| places.is_empty());
+        if self.cloud == CloudOffer::Connected && flow.in_cloud && no_places {
+            flow.error = Some(
+                "Wuapi Cloud's places could not be loaded. Close this and try again in a moment."
+                    .into(),
+            );
+            return cx.notify();
+        }
+        let needs_place = !here
+            && flow
+                .places
+                .as_ref()
+                .is_some_and(|places| !places.is_empty());
+        if (flow.places.is_none() && !here) || (needs_place && flow.place.is_none()) {
             flow.error = Some("Choose where the number connects from.".into());
             return cx.notify();
         }
         let new = NewAccount {
             name: (!name.is_empty()).then_some(name),
-            place: flow.place.clone(),
+            place: flow.place.clone().filter(|_| !here),
             pairing_phone: flow.by_code.then_some(phone),
             history: if flow.history {
                 HistoryImport::Recent
@@ -576,11 +601,20 @@ impl Shell {
         )
     }
 
+    /// What the provider can do for the number being linked: once there
+    /// is one, what its own provider can; before, what any can.
+    fn link_caps(&self) -> client_provider::Capabilities {
+        match self.linking.as_ref().map(|flow| &flow.stage) {
+            Some(LinkStage::Waiting(status)) => self.engine.capabilities_of(&status.account.id),
+            _ => self.engine.capabilities(),
+        }
+    }
+
     /// "Link with phone number instead": asks for the number, over the
     /// wait. Nothing is asked of the provider yet, and the QR code goes on
     /// working underneath.
     pub(in crate::ui) fn ask_link_phone(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if !self.engine.capabilities().link_by_code {
+        if !self.link_caps().link_by_code {
             return;
         }
         let start = self.link_phone_start();
@@ -672,7 +706,7 @@ impl Shell {
     /// asked of the provider: the QR code is still there. Once a code was
     /// asked for, the provider has to take the number back to its QR code.
     pub(in crate::ui) fn use_qr_instead(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let back = self.engine.capabilities().link_back_to_scan;
+        let back = self.link_caps().link_back_to_scan;
         let Some(flow) = self.linking.as_mut() else {
             return;
         };
@@ -1128,8 +1162,9 @@ impl Shell {
     }
 
     fn render_link_form(&self, flow: &LinkFlow, palette: &Palette, cx: &mut Context<Self>) -> Div {
-        let caps = self.engine.capabilities();
+        let caps = self.link_caps();
         let view = cx.entity().downgrade();
+        let home = view.clone();
         let pick_method = move |by_code: bool, _: &mut Window, cx: &mut gpui_kit::App| {
             cx.stop_propagation();
             view.update(cx, |this, cx| {
@@ -1150,6 +1185,127 @@ impl Shell {
             false,
             palette,
         ));
+
+        // With Wuapi Cloud beside this computer's own numbers, a new one
+        // goes to either.
+        let both = self.cloud == CloudOffer::Connected;
+        if both {
+            let pick_home = |in_cloud: bool| {
+                let home = home.clone();
+                move |_: &gpui_kit::ClickEvent, _: &mut Window, cx: &mut gpui_kit::App| {
+                    cx.stop_propagation();
+                    home.update(cx, |this, cx| {
+                        if let Some(flow) = this.linking.as_mut() {
+                            flow.in_cloud = in_cloud;
+                            flow.error = None;
+                        }
+                        cx.notify();
+                    })
+                    .ok();
+                }
+            };
+            form = form.child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap_1()
+                    .child(label("Where to link it", palette))
+                    .child(
+                        div()
+                            .debug_selector(|| "link-home".into())
+                            .flex()
+                            .flex_col()
+                            .gap_2()
+                            .child(
+                                home_card(
+                                    "link-home-cloud",
+                                    IconName::Globe,
+                                    "Wuapi Cloud",
+                                    Some("Recommended"),
+                                    CLOUD_POINTS,
+                                    flow.in_cloud,
+                                    palette,
+                                )
+                                .on_click(pick_home(true)),
+                            )
+                            .child(
+                                home_card(
+                                    "link-home-here",
+                                    IconName::Monitor,
+                                    "This computer",
+                                    None,
+                                    LOCAL_POINTS,
+                                    !flow.in_cloud,
+                                    palette,
+                                )
+                                .on_click(pick_home(false)),
+                            ),
+                    ),
+            );
+        } else if self.cloud == CloudOffer::Offered {
+            // Not connected yet: the number links to this computer, and
+            // what the cloud adds is said where it is chosen, one click
+            // from connecting it.
+            let connect = home.clone();
+            form = form.child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap_1()
+                    .child(label("Where to link it", palette))
+                    .child(
+                        div()
+                            .debug_selector(|| "link-home".into())
+                            .flex()
+                            .flex_col()
+                            .gap_2()
+                            .child(
+                                home_card(
+                                    "link-home-cloud",
+                                    IconName::Globe,
+                                    "Wuapi Cloud",
+                                    Some("Recommended"),
+                                    CLOUD_POINTS,
+                                    false,
+                                    palette,
+                                )
+                                .child(
+                                    div().pt_1().flex().child(
+                                        text_button(
+                                            "link-home-connect",
+                                            "Connect Wuapi Cloud",
+                                            Some(IconName::ExternalLink),
+                                            true,
+                                            palette,
+                                        )
+                                        .on_click(
+                                            move |_, window, cx| {
+                                                cx.stop_propagation();
+                                                connect
+                                                    .update(cx, |this, cx| {
+                                                        this.leave_link(window, cx);
+                                                        cx.emit(
+                                                            super::shell::ShellEvent::ConnectCloud,
+                                                        );
+                                                    })
+                                                    .ok();
+                                            },
+                                        ),
+                                    ),
+                                ),
+                            )
+                            .child(home_card(
+                                "link-home-here",
+                                IconName::Monitor,
+                                "This computer",
+                                None,
+                                LOCAL_POINTS,
+                                true,
+                                palette,
+                            )),
+                    ),
+            );
+        }
 
         if caps.link_by_code {
             let (by_scan, by_code) = (pick_method.clone(), pick_method);
@@ -1201,6 +1357,7 @@ impl Shell {
 
         // Where it connects from.
         match &flow.places {
+            _ if both && !flow.in_cloud => {}
             None => {
                 form = form.child(
                     div()
@@ -1238,6 +1395,8 @@ impl Shell {
                                 if let Some(flow) = this.linking.as_mut() {
                                     flow.place = Some(pick.clone());
                                     flow.place_chosen = true;
+                                    // Chosen: the list is done with.
+                                    flow.place_open = false;
                                     flow.error = None;
                                 }
                                 cx.notify();
@@ -1253,25 +1412,46 @@ impl Shell {
                     Some(place) => linking::place_name(place).into(),
                     None => "Not chosen".into(),
                 };
-                form = form.child(
+                // The place is chosen for the user, from their number and
+                // where the computer is: the list is there to change it,
+                // and open by itself only when nothing could be chosen.
+                let open = flow.place_open || flow.place.is_none();
+                let mut block = div().flex().flex_col().gap_1().child(
                     div()
                         .flex()
-                        .flex_col()
-                        .gap_1()
+                        .items_center()
+                        .gap_3()
+                        .child(label("Connects from", palette))
+                        .child(div().flex_1())
                         .child(
                             div()
-                                .flex()
-                                .items_center()
-                                .justify_between()
-                                .child(label("Connects from", palette))
-                                .child(
-                                    div()
-                                        .debug_selector(|| "link-place-chosen".into())
-                                        .text_size(metrics::TEXT_SMALL())
-                                        .text_color(palette.text)
-                                        .child(chosen),
-                                ),
+                                .debug_selector(|| "link-place-chosen".into())
+                                .text_size(metrics::TEXT_SMALL())
+                                .text_color(palette.text)
+                                .child(chosen),
                         )
+                        .when(flow.place.is_some(), |this| {
+                            this.child(
+                                small_button(
+                                    "link-place-change",
+                                    "link-place-change".into(),
+                                    if open { "Done" } else { "Change" },
+                                    palette,
+                                )
+                                .on_click(cx.listener(
+                                    |this, _, _, cx| {
+                                        cx.stop_propagation();
+                                        if let Some(flow) = this.linking.as_mut() {
+                                            flow.place_open = !flow.place_open;
+                                        }
+                                        cx.notify();
+                                    },
+                                )),
+                            )
+                        }),
+                );
+                if open {
+                    block = block
                         .child(
                             div()
                                 .text_size(metrics::TEXT_SMALL())
@@ -1303,8 +1483,9 @@ impl Shell {
                                     .text_size(px(9.5))
                                     .text_color(palette.text_faint),
                             )
-                        }),
-                );
+                        });
+                }
+                form = form.child(block);
             }
         }
 
@@ -1432,7 +1613,7 @@ impl Shell {
         palette: &Palette,
         cx: &mut Context<Self>,
     ) -> Div {
-        let caps = self.engine.capabilities();
+        let caps = self.link_caps();
         let step = status.map_or(&STARTING, |status| &status.step);
         let steps = [
             ("Session", !matches!(step, LinkStep::Starting)),
@@ -2090,7 +2271,7 @@ impl Shell {
         palette: &Palette,
         cx: &mut Context<Self>,
     ) -> Div {
-        let caps = self.engine.capabilities();
+        let caps = self.engine.capabilities_of(&number.id);
         let mut extras = div().pl(px(20.)).pb_2().flex().flex_col().gap_1();
         let line = |text: SharedString| {
             div()
@@ -2266,6 +2447,127 @@ impl Shell {
 
 /// One of the two ways to link, on the form: what it is and what it asks
 /// of the phone, with the chosen one marked.
+/// What a number gets from being linked to Wuapi Cloud: only what is so.
+const CLOUD_POINTS: &[(&str, bool)] = &[
+    ("Always on: messages arrive with this computer off", true),
+    ("One number for the whole team, on every computer", true),
+    (
+        "Sticker favourites and status privacy, as on the phone",
+        true,
+    ),
+];
+
+/// What a number gets from being linked to this computer, and what it
+/// gives up.
+const LOCAL_POINTS: &[(&str, bool)] = &[
+    ("Calls, from this computer", true),
+    ("Nothing to sign up for", true),
+    ("Connected only while this application is open", false),
+];
+
+/// One of the places a number can be linked to, with what it means: its
+/// name, a tag when it is the one to prefer, and a list of points, each
+/// an advantage or a limit.
+fn home_card(
+    id: &'static str,
+    glyph: IconName,
+    title: &'static str,
+    tag: Option<&'static str>,
+    points: &'static [(&'static str, bool)],
+    chosen: bool,
+    palette: &Palette,
+) -> Stateful<Div> {
+    let (hover, ring) = (palette.hover, palette.text);
+    // The preferred one stands out before it is chosen.
+    let featured = tag.is_some();
+    div()
+        .id(id)
+        .debug_selector(move || id.into())
+        .w_full()
+        .p_3()
+        .rounded(metrics::RADIUS())
+        .border_1()
+        .border_color(if chosen || featured {
+            palette.accent
+        } else {
+            palette.border
+        })
+        .flex()
+        .flex_col()
+        .gap_2()
+        .cursor_pointer()
+        .tab_index(0)
+        .map(|this| {
+            if chosen {
+                this.bg(palette.muted)
+            } else {
+                this.hover(move |style| style.bg(hover))
+            }
+        })
+        .focus_visible(move |style| style.border_color(ring))
+        .child(
+            div()
+                .flex()
+                .items_center()
+                .gap_2()
+                .child(icon(glyph, px(16.), palette.icon))
+                .child(
+                    div()
+                        .text_size(metrics::TEXT_BODY())
+                        .font_weight(FontWeight::MEDIUM)
+                        .child(title),
+                )
+                .children(tag.map(|tag| {
+                    div()
+                        .debug_selector(move || format!("{id}-tag"))
+                        .px(px(6.))
+                        .py(px(1.))
+                        .rounded(px(4.))
+                        .bg(palette.accent_fill)
+                        .text_color(palette.on_accent_fill)
+                        .child(mono(tag.to_uppercase()))
+                }))
+                .child(div().flex_1())
+                .when(chosen, |this| {
+                    this.child(
+                        div()
+                            .debug_selector(move || format!("{id}-chosen"))
+                            .child(icon(IconName::CircleCheck, px(16.), palette.accent)),
+                    )
+                }),
+        )
+        .child(
+            div()
+                .flex()
+                .flex_col()
+                .gap(px(3.))
+                .children(points.iter().map(|(point, good)| {
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap_2()
+                        .child(if *good {
+                            icon(IconName::Check, px(13.), palette.accent)
+                        } else {
+                            icon(IconName::Info, px(13.), palette.text_faint)
+                        })
+                        .child(
+                            div()
+                                .flex_1()
+                                .min_w_0()
+                                .text_size(metrics::TEXT_SMALL())
+                                .line_height(px(18.))
+                                .text_color(if *good {
+                                    palette.text
+                                } else {
+                                    palette.text_muted
+                                })
+                                .child(*point),
+                        )
+                })),
+        )
+}
+
 fn method_card(
     id: &'static str,
     glyph: IconName,

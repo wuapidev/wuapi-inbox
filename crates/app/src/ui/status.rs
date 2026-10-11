@@ -518,7 +518,7 @@ impl Shell {
 
     /// What there is to say about contacts' updates right now.
     pub(super) fn status_updates(&self) -> Updates {
-        if !self.engine.capabilities().story_contacts {
+        if !self.caps_here().story_contacts {
             return Updates::NotOffered;
         }
         let Some(account) = &self.account else {

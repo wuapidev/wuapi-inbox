@@ -433,7 +433,7 @@ impl Shell {
             }
             return ran;
         }
-        let caps = self.engine.capabilities();
+        let caps = self.caps_here();
         match command {
             // ----- anywhere
             C::Palette => {

@@ -89,7 +89,7 @@ impl Shell {
         let Some(stored) = stored else {
             // Never read: say so instead of showing an empty group.
             return panel.child(div().px_4().py_4().child(hint(
-                if self.engine.capabilities().group_info {
+                if self.caps_here().group_info {
                     "Reading the group from WhatsApp…"
                 } else {
                     "This provider does not give a group's details."
@@ -162,7 +162,7 @@ impl Shell {
     /// Whether what only admins can do is offered: to an admin, and to a
     /// number whose role is not known (WhatsApp then decides).
     fn can_manage(&self, stored: &StoredGroup) -> bool {
-        self.engine.capabilities().group_manage
+        self.caps_here().group_manage
             && !stored.departed
             && stored.my_role.is_none_or(GroupRole::is_admin)
     }
@@ -173,7 +173,7 @@ impl Shell {
         palette: &Palette,
         cx: &mut Context<Self>,
     ) -> Div {
-        let caps = self.engine.capabilities();
+        let caps = self.caps_here();
         let details = &stored.group;
         let (account, group) = (&details.account_id, &details.id);
         let store = self.engine.store();
@@ -539,7 +539,7 @@ impl Shell {
         palette: &Palette,
         cx: &mut Context<Self>,
     ) -> Div {
-        let caps = self.engine.capabilities();
+        let caps = self.caps_here();
         let (account, group) = (&stored.group.account_id, &stored.group.id);
         let store = self.engine.store();
         let mut page = div().flex().flex_col();
@@ -849,7 +849,7 @@ impl Shell {
         palette: &Palette,
         cx: &mut Context<Self>,
     ) -> Div {
-        let caps = self.engine.capabilities();
+        let caps = self.caps_here();
         let details = &stored.group;
         let (account, group) = (&details.account_id, &details.id);
         let has_picture = self

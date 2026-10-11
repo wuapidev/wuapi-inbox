@@ -241,7 +241,7 @@ impl Shell {
         let asked = self.acting.reactors.as_ref()?;
         let message = self.stored(&asked.message)?.message.clone();
         let account = &message.account_id;
-        let can_react = self.engine.capabilities().reactions;
+        let can_react = self.caps_here().reactions;
         let heading = match asked.lines.len() {
             0 => "No reactions".to_owned(),
             1 => "1 reaction".to_owned(),

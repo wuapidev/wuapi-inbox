@@ -223,7 +223,7 @@ impl Shell {
                     .items_center()
                     .child(if self.status_active() {
                         self.render_new_status_button(palette, cx)
-                    } else if self.engine.capabilities().start_chat {
+                    } else if self.caps_here().start_chat {
                         super::hints::hinted(
                             icon_button("new-chat", IconName::SquarePen, palette),
                             "new-chat",
@@ -369,6 +369,8 @@ impl Shell {
             ("No archived chats", "Chats you archive are kept here.")
         } else if self.filter != ChatFilter::All {
             ("Nothing here", "No chats match this filter.")
+        } else if self.no_numbers() {
+            ("No numbers yet", "Link a WhatsApp number to see its chats.")
         } else if self.accounts.is_empty() {
             ("Getting things ready", "Your chats will appear here.")
         } else {

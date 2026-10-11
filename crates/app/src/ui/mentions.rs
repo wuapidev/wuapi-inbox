@@ -119,7 +119,7 @@ impl Shell {
 
     /// Whether a text sent from here can mention people.
     fn can_mention(&self) -> bool {
-        self.engine.capabilities().mentions
+        self.caps_here().mentions
             // A field of Status is not a group's conversation.
             && self.status_writing().is_none()
             && self

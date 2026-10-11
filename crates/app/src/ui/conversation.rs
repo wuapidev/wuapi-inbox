@@ -51,6 +51,9 @@ impl Shell {
                     Some(bar) => bar.into_any_element(),
                     None => self.render_composer(palette, window, cx).into_any_element(),
                 }),
+            // Without a number there is nothing to pick: the pane says
+            // how to link one.
+            None if self.no_numbers() => pane.child(self.render_onboarding(palette, window, cx)),
             None => pane.child(self.render_welcome(palette, window, cx)),
         }
     }
@@ -170,8 +173,23 @@ impl Shell {
                 div()
                     .flex()
                     .items_center()
-                    // No call buttons: calls are outside what this client
-                    // does, and a button that cannot work is noise.
+                    // A call button only where a call can be placed: a
+                    // person's chat, on a provider that carries calls. A
+                    // button that cannot work is noise.
+                    .when(self.can_call_open_chat(), |this| {
+                        this.child(
+                            icon_button("chat-call", IconName::Phone, palette).on_click(
+                                cx.listener(|this, _, _, cx| this.call_open_chat(false, cx)),
+                            ),
+                        )
+                    })
+                    .when(self.can_video_call_open_chat(), |this| {
+                        this.child(
+                            icon_button("chat-video-call", IconName::Video, palette).on_click(
+                                cx.listener(|this, _, _, cx| this.call_open_chat(true, cx)),
+                            ),
+                        )
+                    })
                     .child(
                         super::hints::hinted(
                             icon_button("chat-search", IconName::Search, palette),

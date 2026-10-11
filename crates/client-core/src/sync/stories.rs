@@ -1187,7 +1187,7 @@ impl SyncEngine {
     /// puts the old audience back, in words.
     pub fn set_story_privacy(&self, account: &AccountId, privacy: StoryPrivacy) {
         let inner = &self.inner;
-        if !inner.capabilities.story_privacy_edit {
+        if !self.capabilities_for(account).story_privacy_edit {
             return;
         }
         let before = inner

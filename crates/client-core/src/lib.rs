@@ -63,7 +63,7 @@ pub use sync::{
     HEARD_LIMIT, LIBRARY_BUDGET, MANUAL_MEDIA_LIMIT, RECENT_LIMIT,
 };
 pub use sync::{
-    PreparedMedia, ReceiptPass, StoryListing, StoryPass, StoryPostError, StoryReplyError,
+    LiveCall, PreparedMedia, ReceiptPass, StoryListing, StoryPass, StoryPostError, StoryReplyError,
     STORIES_FRESH, STORIES_OPENED,
 };
 

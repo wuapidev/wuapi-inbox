@@ -5,10 +5,10 @@
 
 use super::login::{LoginEvent, LoginScreen};
 use super::recovery::{RecoveryEvent, RecoveryScreen};
-use super::shell::{SessionKind, Shell, ShellEvent, ShellOptions};
+use super::shell::{CloudOffer, SessionKind, Shell, ShellEvent, ShellOptions};
 use super::welcome::{WelcomeEvent, WelcomeScreen};
 use crate::login::{IdentityLoader, LoginFlow};
-use crate::providers::Launch;
+use crate::providers::{Cloud, Launch};
 use crate::settings;
 use crate::storage::{Recovery, Storage};
 use client_core::SyncEngine;
@@ -54,9 +54,21 @@ pub struct AppView {
     _subscription: Subscription,
     /// Waits for the provider to refuse the session's credentials.
     _auth: Option<Task<()>>,
+    /// Set when wuapi is an addition to a session that runs without it
+    /// too (the numbers of this machine): signing in to it and out of it
+    /// then leaves the engine and the other numbers alone.
+    beside: bool,
+    /// Waits for wuapi to refuse its key, in such a session.
+    _cloud: Option<Task<()>>,
     /// Follows the desktop between light and dark, for the "System" theme.
     _appearance: Subscription,
 }
+
+/// What the sign-in says when the key stopped working in a session that
+/// goes on without it.
+pub(super) const CLOUD_SIGNED_OUT: &str =
+    "Wuapi Cloud signed this computer out: the API key is no longer valid. Sign in again \
+     to get its numbers back; the numbers linked to this computer go on working.";
 
 /// What the sign-in says when the key stopped working.
 pub(super) const SIGNED_OUT: &str =
@@ -72,6 +84,7 @@ struct Opening {
     login: Option<Arc<dyn LoginFlow>>,
     engine: Option<SyncEngine>,
     storage_note: Option<String>,
+    cloud: Option<Cloud>,
 }
 
 impl AppView {
@@ -93,8 +106,12 @@ impl AppView {
         });
         let opening = open(launch, open_chat, force_welcome, window, cx);
         let auth = watch_auth(opening.engine.as_ref(), window, cx);
+        let beside = opening.cloud.is_some();
+        let cloud = watch_cloud(opening.cloud, window, cx);
         Self {
             _auth: auth,
+            beside,
+            _cloud: cloud,
             screen: opening.screen,
             recovery: opening.recovery,
             after_welcome: opening.after_welcome,
@@ -110,6 +127,8 @@ impl AppView {
 
     fn show(&mut self, opening: Opening, window: &mut Window, cx: &mut Context<Self>) {
         self._auth = watch_auth(opening.engine.as_ref(), window, cx);
+        self.beside = opening.cloud.is_some();
+        self._cloud = watch_cloud(opening.cloud, window, cx);
         self.screen = opening.screen;
         self._subscription = opening.subscription;
         self.recovery = opening.recovery;
@@ -164,6 +183,10 @@ impl AppView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if self.beside {
+            // The session was running all along: wuapi joined it.
+            return self.show_chats(CloudOffer::Connected, identity, window, cx);
+        }
         self.storage_note = storage_note;
         let options = ShellOptions {
             open_chat: self.open_chat,
@@ -176,6 +199,7 @@ impl AppView {
             storage_note: self.storage_note.clone(),
             pick_files: None,
             out: None,
+            cloud: Default::default(),
         };
         let (screen, subscription) = chats(&engine, options, window, cx);
         self.screen = screen;
@@ -183,6 +207,77 @@ impl AppView {
         self._auth = watch_auth(Some(&engine), window, cx);
         self.engine = Some(engine);
         cx.notify();
+    }
+
+    /// The chats of a session that runs with or without wuapi, drawn
+    /// anew: wuapi was just signed in to, or out of.
+    fn show_chats(
+        &mut self,
+        cloud: CloudOffer,
+        identity: Option<IdentityLoader>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(engine) = self.engine.clone() else {
+            return;
+        };
+        let options = ShellOptions {
+            open_chat: None,
+            session: local_session(),
+            identity,
+            storage_note: self.storage_note.clone(),
+            pick_files: None,
+            out: None,
+            cloud,
+        };
+        let (screen, subscription) = chats(&engine, options, window, cx);
+        self.screen = screen;
+        self._subscription = subscription;
+        cx.notify();
+    }
+
+    /// "Connect Wuapi Cloud": the sign-in, over a session that goes on
+    /// underneath.
+    fn connect_cloud(
+        &mut self,
+        notice: Option<String>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let (true, Some(flow)) = (self.beside, self.login.clone()) else {
+            return;
+        };
+        let (screen, subscription) = login(&flow, None, notice, window, cx);
+        self.screen = screen;
+        self._subscription = subscription;
+        cx.notify();
+    }
+
+    /// "Not now", on that sign-in: back to the chats as they were.
+    fn back_to_chats(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.beside && matches!(self.screen, Screen::Login(_)) {
+            self.show_chats(CloudOffer::Offered, None, window, cx);
+        }
+    }
+
+    /// Signs out of wuapi in a session that goes on without it: its key
+    /// and its numbers go, the numbers of this machine stay. `notice` is
+    /// said on the sign-in, which shows when it was wuapi that ended it.
+    fn leave_cloud(&mut self, notice: Option<String>, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(flow) = self.login.clone() else {
+            return;
+        };
+        match notice {
+            Some(notice) => self.connect_cloud(Some(notice), window, cx),
+            None => self.show_chats(CloudOffer::Offered, None, window, cx),
+        }
+        let done = flow.sign_out();
+        cx.spawn(async move |_, _| {
+            if let Err(error) = done.await {
+                tracing::warn!(%error, "signing out of wuapi left something behind");
+            }
+        })
+        .detach();
     }
 
     /// The provider no longer accepts the key (revoked, or deleted): the
@@ -214,6 +309,9 @@ impl AppView {
     /// Signs out: stops the session, shows the sign-in, and deletes the
     /// API key and the chats kept on this computer. Settings stay.
     fn sign_out(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.beside {
+            return self.leave_cloud(None, window, cx);
+        }
         let Some(flow) = self.login.clone() else {
             return;
         };
@@ -271,6 +369,43 @@ fn watch_auth(
     }))
 }
 
+/// Follows wuapi's word on its key, in a session that goes on without it.
+fn watch_cloud(
+    cloud: Option<Cloud>,
+    window: &mut Window,
+    cx: &mut Context<AppView>,
+) -> Option<Task<()>> {
+    let mut refusals = cloud?.refusals;
+    Some(cx.spawn_in(window, async move |this, cx| loop {
+        if refusals.borrow_and_update().is_some() {
+            let told = this.update_in(cx, |this, window, cx| {
+                // A call that is on keeps its card: the sign-in does not
+                // take the window from it, and Settings offers it after.
+                let on_a_call = this
+                    .engine
+                    .as_ref()
+                    .is_some_and(|engine| !engine.calls().is_empty());
+                let notice = (!on_a_call).then(|| CLOUD_SIGNED_OUT.to_owned());
+                this.leave_cloud(notice, window, cx)
+            });
+            if told.is_err() {
+                return;
+            }
+        }
+        if refusals.changed().await.is_err() {
+            return;
+        }
+    }))
+}
+
+/// The kind of a session that runs on the numbers of this machine.
+fn local_session() -> SessionKind {
+    #[cfg(feature = "provider-native")]
+    return SessionKind::Local;
+    #[cfg(not(feature = "provider-native"))]
+    return SessionKind::Demo;
+}
+
 /// What a launch shows first: the recovery screen for a database that
 /// cannot be opened, the welcome on a first run, or where it was going.
 fn open(
@@ -298,6 +433,7 @@ fn open(
                 login: None,
                 engine: None,
                 storage_note: None,
+                cloud: None,
             };
         }
         launch => launch,
@@ -322,6 +458,7 @@ fn open(
             login: None,
             engine: None,
             storage_note: None,
+            cloud: None,
         };
     }
     enter(launch, open_chat, window, cx)
@@ -341,6 +478,7 @@ fn enter(
             login,
             identity,
             storage_note,
+            cloud,
         } => {
             let options = ShellOptions {
                 open_chat,
@@ -349,6 +487,9 @@ fn enter(
                 storage_note: storage_note.clone(),
                 pick_files: None,
                 out: None,
+                cloud: cloud
+                    .as_ref()
+                    .map_or(CloudOffer::Unavailable, |cloud| cloud.offer),
             };
             let (screen, subscription) = chats(&engine, options, window, cx);
             Opening {
@@ -359,6 +500,7 @@ fn enter(
                 login,
                 engine: Some(engine),
                 storage_note,
+                cloud,
             }
         }
         Launch::Login {
@@ -375,6 +517,7 @@ fn enter(
                 login: Some(flow),
                 engine: None,
                 storage_note,
+                cloud: None,
             }
         }
         // `open` has dealt with it; a launch never asks twice.
@@ -395,6 +538,7 @@ fn chats(
         window,
         |this, _, event: &ShellEvent, window, cx| match event {
             ShellEvent::SignOut => this.sign_out(window, cx),
+            ShellEvent::ConnectCloud => this.connect_cloud(None, window, cx),
         },
     );
     (Screen::Chats(shell), subscription)
@@ -432,12 +576,34 @@ fn login(
 }
 
 impl Render for AppView {
-    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let root = div().size_full();
         match &self.screen {
             Screen::Recovery(screen) => root.child(screen.clone()),
             Screen::Welcome(screen) => root.child(screen.clone()),
-            Screen::Login(screen) => root.child(screen.clone()),
+            // Over a session that goes on underneath, there is a way back.
+            Screen::Login(screen) => {
+                root.child(screen.clone())
+                    .when(self.beside && self.engine.is_some(), |root| {
+                        let palette = crate::theme::palette(cx);
+                        root.relative().child(
+                            div().absolute().top_4().left_4().child(
+                                super::widgets::text_button(
+                                    "login-back",
+                                    "Not now",
+                                    None,
+                                    false,
+                                    &palette,
+                                )
+                                .on_click(cx.listener(
+                                    |this, _, window, cx| {
+                                        this.back_to_chats(window, cx);
+                                    },
+                                )),
+                            ),
+                        )
+                    })
+            }
             Screen::Chats(shell) => root.child(shell.clone()),
         }
     }

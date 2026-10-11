@@ -10,7 +10,7 @@
 
 use super::connection::connection_words;
 use super::rail_menu::RailAction;
-use super::shell::{ChatFilter, Overlay, SettingsSection, Shell};
+use super::shell::{ChatFilter, CloudOffer, Home, Overlay, SettingsSection, Shell};
 use crate::emoji::data::Lang;
 use crate::emoji::locale::LanguageChoice;
 use crate::emoji::prefs;
@@ -232,6 +232,22 @@ impl Shell {
         }
     }
 
+    /// What the provider supports for the number on screen, whether or
+    /// not all of it works right now. With several providers side by side
+    /// each number has its own.
+    pub(super) fn caps_here(&self) -> client_provider::Capabilities {
+        match &self.account {
+            Some(account) => self.engine.capabilities_of(account),
+            None => self.engine.capabilities(),
+        }
+    }
+
+    /// Where `account` is connected from. `None` where there is only one
+    /// place a number can be, and so nothing to tell apart.
+    pub(super) fn home_of(&self, account: &AccountId) -> Option<Home> {
+        (self.cloud != CloudOffer::Unavailable).then(|| Home::of(self.engine.owner_of(account)))
+    }
+
     /// Whether `command` can be run from the palette right now.
     pub(super) fn palette_avail(&self, command: Command, cx: &gpui_kit::App) -> Avail {
         use Avail::{Disabled, Enabled, Hidden};
@@ -239,7 +255,7 @@ impl Shell {
         let Some(binding) = keys::binding(command) else {
             return Hidden;
         };
-        let caps = self.engine.capabilities();
+        let caps = self.caps_here();
         match binding.when {
             When::Viewer | When::List | When::Rail | When::Recording | When::Attach => {
                 return Hidden

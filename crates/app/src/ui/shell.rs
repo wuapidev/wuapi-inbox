@@ -185,6 +185,52 @@ pub enum SessionKind {
     Unsaved,
     /// The key came from the environment; the application cannot forget it.
     Environment,
+    /// No account anywhere: the numbers are linked to this computer
+    /// itself, and each is unlinked on its own.
+    #[cfg(feature = "provider-native")]
+    Local,
+}
+
+/// Where a number is connected from, when the cloud runs beside the
+/// numbers of this computer.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Home {
+    /// Linked to this computer: connected while the application is open.
+    Local,
+    /// Hosted by Wuapi Cloud.
+    Cloud,
+}
+
+impl Home {
+    /// The home of a number served by the provider called `owner`.
+    pub fn of(owner: &str) -> Self {
+        if owner == crate::providers::WUAPI_ID {
+            Self::Cloud
+        } else {
+            Self::Local
+        }
+    }
+
+    /// Its name on the screen.
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Local => "This computer",
+            Self::Cloud => "Wuapi Cloud",
+        }
+    }
+}
+
+/// Whether the cloud can be connected beside the numbers of this
+/// computer, which is what the screen without a number offers.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum CloudOffer {
+    /// There is no cloud to connect here.
+    #[default]
+    Unavailable,
+    /// It can be connected, and is not yet.
+    Offered,
+    /// It is connected.
+    Connected,
 }
 
 /// How the window starts.
@@ -206,6 +252,8 @@ pub struct ShellOptions {
     /// save dialogs, the Downloads folder): the system's, unless a test
     /// brings its own.
     pub out: Option<super::media_out::MediaOut>,
+    /// Whether the cloud is offered on the screen without a number.
+    pub cloud: CloudOffer,
 }
 
 /// What a file dialog is opened for.
@@ -375,6 +423,9 @@ pub(super) struct ThreadSearch {
 pub enum ShellEvent {
     /// The user chose "Sign out".
     SignOut,
+    /// The user chose "Connect Wuapi Cloud" on the screen without a
+    /// number.
+    ConnectCloud,
 }
 
 impl EventEmitter<ShellEvent> for Shell {}
@@ -585,6 +636,12 @@ pub struct Shell {
     pub(super) audio: AudioDeck,
     pub(super) session: SessionKind,
     pub(super) storage_note: Option<SharedString>,
+    /// Whether the screen without a number offers the cloud.
+    /// The camera chosen for calls with video; `None` is the first one.
+    pub(super) call_camera: Option<String>,
+    /// The pictures and the clock of the calls on screen.
+    pub(super) call_deck: super::calls::CallDeck,
+    pub(super) cloud: CloudOffer,
     /// The window's own focus: where the keyboard is when no field or
     /// overlay has it, so the shortcuts always have somewhere to land.
     pub(super) focus: FocusHandle,
@@ -678,6 +735,12 @@ pub struct Shell {
     _subscriptions: Vec<Subscription>,
     _changes: Task<()>,
 }
+
+/// A round of the store's changes that took longer than this to show is
+/// followed by a rest: see where the changes are followed.
+const CHANGES_HEAVY: std::time::Duration = std::time::Duration::from_millis(24);
+/// The longest such rest.
+const CHANGES_REST_MOST: std::time::Duration = std::time::Duration::from_millis(600);
 
 impl Shell {
     /// Builds the view and starts following the store's changes.
@@ -861,9 +924,20 @@ impl Shell {
                 while let Some(more) = listener.try_next() {
                     batch.push(more);
                 }
+                let began = std::time::Instant::now();
                 let alive = this.update(cx, |this, cx| this.apply_changes(batch, cx));
                 if alive.is_err() {
                     break;
+                }
+                // While a number catches up the changes never stop, and
+                // reading a long list again takes a while: the window is
+                // given twice that long to itself before the next round,
+                // which then takes in everything that changed meanwhile.
+                // (Not under test, where time stands still until it is moved.)
+                let took = began.elapsed();
+                if !cfg!(test) && took > CHANGES_HEAVY {
+                    let rest = (took * 2).min(CHANGES_REST_MOST);
+                    cx.background_executor().timer(rest).await;
                 }
             }
         });
@@ -917,6 +991,9 @@ impl Shell {
             composer,
             session: options.session,
             storage_note: options.storage_note.map(SharedString::from),
+            call_camera: None,
+            call_deck: Default::default(),
+            cloud: options.cloud,
             focus: cx.focus_handle(),
             overlay: Overlay::None,
             menu_target: None,
@@ -1013,8 +1090,10 @@ impl Shell {
                         .as_ref()
                         .is_some_and(|open| open.chat.id == chat_id);
                 }
-                // Presence is read from the engine while rendering.
+                // Presence is read from the engine while rendering, and so
+                // are the calls that ring or are on.
                 StoreChange::Presence { .. } => {}
+                StoreChange::Calls { .. } => self.watch_calls(cx),
                 // Pictures and media are looked up again by whoever draws
                 // them; the repaint below is all it takes.
                 StoreChange::Avatar {
@@ -1108,18 +1187,35 @@ impl Shell {
 
     pub(super) fn reload_chats(&mut self, cx: &mut Context<Self>) {
         self.unread.clear();
-        self.has_communities = self
-            .account
-            .as_ref()
-            .and_then(|account| self.store.chats(account, None).ok())
-            .is_some_and(|chats| chats.iter().any(|chat| chat.community.is_some()));
-        // The last chat left its community while its view was on.
-        if self.filter == ChatFilter::Communities && !self.has_communities {
-            self.filter = ChatFilter::All;
+        // Whether the number on screen has communities is read off its
+        // list when that is the whole list, as it mostly is: every chat is
+        // read once, not twice.
+        let whole = self.query.is_empty() && self.filter != ChatFilter::Archived;
+        if !whole {
+            self.has_communities = self
+                .account
+                .as_ref()
+                .and_then(|account| self.store.chats(account, None).ok())
+                .is_some_and(|chats| chats.iter().any(|chat| chat.community.is_some()));
+        }
+        if self.account.is_none() {
+            self.has_communities = false;
         }
         let mut rows = Vec::new();
         for account in &self.accounts {
             let is_current = Some(&account.id) == self.account.as_ref();
+            if !is_current {
+                // Of the other numbers only the rail's count is shown:
+                // their chats are not read to count them.
+                match self.store.unread_total(&account.id) {
+                    Ok(0) => {}
+                    Ok(total) => {
+                        self.unread.insert(account.id.clone(), total);
+                    }
+                    Err(error) => tracing::error!(%error, "could not count unread messages"),
+                }
+                continue;
+            }
             let filter = Some(self.query.as_str()).filter(|query| is_current && !query.is_empty());
             let listed = if is_current && self.filter == ChatFilter::Archived {
                 self.store.archived_chats(&account.id).map(|mut chats| {
@@ -1154,8 +1250,12 @@ impl Shell {
             if total > 0 {
                 self.unread.insert(account.id.clone(), total);
             }
-            if !is_current {
-                continue;
+            if whole {
+                self.has_communities = chats.iter().any(|chat| chat.community.is_some());
+            }
+            // The last chat left its community while its view was on.
+            if self.filter == ChatFilter::Communities && !self.has_communities {
+                self.filter = ChatFilter::All;
             }
             if self.filter == ChatFilter::Communities {
                 rows.extend(community_rows(chats));
@@ -1228,6 +1328,16 @@ impl Shell {
             if let Some(chat_id) = target {
                 self.pending_open = None;
                 self.open_chat(chat_id, None, cx);
+                // Development aid, with `--provider mock --open-chat`:
+                // WUAPI_DEMO_CALL=voice or =video calls that chat at
+                // once, to look at a call. Never on a real number.
+                if self.engine.provider_id() == "mock" {
+                    match std::env::var("WUAPI_DEMO_CALL").as_deref() {
+                        Ok("incoming") => self.demo_incoming_call(),
+                        Ok(kind) => self.call_open_chat(kind == "video", cx),
+                        Err(_) => {}
+                    }
+                }
             }
         }
     }
@@ -1968,6 +2078,10 @@ impl Shell {
         if self.mid_question() {
             return;
         }
+        // Without a number, Enter links the first one.
+        if self.onboarding_key(event, window, cx) {
+            return cx.stop_propagation();
+        }
         // Every other key is looked up in the registry (`crate::keys`),
         // for what is true of the window right now.
         let Some(command) = crate::keys::resolve(stroke, self.key_context(window, cx)) else {
@@ -2029,7 +2143,7 @@ impl Shell {
 
     pub(super) fn menu_items_now(&self) -> Vec<MenuItem> {
         use crate::icons::IconName as I;
-        let caps = self.engine.capabilities();
+        let caps = self.caps_here();
         // The keys printed beside an entry are its command's. The entries
         // of a chat row's menu act on that row, not on the open chat, so
         // they are given none.
@@ -2982,6 +3096,7 @@ impl Render for Shell {
         // Frames of animations that were let go leave the window too.
         self.media.release(window);
         self.picker.release(window);
+        self.call_deck.release(window);
         self.viewer.release(window);
         self.engine.set_read_receipts(chosen.read_receipts);
         self.engine.set_story_receipts(chosen.story_receipts);
@@ -3044,9 +3159,11 @@ impl Render for Shell {
                 },
             ))
             .on_mouse_move(
-                cx.listener(|this, event: &gpui_kit::MouseMoveEvent, _, cx| {
+                cx.listener(|this, event: &gpui_kit::MouseMoveEvent, window, cx| {
                     this.drag_list_edge(event.position.x, cx);
                     this.rail_pointer(event.position, cx);
+                    let pressed = event.pressed_button == Some(gpui_kit::MouseButton::Left);
+                    this.drag_call_card(event.position, pressed, window, cx);
                 }),
             )
             .on_mouse_up(
@@ -3054,6 +3171,7 @@ impl Render for Shell {
                 cx.listener(|this, _, _, cx| {
                     this.drop_list_edge(cx);
                     this.rail_release(cx);
+                    this.drop_call_card();
                 }),
             )
             .relative()
@@ -3085,6 +3203,8 @@ impl Render for Shell {
                 &palette,
             ))
             .children(self.render_overlay(&palette, window, cx))
+            // A call that rings or is on, whatever else is open.
+            .children(self.render_calls(&palette, cx))
             // What is being dragged along the rail, above everything.
             .children(self.render_rail_floating(&palette, cx))
     }

@@ -190,9 +190,7 @@ impl Shell {
         palette: &Palette,
         cx: &mut Context<Self>,
     ) -> Option<Stateful<Div>> {
-        let text = words
-            .action
-            .filter(|_| self.engine.capabilities().manage_accounts)?;
+        let text = words.action.filter(|_| self.caps_here().manage_accounts)?;
         let account = account.id.clone();
         Some(
             action_button(id, text, palette).on_click(cx.listener(move |this, _, window, cx| {

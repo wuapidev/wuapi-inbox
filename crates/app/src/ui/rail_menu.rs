@@ -148,7 +148,7 @@ impl Shell {
         let Some(menu) = &self.rail_menu else {
             return Vec::new();
         };
-        let caps = self.engine.capabilities();
+        let caps = self.caps_here();
         let mut entries = Vec::new();
         match &menu.target {
             RailTarget::Account(id) => {
@@ -465,7 +465,7 @@ impl Shell {
             RailTarget::Account(account) => Dragged::Account(self.rail_key(account)),
             RailTarget::Group(id) => Dragged::Group(*id),
         };
-        let caps = self.engine.capabilities();
+        let caps = self.caps_here();
         match (action, target.clone()) {
             (RailAction::Rename, RailTarget::Account(account)) => {
                 self.rail_menu = None;

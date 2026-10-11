@@ -336,6 +336,11 @@ impl Provider for WuapiProvider {
             // /v1/messages/{id}`, `GET …/privacy/stories`.
             story_list: true,
             story_post: true,
+            // TODO(wuapi-api): calls are reported (`call.*` events) and
+            // cannot be placed or answered through the API, which carries
+            // no sound.
+            calls: false,
+            video_calls: false,
             story_delete: true,
             story_privacy: true,
             // `GET …/stories`, for a number that has stories turned on in

@@ -1,0 +1,30 @@
+[package]
+name = "provider-native"
+description = "Provider adapter that speaks the WhatsApp Web protocol from this machine, through whatsapp-rust: no API in between"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+client-provider.workspace = true
+async-trait.workspace = true
+base64.workspace = true
+cpal.workspace = true
+diesel.workspace = true
+futures.workspace = true
+image.workspace = true
+qrcode.workspace = true
+reqwest.workspace = true
+rusqlite.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+whatsapp-rust.workspace = true
+
+[dev-dependencies]
+client-core.workspace = true
+tokio = { workspace = true, features = ["test-util"] }

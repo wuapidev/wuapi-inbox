@@ -441,6 +441,22 @@ fn the_devices_are_chosen_in_the_settings_and_the_microphone_can_be_tested(
     let saved = std::fs::read_to_string(dir.path().join("audio.json")).unwrap();
     assert!(saved.contains("USB microphone") && saved.contains("Headphones"));
 
+    // Calls are told the same devices, and the camera of the ones with
+    // video is chosen here too.
+    let told = harness.mock.call_devices();
+    assert_eq!(told.microphone.as_deref(), Some("USB microphone"));
+    assert_eq!(told.speaker.as_deref(), Some("Headphones"));
+    assert_eq!(told.camera, None, "the first camera, until one is chosen");
+    assert!(within(bounds(harness.window, "audio-camera", cx), panel));
+    click(harness.window, "audio-camera-next", cx);
+    click(harness.window, "audio-camera-next", cx);
+    assert_eq!(
+        harness.mock.call_devices().camera.as_deref(),
+        Some("mock-camera-1")
+    );
+    let saved = std::fs::read_to_string(dir.path().join("audio.json")).unwrap();
+    assert!(saved.contains("mock-camera-1"));
+
     // The test opens the chosen microphone and shows what it hears; it
     // says so while it is open, and nothing is kept.
     assert_eq!(mic.borrow().opened.len(), 0);

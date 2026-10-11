@@ -66,7 +66,7 @@ impl TileContext {
 impl Shell {
     /// What the tiles of this frame are drawn with.
     pub(super) fn tile_context(&self) -> TileContext {
-        let capabilities = self.engine.capabilities();
+        let capabilities = self.caps_here();
         TileContext {
             state: self.tiles.clone(),
             can_vote: capabilities.poll_votes,
@@ -151,7 +151,7 @@ impl Shell {
             }
             return cx.notify();
         }
-        if !self.engine.capabilities().start_chat {
+        if !self.caps_here().start_chat {
             return self.say("This provider cannot start a chat with a new number.");
         }
         let engine = self.engine.clone();

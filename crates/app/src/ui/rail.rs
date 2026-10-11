@@ -6,7 +6,7 @@
 
 use super::connection::connection_words;
 use super::rail_menu::RailTarget;
-use super::shell::{Overlay, Shell};
+use super::shell::{Home, Overlay, Shell};
 use super::widgets::{icon_button, logo, mono, status_colour};
 use crate::format::initials;
 use crate::icons::{icon, IconName};
@@ -687,10 +687,29 @@ impl Shell {
     pub(super) fn rail_hint(&self, account: &Account) -> SharedString {
         let name = self.account_name(account);
         let state = connection_words(account).label;
+        let home = self
+            .home_of(&account.id)
+            .map(|home| format!(" · {}", home.label()))
+            .unwrap_or_default();
         match &account.phone {
-            Some(phone) if *phone != name => format!("{name} · {phone} · {state}").into(),
-            _ => format!("{name} · {state}").into(),
+            Some(phone) if *phone != name => format!("{name} · {phone} · {state}{home}").into(),
+            _ => format!("{name} · {state}{home}").into(),
         }
+    }
+
+    /// The mark of a number hosted by the cloud, on the bottom-left
+    /// corner of its cell, opposite its light. A number of this computer
+    /// has none.
+    fn rail_home(selector: String, palette: &Palette) -> Div {
+        div()
+            .debug_selector(move || selector.clone())
+            .absolute()
+            .bottom(px(-2.))
+            .left(px(-2.))
+            .p(KNOCKOUT())
+            .rounded_full()
+            .bg(palette.background)
+            .child(icon(IconName::Globe, px(10.), palette.text_muted))
     }
 
     /// What an item of the rail is drawn from, bottom to top: the ring
@@ -937,7 +956,9 @@ impl Shell {
                 palette,
             )),
         );
+        let cloud = self.home_of(&account.id) == Some(Home::Cloud);
         cell.children(layers.into_iter().map(|(_, layer)| layer))
+            .children(cloud.then(|| Self::rail_home(format!("rail-home-{index}"), palette)))
             .child(self.rail_probe(row, RING))
             .into_any_element()
     }

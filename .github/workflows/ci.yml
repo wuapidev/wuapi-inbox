@@ -105,9 +105,13 @@ jobs:
         run: |
           cargo clippy --workspace --all-targets --locked -- -D warnings
           # The development features of the app, which a default build leaves out.
-          cargo clippy -p wuapi-inbox --all-targets --features capture,provider-example --locked -- -D warnings
+          cargo clippy -p wuapi-inbox --all-targets --features capture,provider-example,provider-native --locked -- -D warnings
 
       # The window tests run without a display: the toolkit's test
       # platform draws nothing, on every system.
       - name: Test
-        run: cargo test --workspace --locked --no-fail-fast
+        run: |
+          cargo test --workspace --locked --no-fail-fast
+          # The application again with this machine's own provider in it,
+          # which is what runs it beside wuapi.
+          cargo test -p wuapi-inbox --locked --no-fail-fast --features provider-native

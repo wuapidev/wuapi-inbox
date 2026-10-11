@@ -228,6 +228,12 @@ pub enum StoreChange {
         /// The account.
         account_id: AccountId,
     },
+    /// A call started ringing, was answered or ended. Never stored: ask
+    /// the engine which calls are on.
+    Calls {
+        /// The account.
+        account_id: AccountId,
+    },
     /// Something the user asked for did not happen, in words for them: a
     /// pin the provider refused, say. Shown once; nothing to re-query.
     Problem {
@@ -856,6 +862,17 @@ impl Store {
 
     /// Stores the accounts a provider returned, in the order given.
     pub fn upsert_accounts(&self, provider: &str, accounts: &[Account]) -> StoreResult<()> {
+        self.upsert_accounts_by(accounts, |_| provider)
+    }
+
+    /// Stores the accounts a provider returned, in the order given, each
+    /// under the provider `owner` says it belongs to: a provider made of
+    /// several names the one that serves each number.
+    pub fn upsert_accounts_by<'a>(
+        &self,
+        accounts: &[Account],
+        owner: impl Fn(&AccountId) -> &'a str,
+    ) -> StoreResult<()> {
         self.write(|tx| {
             for (position, account) in accounts.iter().enumerate() {
                 tx.execute(
@@ -873,7 +890,7 @@ impl Store {
                         settings = excluded.settings",
                     params![
                         account.id.as_str(),
-                        provider,
+                        owner(&account.id),
                         account.display_name,
                         account.phone,
                         account.self_contact.as_ref().map(ContactId::as_str),
@@ -979,6 +996,18 @@ impl Store {
             self.notify(StoreChange::Accounts);
         }
         Ok(())
+    }
+
+    /// The accounts stored under `provider`, in the provider's order.
+    pub fn accounts_of(&self, provider: &str) -> StoreResult<Vec<Account>> {
+        let owned: Vec<String> = self.read(|conn| {
+            let mut stmt = conn.prepare_cached("SELECT id FROM accounts WHERE provider = ?1")?;
+            let rows = stmt.query_map([provider], |row| row.get::<_, String>(0))?;
+            Ok(rows.collect::<Result<_, _>>()?)
+        })?;
+        let mut accounts = self.accounts()?;
+        accounts.retain(|account| owned.iter().any(|id| id == account.id.as_str()));
+        Ok(accounts)
     }
 
     /// Every account, in the provider's order.
@@ -1160,6 +1189,21 @@ impl Store {
                 chats.push(chat_summary_from_row(conn, row)?);
             }
             Ok(chats)
+        })
+    }
+
+    /// How many messages are unread in an account's chats outside the
+    /// archive: the same sum as over [`chats`](Self::chats), without
+    /// reading them.
+    pub fn unread_total(&self, account: &AccountId) -> StoreResult<u32> {
+        self.read(|conn| {
+            let total: i64 = conn.query_row(
+                "SELECT COALESCE(SUM(unread_count), 0) FROM chats
+                 WHERE account_id = ?1 AND archived = 0",
+                params![account.as_str()],
+                |row| row.get(0),
+            )?;
+            Ok(u32::try_from(total.max(0)).unwrap_or(u32::MAX))
         })
     }
 

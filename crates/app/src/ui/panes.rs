@@ -420,7 +420,7 @@ impl Shell {
                     self.engine.mark_read(&chat.account_id, &chat.id);
                     return Some(true);
                 }
-                if !self.engine.capabilities().chat_state {
+                if !self.caps_here().chat_state {
                     return Some(false);
                 }
                 let change = match command {

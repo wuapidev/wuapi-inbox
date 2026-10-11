@@ -35,6 +35,8 @@ use tokio::task::JoinHandle;
 
 mod actions;
 pub use actions::{ForwardError, ForwardRefusal};
+mod calls;
+pub use calls::LiveCall;
 mod library;
 mod library_index;
 pub use library::{LibraryError, LibrarySend, LIBRARY_BUDGET, RECENT_LIMIT};
@@ -48,6 +50,10 @@ pub use stories::{
     ReceiptPass, StoryListing, StoryPass, StoryPostError, StoryReplyError, STORIES_FRESH,
     STORIES_OPENED,
 };
+
+/// How long after a refresh that left some providers' numbers behind the
+/// next one is asked for.
+const PARTIAL_REFRESH_RETRY: Duration = Duration::from_secs(30);
 
 /// How far back a refresh looks for messages of the account's own whose
 /// ticks may still move.
@@ -162,6 +168,8 @@ struct Inner {
     /// together keep the order they were queued in.
     last_queued: std::sync::atomic::AtomicI64,
     presence: Mutex<HashMap<(AccountId, ChatId), PresenceEntry>>,
+    /// The calls that ring or are on.
+    calls: calls::Calls,
     /// Chats whose history is being fetched right now, to avoid doing it
     /// twice when the user scrolls impatiently.
     fetching: Mutex<HashSet<(AccountId, ChatId)>>,
@@ -262,6 +270,7 @@ impl SyncEngine {
                 outbox_wake: Notify::new(),
                 last_queued: std::sync::atomic::AtomicI64::new(0),
                 presence: Mutex::new(HashMap::new()),
+                calls: calls::Calls::default(),
                 fetching: Mutex::new(HashSet::new()),
                 chat_changes: Mutex::new(HashMap::new()),
                 pending_state: Mutex::new(HashMap::new()),
@@ -374,6 +383,20 @@ impl SyncEngine {
         self.inner.capabilities
     }
 
+    /// What the provider supports for `account`, whether or not all of it
+    /// works right now: the same as [`capabilities`](Self::capabilities)
+    /// unless the provider is made of several, each with its own.
+    pub fn capabilities_of(&self, account: &AccountId) -> Capabilities {
+        self.inner.provider.capabilities_for(account)
+    }
+
+    /// The [`Provider::id`](client_provider::Provider::id) of the provider
+    /// that serves `account`: with several side by side, which one a
+    /// number is with.
+    pub fn owner_of(&self, account: &AccountId) -> &'static str {
+        self.inner.provider.owner_of(account)
+    }
+
     /// Whether a part the capabilities promise is missing for now for
     /// this account: the provider's backend does not have it yet, or has
     /// not turned it on for the number. The place that offers it then says
@@ -388,7 +411,7 @@ impl SyncEngine {
     /// of one number asks, so that it offers nothing that would answer
     /// "not available yet".
     pub fn capabilities_for(&self, account: &AccountId) -> Capabilities {
-        let mut capabilities = self.inner.capabilities;
+        let mut capabilities = self.inner.provider.capabilities_for(account);
         let missing = |feature| self.feature_unavailable(account, feature);
         if missing(Feature::ForwardAny) {
             capabilities.forward_any = false;
@@ -1172,7 +1195,7 @@ impl SyncEngine {
         let updated = self.noted(updated)?;
         self.inner
             .store
-            .upsert_account(self.inner.provider.id(), &updated)?;
+            .upsert_account(self.inner.provider.owner_of(&updated.id), &updated)?;
         Ok(updated)
     }
 
@@ -1185,7 +1208,7 @@ impl SyncEngine {
         let updated = self.noted(updated)?;
         self.inner
             .store
-            .upsert_account(self.inner.provider.id(), &updated)?;
+            .upsert_account(self.inner.provider.owner_of(&updated.id), &updated)?;
         Ok(updated)
     }
 
@@ -1217,9 +1240,10 @@ impl SyncEngine {
             .accounts()?
             .iter()
             .any(|known| known.id == status.account.id && known.connection.is_connected());
-        self.inner
-            .store
-            .upsert_account(self.inner.provider.id(), &status.account)?;
+        self.inner.store.upsert_account(
+            self.inner.provider.owner_of(&status.account.id),
+            &status.account,
+        )?;
         if status.step == LinkStep::Linked && !was_connected {
             let imports = status.account.settings.history_import == Some(HistoryImport::Recent);
             let (this, account) = (self.clone(), status.account.id.clone());
@@ -1343,9 +1367,42 @@ impl SyncEngine {
         }
         inner
             .store
-            .upsert_accounts(inner.provider.id(), &accounts)?;
+            .upsert_accounts_by(&accounts, |account| inner.provider.owner_of(account))?;
 
+        // Each number by itself: with several providers behind this one,
+        // the numbers of one that cannot be reached do not keep the
+        // others from being refreshed, nor their events from being
+        // followed.
+        let mut failed: Vec<&'static str> = Vec::new();
+        let mut first_error = None;
         for account in &accounts {
+            if let Err(error) = self.refresh_chats_of(account).await {
+                failed.push(inner.provider.owner_of(&account.id));
+                first_error.get_or_insert(error);
+            }
+        }
+        if let Some(error) = first_error {
+            let behind = |account: &Account| failed.contains(&inner.provider.owner_of(&account.id));
+            // Every provider is behind (the only one, where there is
+            // one): the refresh failed, and is tried again as a whole.
+            if accounts.iter().all(behind) {
+                return Err(error);
+            }
+            tracing::warn!(%error, providers = ?failed, "some numbers could not be refreshed");
+            let this = self.clone();
+            inner.runtime.spawn(async move {
+                tokio::time::sleep(PARTIAL_REFRESH_RETRY).await;
+                this.inner.refresh_wake.notify_one();
+            });
+        }
+        inner.preload_wake.notify_one();
+        Ok(())
+    }
+
+    /// The chat list of one number, for a [`refresh`](Self::refresh).
+    async fn refresh_chats_of(&self, account: &Account) -> Result<(), SyncError> {
+        let inner = &self.inner;
+        {
             let mut cursor = None;
             loop {
                 let page = self
@@ -1397,7 +1454,6 @@ impl SyncEngine {
                 }
             }
         }
-        inner.preload_wake.notify_one();
         Ok(())
     }
 
@@ -1680,6 +1736,7 @@ impl SyncEngine {
                 contact_id,
                 state,
             } => self.set_presence(&account_id, &chat_id, &contact_id, state),
+            ProviderEvent::Call(call) => self.apply_call(call),
             ProviderEvent::ConnectionChanged { account_id, state } => {
                 let known = inner
                     .store

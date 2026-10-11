@@ -572,7 +572,7 @@ impl Shell {
     /// Whether stickers and GIFs can be sent now, and if not, why: the
     /// tabs say it instead of failing after a click.
     pub(super) fn picker_cannot_send(&self) -> Option<&'static str> {
-        if !self.engine.capabilities().media_upload {
+        if !self.caps_here().media_upload {
             return Some("This provider cannot send files, so stickers and GIFs cannot be sent.");
         }
         match self.engine.uploads_available() {
@@ -827,7 +827,7 @@ impl Shell {
             self.engine
                 .feature_unavailable(account, client_provider::Feature::StickerFavorites)
         });
-        let favorites_note = if !self.engine.capabilities().sticker_favorites {
+        let favorites_note = if !self.caps_here().sticker_favorites {
             Some(texts::FAVORITES_LOCAL)
         } else if phone_missing {
             Some(texts::FAVORITES_NOT_YET)
