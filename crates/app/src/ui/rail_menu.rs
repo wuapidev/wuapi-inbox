@@ -14,7 +14,7 @@ use crate::rail::{self, Dragged, Drop, Key, COLOURS};
 use crate::theme::px;
 use crate::theme::{metrics, Palette};
 use client_provider::{AccountId, ChatId, ConnectionState, Timestamp};
-use gpui_kit::component::input::{Input, InputState};
+use gpui_kit::component::input::InputState;
 use gpui_kit::prelude::*;
 use gpui_kit::{div, Context, Div, Entity, Pixels, Point, SharedString, Stateful, Window};
 
@@ -969,7 +969,7 @@ impl Shell {
                                         .bg(palette.background)
                                         .flex()
                                         .items_center()
-                                        .child(Input::new(&edit.input).appearance(false)),
+                                        .child(super::widgets::field(&edit.input)),
                                 ),
                         )
                         .when(with_colours, |this| {

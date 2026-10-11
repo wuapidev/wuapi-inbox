@@ -8,7 +8,7 @@ use crate::icons::IconName;
 use crate::theme::{metrics, px, Palette};
 use client_core::new_client_id;
 use client_provider::{OutgoingContent, OutgoingMessage};
-use gpui_kit::component::input::{Input, InputEvent, InputState};
+use gpui_kit::component::input::{InputEvent, InputState};
 use gpui_kit::prelude::*;
 use gpui_kit::{div, Context, Div, Entity, SharedString, Stateful, Subscription, Window};
 
@@ -230,7 +230,7 @@ impl Shell {
                 .bg(palette.background)
                 .flex()
                 .items_center()
-                .child(Input::new(input).appearance(false))
+                .child(super::widgets::field(input))
         };
         let mut options = div().flex().flex_col().gap_2();
         for (index, option) in form.options.iter().enumerate() {

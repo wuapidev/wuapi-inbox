@@ -1218,9 +1218,11 @@ impl Shell {
                 palette,
             ))
             .child(
-                div()
-                    .debug_selector(|| "audience-query".into())
-                    .child(gpui_kit::component::input::Input::new(&self.status.query).small()),
+                div().debug_selector(|| "audience-query".into()).child(
+                    gpui_kit::component::input::Input::new(&self.status.query)
+                        .small()
+                        .py_0(),
+                ),
             )
             .child(rows)
             .when(contacts.is_empty(), |this| {

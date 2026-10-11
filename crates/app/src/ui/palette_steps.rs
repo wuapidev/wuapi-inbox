@@ -298,7 +298,7 @@ impl Shell {
             | C::Menu
             | C::PaneLeft
             | C::PaneRight => Hidden,
-            C::Account(place) if usize::from(place) > self.accounts.len() => Hidden,
+            C::Account(place) if usize::from(place) > self.linked_accounts().count() => Hidden,
             C::NewChat => state(caps.start_chat),
             C::NewGroup => numbered(caps.group_create),
             C::NewCommunity => numbered(caps.group_create && caps.community_manage),
@@ -353,7 +353,9 @@ impl Shell {
                 Some(_) => Enabled,
                 None => Disabled("Nothing unread here"),
             },
-            C::SwitchNumber if self.accounts.len() < 2 => Disabled("There is one number"),
+            C::SwitchNumber if self.linked_accounts().count() < 2 => {
+                Disabled("There is one number")
+            }
             C::FocusConversation if self.open.is_none() => Disabled(NO_CHAT),
             C::RenameNumber
             | C::NumberLook
@@ -372,7 +374,9 @@ impl Shell {
                 Some(_) => Disabled("This number is in no group"),
                 None => Disabled(NO_NUMBER),
             },
-            C::GroupNumberWith if self.accounts.len() < 2 => Disabled("Needs another number"),
+            C::GroupNumberWith if self.linked_accounts().count() < 2 => {
+                Disabled("Needs another number")
+            }
             C::ToggleRailGroup | C::EditRailGroup | C::Ungroup if self.rail.groups().is_empty() => {
                 Disabled("There are no groups in the rail")
             }
@@ -619,8 +623,7 @@ impl Shell {
             }),
             C::SwitchNumber => choices(
                 "Number",
-                self.accounts
-                    .iter()
+                self.linked_accounts()
                     .map(|account| {
                         choice(
                             self.account_name(account),
@@ -632,8 +635,7 @@ impl Shell {
             ),
             C::GroupNumberWith => choices(
                 "Group with",
-                self.accounts
-                    .iter()
+                self.linked_accounts()
                     .filter(|account| self.account.as_ref() != Some(&account.id))
                     .map(|account| {
                         choice(

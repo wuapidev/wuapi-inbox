@@ -33,7 +33,7 @@ use crate::emoji::search::Index;
 use crate::icons::{icon, IconName};
 use crate::keys::{self, Command};
 use crate::theme::{metrics, px, Palette};
-use gpui_kit::component::input::{Input, InputEvent, InputState, TextareaState};
+use gpui_kit::component::input::{InputEvent, InputState, TextareaState};
 use gpui_kit::component::scroll::Scrollbar;
 use gpui_kit::component::tooltip::Tooltip;
 use gpui_kit::prelude::*;
@@ -1249,7 +1249,7 @@ impl Shell {
             .items_center()
             .gap_2()
             .child(icon(IconName::Search, px(14.), palette.text_faint))
-            .child(Input::new(&self.emoji.search).appearance(false))
+            .child(super::widgets::field(&self.emoji.search))
     }
 
     /// One cell of the grid.

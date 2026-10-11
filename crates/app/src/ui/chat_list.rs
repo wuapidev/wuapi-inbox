@@ -11,7 +11,6 @@ use crate::theme::px;
 use crate::theme::{metrics, Palette};
 use client_core::{message_preview, ChatSummary, SearchHit};
 use client_provider::{ChatKind, Contact, Direction, PresenceState, Timestamp};
-use gpui_kit::component::input::Input;
 use gpui_kit::component::scroll::Scrollbar;
 use gpui_kit::prelude::*;
 use gpui_kit::{
@@ -304,9 +303,10 @@ impl Shell {
                 .child(icon(IconName::Search, px(15.), palette.text_muted))
                 .child(
                     div()
+                        .debug_selector(|| "chat-search-field".into())
                         .flex_1()
                         .min_w_0()
-                        .child(Input::new(&self.search).appearance(false).cleanable(true)),
+                        .child(super::widgets::field(&self.search).cleanable(true)),
                 ),
         )
     }

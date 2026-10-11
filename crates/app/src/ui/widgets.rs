@@ -10,11 +10,12 @@ use crate::theme::px;
 use crate::theme::{fonts, metrics, Palette};
 use brand_mark::{AnimatedMark, Timeline};
 use client_provider::{ConnectionState, DeliveryStatus};
+use gpui_kit::component::input::{Input, InputState};
 use gpui_kit::component::tooltip::Tooltip;
 use gpui_kit::prelude::*;
 use gpui_kit::{
-    div, img, transparent_black, AnyElement, App, Div, FontWeight, Hsla, Image, ObjectFit, Pixels,
-    SharedString, Stateful, StyledImage, Window,
+    div, img, transparent_black, AnyElement, App, Div, Entity, FontWeight, Hsla, Image, ObjectFit,
+    Pixels, SharedString, Stateful, StyledImage, Window,
 };
 use std::sync::Arc;
 use std::time::Duration;
@@ -330,6 +331,17 @@ pub fn screen_rail(palette: &Palette) -> Div {
                 }),
             ),
         )
+}
+
+/// A text field without the component library's own box: the view draws
+/// the box around it.
+///
+/// The library sizes a field for a 16 px interface: a height in rems with
+/// a padding in pixels. At this application's text size that leaves less
+/// than a line for the text, which is then cut at the bottom. So the
+/// padding goes and the field is as tall as its line.
+pub fn field(state: &Entity<InputState>) -> Input {
+    Input::new(state).appearance(false).py_0().h_auto()
 }
 
 /// The strip that carries the header rule across those screens: a title

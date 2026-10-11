@@ -377,8 +377,7 @@ impl Shell {
         cx: &mut Context<Self>,
     ) {
         let accounts: Vec<_> = self
-            .accounts
-            .iter()
+            .linked_accounts()
             .map(|account| account.id.clone())
             .collect();
         if accounts.is_empty() {

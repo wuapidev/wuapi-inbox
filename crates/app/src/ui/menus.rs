@@ -13,7 +13,6 @@ use super::widgets::{avatar_or, icon_button, label, mono, text_button, AvatarKin
 use crate::icons::{icon, IconName};
 use crate::theme::px;
 use crate::theme::{metrics, Palette};
-use gpui_kit::component::input::Input;
 use gpui_kit::prelude::*;
 use gpui_kit::{
     div, img, AnyElement, ClickEvent, Context, Div, FontWeight, KeyDownEvent, ObjectFit,
@@ -492,7 +491,7 @@ impl Shell {
                     .bg(palette.background)
                     .flex()
                     .items_center()
-                    .child(Input::new(&self.new_chat).appearance(false)),
+                    .child(super::widgets::field(&self.new_chat)),
             )
             .child(list)
             .children(empty.map(|text| {

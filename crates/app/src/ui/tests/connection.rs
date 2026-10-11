@@ -158,7 +158,7 @@ fn a_logged_out_number_is_linked_again_from_the_strip(cx: &mut TestAppContext) {
 }
 
 #[gpui_kit::test]
-fn a_number_that_never_linked_is_linked_from_the_strip(cx: &mut TestAppContext) {
+fn a_number_that_never_linked_is_out_of_the_rail_and_linked_from_settings(cx: &mut TestAppContext) {
     let harness = open(cx, ShellOptions::default());
     let new = NewAccount {
         name: Some("Never linked".into()),
@@ -183,14 +183,29 @@ fn a_number_that_never_linked_is_linked_from_the_strip(cx: &mut TestAppContext) 
     harness.runtime.block_on(harness.engine.refresh()).unwrap();
     cx.run_until_parked();
 
-    click(harness.window, "rail-account-2", cx);
-    harness.settle(cx);
-    assert!(shows(harness.window, "connection-state-unlinked", cx));
-    assert_eq!(
-        sentence(&harness, cx),
-        "This number was created and never linked to a phone."
-    );
-    click(harness.window, "connection-banner-action", cx);
+    // It is not a number to switch to: the rail does not have it, and
+    // the one on screen stays.
+    assert!(shows(harness.window, "rail-account-1", cx));
+    assert!(!shows(harness.window, "rail-account-2", cx));
+    assert!(!shows(harness.window, "connection-state-unlinked", cx));
+    cx.update(|cx| {
+        let shell = harness.shell.read(cx);
+        assert_ne!(shell.account.as_ref(), Some(&id));
+        assert_eq!(shell.linked_accounts().count(), 2);
+    });
+
+    click(harness.window, "settings", cx);
+    // Further down the panel than fits.
+    let panel = bounds(harness.window, "settings-panel", cx);
+    let mut visual = VisualTestContext::from_window(harness.window.into(), cx);
+    visual.simulate_event(gpui_kit::ScrollWheelEvent {
+        position: panel.center(),
+        delta: gpui_kit::ScrollDelta::Pixels(gpui_kit::point(px(0.), px(-600.))),
+        ..Default::default()
+    });
+    visual.run_until_parked();
+    assert!(shows(harness.window, "number-unlinked-2", cx));
+    click(harness.window, "number-link-2", cx);
     harness.settle(cx);
     link_round(&harness, cx);
     assert!(shows(harness.window, "link-qr", cx));

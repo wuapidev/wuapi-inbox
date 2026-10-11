@@ -114,10 +114,8 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
 
-      - uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: release
-
+      # No cache: one saved by a tag is read by no other tag, so every
+      # release builds from nothing either way.
       - name: Build
         run: cargo build --release --locked --package wuapi-inbox --package xtask
 
@@ -273,9 +271,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: release-tools
 
       - uses: actions/download-artifact@v4
         with:
