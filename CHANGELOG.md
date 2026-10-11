@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.3.0]
+
 * A provider with no API behind it: `provider-native` speaks WhatsApp's own protocol from this computer, through whatsapp-rust. Each number is linked to the phone like WhatsApp Web, by QR code or by a code typed on the phone, and its keys are kept encrypted on this computer. In a build with the `provider-native` feature: `--provider native`. See "How the native adapter is built" and its known gaps in `docs/PROVIDERS.md`.
 * Calls, where the provider carries them (the native provider: voice, one to one). A call that comes in shows a card with Answer and Decline, a person's chat has a call button, and a call nobody answered leaves its line in the chat.
 * Calls with video on the native provider, where `ffmpeg` is installed: a video button beside the call button, the other side's picture with the own camera in its corner, and a switch for the camera. Without `ffmpeg`, calls are voice only.
@@ -17,6 +19,7 @@
 * Both at once: in a build with `provider-native`, the application starts on the numbers linked to this computer with no sign-in, and Wuapi Cloud is connected from the window (the start screen, or Settings) to add its numbers beside them. Signing out of Wuapi Cloud removes its numbers and leaves the others. A new number is linked to this computer or to the cloud, as chosen in the form. `--provider wuapi` and `--provider native` still run either alone.
 * A window with no number yet says what to do first: link a WhatsApp number, with the steps on the phone, and what Wuapi Cloud adds.
 * `provider-hub`: a provider made of others, which is what runs the two side by side. The trait has `capabilities_for` and `owner_of` for it.
+* A release is built with `provider-native`: started with no `--provider`, the application runs the numbers of this computer and Wuapi Cloud side by side. `--provider wuapi` is the client of wuapi alone, as before, on the database it had; `--no-default-features` builds it without the native provider.
 * Building needs Rust 1.94.
 
 ## [0.2.0]

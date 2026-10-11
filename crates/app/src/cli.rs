@@ -119,9 +119,10 @@ pub fn usage() -> String {
 Usage: {bin} [OPTIONS]
 
 Options:
-  --provider <mock|wuapi>   Backend to use [default: wuapi]. A build with provider-native
-                            adds `native` (WhatsApp's own protocol, from this computer)
-                            and `both` (the two side by side), which is then the default
+  --provider <mock|wuapi>   Backend to use [default: wuapi]. A build with provider-native,
+                            as a release is, adds `native` (WhatsApp's own protocol, from
+                            this computer) and `both` (the two side by side), which is
+                            then the default
   --theme <light|dark>      Theme for this run [default: the one in Settings]
   --data-dir <PATH>         Where to keep the local database
   --login                   wuapi: sign in again, replacing the stored API key

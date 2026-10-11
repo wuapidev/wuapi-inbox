@@ -53,6 +53,8 @@ sha2.workspace = true
 sys-locale = "0.3"
 
 [features]
+# What a release is built with.
+default = ["provider-native"]
 # Development aid: `WUAPI_INBOX_CAPTURE_SCRIPT` saves frames of the window as
 # PNG files, drawn by the application itself (see `src/capture.rs`). Not part
 # of a release build.
@@ -62,7 +64,9 @@ capture = ["gpui-kit/test-support"]
 # Every line a new provider adds to this crate is marked with this feature.
 # Not part of a release build.
 provider-example = ["dep:provider-example"]
-# WhatsApp's own protocol, spoken from this machine: `--provider native`.
+# WhatsApp's own protocol, spoken from this machine: `--provider native`, and
+# `--provider both` (the default with it) beside wuapi. Build without it
+# with `--no-default-features` for a client of wuapi alone.
 provider-native = ["dep:provider-native"]
 
 [dev-dependencies]
