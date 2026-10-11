@@ -612,6 +612,20 @@ impl Shell {
                 };
                 return self.open_reactors(key, None, None, window, cx);
             }
+            C::Transcribe => {
+                let Some(message) = self.focused_message() else {
+                    return false;
+                };
+                if self.command_state(command, &message)
+                    != super::message_menu::CommandState::Enabled
+                {
+                    return false;
+                }
+                let MessageContent::Media(media) = message.content else {
+                    return false;
+                };
+                self.transcribe_audio(media, cx);
+            }
             C::CopyLink => {
                 let Some(link) = self.focused_message().as_ref().and_then(copy_link) else {
                     return false;

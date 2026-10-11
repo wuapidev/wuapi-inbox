@@ -23,7 +23,7 @@ pub(super) enum CommandState {
 }
 
 /// The commands of a message's menu, in its order, with their glyphs.
-pub(super) const MENU: [(Command, &str, IconName); 17] = [
+pub(super) const MENU: [(Command, &str, IconName); 18] = [
     (Command::Reply, "message-reply", IconName::MessageSquareText),
     (
         Command::React,
@@ -42,6 +42,11 @@ pub(super) const MENU: [(Command, &str, IconName); 17] = [
     ),
     (Command::SaveSticker, "message-save-sticker", IconName::Star),
     (Command::SaveGif, "message-save-gif", IconName::Film),
+    (
+        Command::Transcribe,
+        "message-transcribe",
+        IconName::FileText,
+    ),
     (Command::Forward, "message-forward", IconName::Forward),
     (Command::Star, "message-star", IconName::Star),
     (Command::Edit, "message-edit", IconName::Pencil),
@@ -133,6 +138,18 @@ impl Shell {
                 }
                 Some(media) if super::library_ui::is_gif(media) => {
                     Disabled("The provider has no file for it")
+                }
+                _ => Hidden,
+            },
+            C::Transcribe => match media {
+                Some(media) if super::transcribe_ui::is_speech(media) => {
+                    if self.transcription_off() {
+                        Hidden
+                    } else if media.source.is_none() {
+                        Disabled("The provider has no file for it")
+                    } else {
+                        Enabled
+                    }
                 }
                 _ => Hidden,
             },

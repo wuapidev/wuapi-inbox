@@ -58,6 +58,7 @@ mod story_quote;
 mod story_ring;
 mod thread_keys;
 mod tiles;
+mod transcribe_ui;
 mod transfer;
 mod updates;
 mod viewer;

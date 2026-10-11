@@ -722,6 +722,32 @@ impl MediaShelf {
         self.shapes.borrow_mut().insert(url.to_owned(), Some(shape));
     }
 
+    /// The transcript kept for the audio at `url`, if there is one.
+    pub fn transcript(&self, url: &str) -> Option<String> {
+        self.store
+            .media(&transcript_key(url), Timestamp::now())
+            .ok()
+            .flatten()
+            .and_then(|cached| String::from_utf8(cached.bytes).ok())
+            .filter(|text| !text.is_empty())
+    }
+
+    /// Keeps a transcript, with the media it belongs to: asking again
+    /// costs nothing.
+    pub fn keep_transcript(&self, url: &str, text: &str) {
+        let cached = client_core::CachedMedia {
+            bytes: text.as_bytes().to_vec(),
+            mime: Some("text/plain".into()),
+            size: None,
+        };
+        if let Err(error) =
+            self.store
+                .put_media(&transcript_key(url), &cached, Timestamp::now(), u64::MAX)
+        {
+            tracing::warn!(%error, "could not keep a transcript");
+        }
+    }
+
     /// The bytes of a downloaded file, to decode.
     pub fn file(&self, url: &str) -> Option<(Vec<u8>, Option<String>)> {
         self.store
@@ -823,6 +849,11 @@ pub enum FileState {
 /// The cache key of the length and waveform of the audio at `url`.
 fn shape_key(url: &str) -> String {
     format!("wave:{url}")
+}
+
+/// The cache key of the transcript of the audio at `url`.
+fn transcript_key(url: &str) -> String {
+    format!("transcript:{url}")
 }
 
 fn fingerprint(text: &str) -> u64 {

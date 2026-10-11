@@ -16,6 +16,7 @@
 
 use super::bubble::{RowContext, Side};
 use super::media::FileState;
+use super::transcribe_ui::Transcript;
 use super::transfer::ring;
 use super::widgets::mono;
 use crate::audio::{Playback, BARS};
@@ -334,6 +335,51 @@ pub(super) fn audio_block(
     };
     let note_ink = if alarming { palette.danger } else { side.meta };
 
+    // The words, under the row: asked for, being fetched, there, or why not.
+    let transcript = url
+        .as_ref()
+        .and_then(|url| audio.transcripts.get(url))
+        .cloned();
+    let transcribe_link = (audio.can_transcribe
+        && transcript.is_none()
+        && url.is_some()
+        && super::transcribe_ui::is_speech(media))
+    .then(|| {
+        let (view, media) = (context.view.clone(), media.clone());
+        div()
+            .id(SharedString::from(format!("transcribe-{}", message.id)))
+            .debug_selector(|| "audio-transcribe".into())
+            .pt(px(2.))
+            .cursor_pointer()
+            .text_color(side.meta)
+            .hover(|style| style.opacity(0.8))
+            .child(mono("TRANSCRIBE").text_size(px(10.5)))
+            .on_click(move |_, _, cx| {
+                view.update(cx, |shell, cx| shell.transcribe_audio(media.clone(), cx))
+                    .ok();
+            })
+    });
+    let words = transcript.map(|transcript| match transcript {
+        Transcript::Working => div()
+            .debug_selector(|| "audio-transcribing".into())
+            .pt(px(2.))
+            .text_color(side.meta)
+            .child(mono("TRANSCRIBING…").text_size(px(10.5))),
+        Transcript::Done(text) => div()
+            .debug_selector(|| "audio-transcript".into())
+            .pt(px(4.))
+            .text_size(metrics::TEXT_BODY())
+            .text_color(side.text)
+            .child(text),
+        Transcript::Failed(reason) => div()
+            .debug_selector(|| "audio-transcript-failed".into())
+            .pt(px(2.))
+            .text_color(palette.danger)
+            .child(
+                mono(format!("COULD NOT TRANSCRIBE · {reason}").to_uppercase()).text_size(px(10.5)),
+            ),
+    });
+
     div()
         .w(metrics::AUDIO_WIDTH())
         .max_w_full()
@@ -384,4 +430,6 @@ pub(super) fn audio_block(
                 )
                 .child(meta),
         )
+        .children(transcribe_link)
+        .children(words)
 }

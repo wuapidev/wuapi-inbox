@@ -56,6 +56,10 @@ pub(super) struct AudioDeck {
     pub(super) failed: HashMap<String, SharedString>,
     /// The clip that could not be played for want of an output, and why.
     pub(super) no_output: Option<(String, SharedString)>,
+    /// What transcribing the voice notes on screen has come to, by URL.
+    pub(super) transcripts: HashMap<String, super::transcribe_ui::Transcript>,
+    /// Voice notes whose transcript was looked for in the store already.
+    pub(super) transcripts_checked: HashSet<String>,
     _decoding: Option<Task<()>>,
     _watching: Option<Task<()>>,
 }
@@ -71,6 +75,8 @@ impl AudioDeck {
             waiting: None,
             failed: HashMap::new(),
             no_output: None,
+            transcripts: HashMap::new(),
+            transcripts_checked: HashSet::new(),
             _decoding: None,
             _watching: None,
         }
@@ -123,6 +129,10 @@ impl AudioDeck {
         self.waiting = None;
         self.failed.clear();
         self.no_output = None;
+        // Kept in the store: only what is under way stays.
+        self.transcripts
+            .retain(|_, transcript| *transcript == super::transcribe_ui::Transcript::Working);
+        self.transcripts_checked.clear();
         self._decoding = None;
         self._watching = None;
     }
@@ -139,6 +149,8 @@ impl AudioDeck {
             waiting: self.waiting.clone(),
             failed: self.failed.clone(),
             no_output: self.no_output.clone(),
+            transcripts: self.transcripts.clone(),
+            can_transcribe: false,
         }
     }
 }
@@ -151,6 +163,10 @@ pub struct AudioView {
     pub waiting: Option<String>,
     pub failed: HashMap<String, SharedString>,
     pub no_output: Option<(String, SharedString)>,
+    /// Transcripts, by URL.
+    pub transcripts: HashMap<String, super::transcribe_ui::Transcript>,
+    /// Voice notes offer "Transcribe".
+    pub can_transcribe: bool,
 }
 
 /// Messages loaded when a chat is opened, and added per step when the user
@@ -663,6 +679,8 @@ pub struct Shell {
     pub(super) picker: super::picker::PickerUi,
     /// Settings > Stickers and GIFs (see `library_ui.rs`).
     pub(super) library: super::library_ui::LibraryUi,
+    /// Voice notes as text, and its settings (see `transcribe_ui.rs`).
+    pub(super) transcription: super::transcribe_ui::TranscribeUi,
     /// What the About section holds for the updater.
     pub(super) updates: super::updates::UpdateUi,
     /// Status: the list, the viewer, posting (see `status.rs`).
@@ -966,6 +984,7 @@ impl Shell {
             emoji,
             picker: super::picker::PickerUi::new(picker_store, super::library_ui::session_secret()),
             library: super::library_ui::LibraryUi::new(window, cx),
+            transcription: super::transcribe_ui::TranscribeUi::new(window, cx),
             updates: super::updates::UpdateUi::new(window, cx),
             status: super::status::StatusUi::new(window, cx),
             entrance: Entrance::default(),
@@ -1319,7 +1338,22 @@ impl Shell {
         let rows = build_rows(messages, &open.chat, &self.senders, first_unread.as_ref());
         splice_rows(&open.list, &open.rows, &rows);
         self.audio.follow(&open.rows, &rows);
+        let voice_urls: Vec<String> = rows
+            .iter()
+            .filter_map(|row| match row {
+                Row::Message(row) => match &row.stored.message.content {
+                    MessageContent::Media(media) if super::transcribe_ui::is_speech(media) => {
+                        media.source.as_ref().map(|source| source.to_string())
+                    }
+                    _ => None,
+                },
+                Row::Day(_) => None,
+            })
+            .collect();
         open.rows = Rc::new(rows);
+        for url in voice_urls {
+            super::transcribe_ui::load_transcript(&mut self.audio, &self.media, &url);
+        }
         open.subtitle = chat_subtitle(&self.store, &self.senders, &open.chat);
         // The panel of who reacted lists what the store has now.
         self.refresh_reactors();
@@ -2779,6 +2813,7 @@ impl Shell {
                 _ => {}
             }
         }
+        self.transcription_file_arrived(key, cx);
         self.out_arrived(key, cx);
         // The original of the picture in the viewer: decoded, it replaces
         // the thumbnail.

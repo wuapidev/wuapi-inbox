@@ -29,7 +29,7 @@ const NOT_HERE: &str = "Not available with this provider";
 const NO_NUMBER: &str = "There is no number yet";
 
 /// The commands of a message the palette offers while one is in focus.
-pub(super) const OF_A_MESSAGE: [Command; 18] = [
+pub(super) const OF_A_MESSAGE: [Command; 19] = [
     Command::Reply,
     Command::Edit,
     Command::Copy,
@@ -48,6 +48,7 @@ pub(super) const OF_A_MESSAGE: [Command; 18] = [
     Command::Download,
     Command::SaveSticker,
     Command::SaveGif,
+    Command::Transcribe,
 ];
 
 /// Whether a command can be run right now.

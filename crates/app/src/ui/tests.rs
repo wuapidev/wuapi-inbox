@@ -2250,6 +2250,93 @@ fn url_of(media: &client_provider::Media) -> String {
 }
 
 #[gpui_kit::test]
+fn a_voice_note_is_transcribed_once_and_remembered(cx: &mut TestAppContext) {
+    use super::transcribe_ui::Transcript;
+    use crate::transcribe::{Canned, Mode};
+    let (harness, _tape, notes) = with_voice_notes(cx);
+    let url = url_of(&notes[0]);
+
+    // Off, which is how it starts: nothing is offered and nothing happens.
+    cx.update(|cx| assert!(harness.shell.read(cx).transcription_off()));
+    harness
+        .shell
+        .update(cx, |shell, cx| shell.transcribe_audio(notes[0].clone(), cx));
+    cx.update(|cx| assert!(harness.shell.read(cx).audio.transcripts.is_empty()));
+
+    // On: the file is fetched, sent to the service, and the words kept.
+    harness.shell.update(cx, |shell, cx| {
+        crate::settings::update(cx, |settings| settings.transcription = Mode::Online);
+        shell.transcription.mode = Mode::Online;
+        shell.transcription.fake = Some(Arc::new(Canned(Ok("hola mundo".into()))));
+        shell.transcribe_audio(notes[0].clone(), cx);
+    });
+    until(&harness, cx, |shell| {
+        matches!(shell.audio.transcripts.get(&url), Some(Transcript::Done(_)))
+    });
+    cx.update(|cx| {
+        let shell = harness.shell.read(cx);
+        assert_eq!(
+            shell.audio.transcripts.get(&url),
+            Some(&Transcript::Done("hola mundo".into()))
+        );
+        assert_eq!(shell.media.transcript(&url).as_deref(), Some("hola mundo"));
+    });
+    assert!(shows(harness.window, "audio-transcript", cx));
+
+    // Another session, or another visit: it comes from the store, with
+    // no request.
+    harness.shell.update(cx, |shell, _| {
+        shell.audio.transcripts.clear();
+        shell.audio.transcripts_checked.clear();
+        shell.transcription.fake = Some(Arc::new(Canned(Err(
+            crate::transcribe::TranscribeError::Offline,
+        ))));
+        shell.load_transcript(&url);
+    });
+    cx.update(|cx| {
+        assert_eq!(
+            harness.shell.read(cx).audio.transcripts.get(&url),
+            Some(&Transcript::Done("hola mundo".into()))
+        );
+    });
+}
+
+#[gpui_kit::test]
+fn a_transcription_that_fails_says_why_and_can_be_asked_again(cx: &mut TestAppContext) {
+    use super::transcribe_ui::Transcript;
+    use crate::transcribe::{Canned, Mode, TranscribeError};
+    let (harness, _tape, notes) = with_voice_notes(cx);
+    let url = url_of(&notes[0]);
+    harness.shell.update(cx, |shell, cx| {
+        crate::settings::update(cx, |settings| settings.transcription = Mode::Online);
+        shell.transcription.mode = Mode::Online;
+        shell.transcription.fake = Some(Arc::new(Canned(Err(TranscribeError::Key))));
+        shell.transcribe_audio(notes[0].clone(), cx);
+    });
+    until(&harness, cx, |shell| {
+        matches!(
+            shell.audio.transcripts.get(&url),
+            Some(Transcript::Failed(_))
+        )
+    });
+    assert!(shows(harness.window, "audio-transcript-failed", cx));
+    assert_eq!(
+        cx.update(|cx| harness.shell.read(cx).media.transcript(&url)),
+        None,
+        "a failure is never kept"
+    );
+
+    // The key is fixed: asking again works.
+    harness.shell.update(cx, |shell, cx| {
+        shell.transcription.fake = Some(Arc::new(Canned(Ok("ahora sí".into()))));
+        shell.transcribe_audio(notes[0].clone(), cx);
+    });
+    until(&harness, cx, |shell| {
+        matches!(shell.audio.transcripts.get(&url), Some(Transcript::Done(_)))
+    });
+}
+
+#[gpui_kit::test]
 fn a_voice_note_downloads_decodes_and_plays_on_the_first_click(cx: &mut TestAppContext) {
     let (harness, tape, notes) = with_voice_notes(cx);
     let first = url_of(&notes[0]);
