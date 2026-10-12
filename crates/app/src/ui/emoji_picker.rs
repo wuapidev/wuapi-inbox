@@ -927,7 +927,9 @@ impl Shell {
         cx: &mut Context<Self>,
     ) -> bool {
         if !self.emoji_open() {
-            return self.emoji_completion_key(stroke, window, cx);
+            // The list of people comes first when both could be meant.
+            return self.mention_list_key(stroke, window, cx)
+                || self.emoji_completion_key(stroke, window, cx);
         }
         let held = &stroke.modifiers;
         let plain = !held.modified();
@@ -1796,7 +1798,7 @@ impl Shell {
     /// Whether the field being written in has the keyboard, with nothing
     /// over it: the composer, the caption in its sheet, or a field of
     /// Status.
-    fn writing_has_keyboard(&self, window: &Window, cx: &gpui_kit::App) -> bool {
+    pub(super) fn writing_has_keyboard(&self, window: &Window, cx: &gpui_kit::App) -> bool {
         let over = match self.overlay {
             Overlay::None => false,
             Overlay::AttachSheet => !self.captioning(),

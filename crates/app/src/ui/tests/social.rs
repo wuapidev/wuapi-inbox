@@ -25,7 +25,7 @@ fn account(harness: &Harness) -> AccountId {
 }
 
 /// Opens the conversation `chat` in the window.
-fn open_chat(harness: &Harness, cx: &mut TestAppContext, chat: &ChatId) {
+pub(super) fn open_chat(harness: &Harness, cx: &mut TestAppContext, chat: &ChatId) {
     cx.update(|cx| {
         harness
             .shell
@@ -576,12 +576,23 @@ fn a_group_is_managed_people_are_added_and_requests_answered(cx: &mut TestAppCon
     click(harness.window, "invite-reset", cx);
     assert!(shows(harness.window, "invite-reset-question", cx));
     assert_eq!(details().invite_link, Some(link.clone()));
+    // The question stays inside the panel, its buttons in reach.
+    let (panel, confirm) = (
+        super::bounds(harness.window, "contact-info", cx),
+        super::bounds(harness.window, "invite-reset-question-confirm", cx),
+    );
+    assert!(
+        confirm.left() >= panel.left() && confirm.right() <= panel.right(),
+        "{confirm:?} in {panel:?}"
+    );
     click(harness.window, "invite-reset-question-confirm", cx);
     harness.settle(cx);
     assert_ne!(details().invite_link, Some(link));
     assert!(!shows(harness.window, "invite-reset-question", cx));
 
-    // Someone asked to join: approved from the list.
+    // Someone asked to join: approved from the list. (The tabs are at
+    // the top of the page.)
+    scroll_down(&harness, "contact-info", -2000., cx);
     click(harness.window, "group-tab-participants", cx);
     harness.settle(cx);
     assert!(shows(harness.window, "join-approve-0", cx));

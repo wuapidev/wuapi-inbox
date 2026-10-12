@@ -15,7 +15,7 @@ use super::social::{
     action_row, badge, block, hero, hint, paragraph, question, toggle_row, CommunityPeople,
     Confirm, EditWhat, GroupKind, GroupTab, People, PictureFor, Target, PEOPLE_SHOWN,
 };
-use super::widgets::{avatar_or, mono, segmented, text_button, AvatarKind};
+use super::widgets::{avatar_or, icon_button, label, mono, segmented, text_button, AvatarKind};
 use crate::format;
 use crate::icons::{icon, IconName};
 use crate::theme::px;
@@ -37,6 +37,43 @@ pub(super) fn title_line(kind: &str, groups: Option<usize>, participants: Option
         (None, Some(count)) => format!("{kind} · {count} participants"),
         (None, None) => kind.to_owned(),
     }
+}
+
+/// A group of rows of "Manage": one raised surface with a hairline
+/// around it, its rows parted by hairlines.
+fn card(palette: &Palette) -> Div {
+    div()
+        .rounded(metrics::PANEL_RADIUS())
+        .border_1()
+        .border_color(palette.border)
+        .bg(palette.surface)
+        .overflow_hidden()
+        .flex()
+        .flex_col()
+}
+
+/// One row of a [`card`]: what it is on the left, what is done with it on
+/// the right. `parted` draws the hairline above every row but the first.
+fn card_row(parted: bool, palette: &Palette) -> Div {
+    div()
+        .px_3()
+        .py_3()
+        .flex()
+        .items_center()
+        .gap_3()
+        .when(parted, |this| {
+            this.border_t_1().border_color(palette.border)
+        })
+}
+
+/// A card under the label that says what it groups.
+fn section(title: &str, card: Div, palette: &Palette) -> Div {
+    div()
+        .flex()
+        .flex_col()
+        .gap_2()
+        .child(div().px_1().child(label(title, palette)))
+        .child(card)
 }
 
 impl Shell {
@@ -843,6 +880,9 @@ impl Shell {
         shown
     }
 
+    /// "Manage": what an admin changes, in groups of rows on cards. What
+    /// the group is (its name, description and picture), how people get
+    /// in (the invite link), and what participants may do.
     fn render_group_manage(
         &self,
         stored: &StoredGroup,
@@ -859,115 +899,156 @@ impl Shell {
             .ok()
             .flatten()
             .is_some_and(|picture| picture.image.is_some());
-        let mut page = div().flex().flex_col();
+        let mut page = div().px_4().pt_4().pb_5().flex().flex_col().gap_5();
 
         // Name and description, each edited in place.
-        for (what, title, value, button) in [
+        let mut about = card(palette);
+        for (index, (what, title, value, none, button, tip)) in [
             (
                 EditWhat::Subject,
                 "Name",
                 details.subject.clone(),
+                "No name yet.",
                 "group-edit-subject",
+                "Edit name",
             ),
             (
                 EditWhat::Description,
                 "Description",
                 details.description.clone().unwrap_or_default(),
+                "No description yet.",
                 "group-edit-description",
+                "Edit description",
             ),
-        ] {
-            let mut field = block(title, palette);
-            match self.social.edit.as_ref().filter(|edit| edit.what == what) {
-                Some(edit) => {
-                    field = field
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let row = card_row(index > 0, palette);
+            about = about.child(
+                match self.social.edit.as_ref().filter(|edit| edit.what == what) {
+                    Some(edit) => row
+                        .flex_col()
+                        .items_stretch()
+                        .gap_2()
+                        .child(label(title, palette))
                         .child(input_box("edit-input", &edit.input, false, palette))
                         .children(
                             edit.error
                                 .clone()
                                 .map(|error| error_line("edit-error", error, palette)),
                         )
-                        .child(edit_buttons(palette, cx));
-                }
-                None => {
-                    let current = value.clone();
-                    field = field.child(
-                        div()
-                            .flex()
-                            .items_center()
-                            .justify_between()
-                            .gap_3()
-                            .child(div().flex_1().min_w_0().child(if value.is_empty() {
-                                hint("None.", palette)
-                            } else {
-                                paragraph(value, palette)
-                            }))
-                            .child(
-                                text_button(button, "Edit", Some(IconName::Pencil), false, palette)
-                                    .on_click(cx.listener(move |this, _, window, cx| {
-                                        cx.stop_propagation();
-                                        this.begin_edit(what, current.clone(), window, cx);
-                                    })),
-                            ),
-                    );
-                }
-            }
-            page = page.child(field);
+                        .child(edit_buttons(palette, cx)),
+                    None => {
+                        let current = value.clone();
+                        row.child(
+                            div()
+                                .flex_1()
+                                .min_w_0()
+                                .flex()
+                                .flex_col()
+                                .gap_1()
+                                .child(label(title, palette))
+                                .child(if value.is_empty() {
+                                    hint(none, palette)
+                                } else {
+                                    paragraph(value, palette)
+                                }),
+                        )
+                        .child(
+                            icon_button(button, IconName::Pencil, palette)
+                                .tooltip(move |window, cx| {
+                                    gpui_kit::component::tooltip::Tooltip::new(tip)
+                                        .build(window, cx)
+                                })
+                                .on_click(cx.listener(move |this, _, window, cx| {
+                                    cx.stop_propagation();
+                                    this.begin_edit(what, current.clone(), window, cx);
+                                })),
+                        )
+                    }
+                },
+            );
         }
 
+        // The picture, beside what is done with it.
         let picture_for = PictureFor::Group(account.clone(), group.clone());
-        page = page.child(
-            block("Picture", palette).child(
-                div()
-                    .flex()
-                    .gap_2()
-                    .child(
-                        text_button(
-                            "group-picture-change",
-                            "Change picture",
-                            Some(IconName::Camera),
-                            false,
+        about = about.child(
+            card_row(true, palette)
+                .child(avatar_or(
+                    self.media.avatar(account, group),
+                    &details.subject,
+                    AvatarKind::Group,
+                    px(40.),
+                    palette,
+                ))
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .flex()
+                        .flex_col()
+                        .gap_1()
+                        .child(label("Picture", palette))
+                        .child(hint(
+                            if has_picture {
+                                "Everyone in the group sees it."
+                            } else {
+                                "The group has no picture yet."
+                            },
                             palette,
-                        )
-                        .on_click(cx.listener(move |this, _, _, cx| {
-                            cx.stop_propagation();
-                            this.choose_picture(picture_for.clone(), cx);
-                        })),
+                        )),
+                )
+                .child(
+                    text_button(
+                        "group-picture-change",
+                        if has_picture { "Change" } else { "Add" },
+                        Some(IconName::Camera),
+                        false,
+                        palette,
                     )
-                    .when(has_picture, |this| {
-                        this.child(
-                            text_button(
-                                "group-picture-remove",
-                                "Remove",
-                                Some(IconName::Trash),
-                                false,
-                                palette,
-                            )
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        cx.stop_propagation();
+                        this.choose_picture(picture_for.clone(), cx);
+                    })),
+                )
+                .when(has_picture, |this| {
+                    this.child(
+                        icon_button("group-picture-remove", IconName::Trash, palette)
+                            .tooltip(|window, cx| {
+                                gpui_kit::component::tooltip::Tooltip::new("Remove picture")
+                                    .build(window, cx)
+                            })
                             .on_click(cx.listener(|this, _, _, cx| {
                                 cx.stop_propagation();
                                 this.ask(Confirm::RemovePicture, cx);
                             })),
-                        )
-                    }),
-            ),
+                    )
+                }),
         );
         if self.social.confirm == Some(Confirm::RemovePicture) {
-            page = page.child(self.yes_no(
+            about = about.child(card_row(true, palette).child(self.yes_no(
                 "group-picture-question",
                 "Remove the group's picture?".into(),
                 "Remove",
                 palette,
                 cx,
+            )));
+        }
+        page = page.child(section("About", about, palette));
+
+        if caps.group_invites {
+            page = page.child(section(
+                "Invite link",
+                self.render_invite_link(stored, palette, cx),
+                palette,
             ));
         }
 
-        if caps.group_invites {
-            page = page.child(self.render_invite_link(stored, palette, cx));
-        }
-
         // The settings the provider exposes.
-        let mut settings = block("Settings", palette);
+        let mut settings = card(palette);
         let unknown = "WhatsApp does not say what this is set to; switching sets it.";
-        for (id, title, detail, on, change) in [
+        for (index, (id, title, detail, on, change)) in [
             (
                 "setting-announce",
                 "Only admins send messages",
@@ -996,7 +1077,10 @@ impl Shell {
                 details.members_can_add,
                 GroupChange::MembersCanAdd(!details.members_can_add.unwrap_or(false)),
             ),
-        ] {
+        ]
+        .into_iter()
+        .enumerate()
+        {
             // TODO(wuapi-api): `joinApproval` and `memberAddMode` cannot
             // be read back, so those two start as "not known".
             let (words, switch) = toggle_row(
@@ -1006,22 +1090,14 @@ impl Shell {
                 on.unwrap_or(false),
                 palette,
             );
-            settings = settings.child(
-                div()
-                    .py_1()
-                    .flex()
-                    .items_center()
-                    .justify_between()
-                    .gap_4()
-                    .child(words)
-                    .child(switch.on_click(cx.listener(move |this, _, _, cx| {
-                        cx.stop_propagation();
-                        this.change_group(change.clone(), cx);
-                    }))),
-            );
+            settings = settings.child(card_row(index > 0, palette).gap_4().child(words).child(
+                switch.on_click(cx.listener(move |this, _, _, cx| {
+                    cx.stop_propagation();
+                    this.change_group(change.clone(), cx);
+                })),
+            ));
         }
-        page = page.child(settings);
-        page
+        page.child(section("Permissions", settings, palette))
     }
 
     /// The invite link: asked for on a click, then shown with what can be
@@ -1033,22 +1109,23 @@ impl Shell {
         cx: &mut Context<Self>,
     ) -> Div {
         let (account, group) = (stored.group.account_id.clone(), stored.group.id.clone());
-        let mut shown = block("Invite link", palette);
+        let about = hint(
+            "Anyone with the link can join the group, or ask to when new \
+             participants need approval.",
+            palette,
+        );
         let Some(link) = stored.invite_link.clone() else {
-            return shown
-                .child(hint(
-                    "Anyone with the link can join the group, or ask to when new \
-                     participants need approval.",
-                    palette,
-                ))
-                .child(
-                    div().flex().child(
+            return card(palette).child(
+                card_row(false, palette)
+                    .gap_4()
+                    .child(div().flex_1().min_w_0().child(about))
+                    .child(
                         text_button(
                             "invite-show",
                             if self.social.busy {
                                 "Reading…"
                             } else {
-                                "Show invite link"
+                                "Show link"
                             },
                             Some(IconName::Link),
                             false,
@@ -1059,42 +1136,62 @@ impl Shell {
                             this.invite_link(account.clone(), group.clone(), false, cx);
                         })),
                     ),
-                );
+            );
         };
         let copied = link.clone();
-        shown = shown
-            .child(
-                mono(link)
-                    .debug_selector(|| "invite-link".into())
-                    .text_color(palette.text),
-            )
-            .child(
-                div()
-                    .flex()
-                    .gap_2()
-                    .child(
-                        text_button("invite-copy", "Copy", Some(IconName::Copy), false, palette)
-                            .on_click(cx.listener(move |this, _, _, cx| {
-                                cx.stop_propagation();
-                                this.copy_from_panel(copied.clone(), "Invite link copied.", cx);
-                            })),
-                    )
-                    .child(
-                        text_button(
-                            "invite-reset",
-                            "Reset link",
-                            Some(IconName::RotateCw),
-                            false,
-                            palette,
+        let mut shown = card(palette).child(
+            card_row(false, palette)
+                .flex_col()
+                .items_stretch()
+                .gap_2()
+                .child(
+                    // The link in a well of its own, with what is done
+                    // with it at its end.
+                    div()
+                        .pl_3()
+                        .pr_1()
+                        .py_1()
+                        .rounded(metrics::RADIUS())
+                        .border_1()
+                        .border_color(palette.border)
+                        .bg(palette.background)
+                        .flex()
+                        .items_center()
+                        .gap_1()
+                        .child(
+                            div().flex_1().min_w_0().overflow_hidden().child(
+                                mono(link)
+                                    .debug_selector(|| "invite-link".into())
+                                    .text_color(palette.text),
+                            ),
                         )
-                        .on_click(cx.listener(|this, _, _, cx| {
-                            cx.stop_propagation();
-                            this.ask(Confirm::ResetLink, cx);
-                        })),
-                    ),
-            );
+                        .child(
+                            icon_button("invite-copy", IconName::Copy, palette)
+                                .tooltip(|window, cx| {
+                                    gpui_kit::component::tooltip::Tooltip::new("Copy link")
+                                        .build(window, cx)
+                                })
+                                .on_click(cx.listener(move |this, _, _, cx| {
+                                    cx.stop_propagation();
+                                    this.copy_from_panel(copied.clone(), "Invite link copied.", cx);
+                                })),
+                        )
+                        .child(
+                            icon_button("invite-reset", IconName::RotateCw, palette)
+                                .tooltip(|window, cx| {
+                                    gpui_kit::component::tooltip::Tooltip::new("Reset link")
+                                        .build(window, cx)
+                                })
+                                .on_click(cx.listener(|this, _, _, cx| {
+                                    cx.stop_propagation();
+                                    this.ask(Confirm::ResetLink, cx);
+                                })),
+                        ),
+                )
+                .child(about),
+        );
         if self.social.confirm == Some(Confirm::ResetLink) {
-            shown = shown.child(self.yes_no(
+            shown = shown.child(card_row(true, palette).child(self.yes_no(
                 "invite-reset-question",
                 "Reset the invite link? The current link stops working for everyone who has it."
                     .into(),
@@ -1105,7 +1202,7 @@ impl Shell {
                 },
                 palette,
                 cx,
-            ));
+            )));
         }
         shown
     }
@@ -1120,36 +1217,42 @@ impl Shell {
         palette: &Palette,
         cx: &mut Context<Self>,
     ) -> Div {
-        question(selector, words, palette).mx_0().child(
-            div()
-                .flex()
-                .justify_end()
-                .gap_2()
-                .child(
-                    small_button(
-                        "question-cancel",
-                        format!("{selector}-cancel"),
-                        "Cancel",
-                        palette,
+        question(selector, words, palette)
+            .mx_0()
+            .my_0()
+            .flex_1()
+            // In a row of a card: no wider than the row, its words wrapped.
+            .min_w_0()
+            .child(
+                div()
+                    .flex()
+                    .justify_end()
+                    .gap_2()
+                    .child(
+                        small_button(
+                            "question-cancel",
+                            format!("{selector}-cancel"),
+                            "Cancel",
+                            palette,
+                        )
+                        .on_click(cx.listener(|this, _, window, cx| {
+                            cx.stop_propagation();
+                            this.info_back(window, cx);
+                        })),
                     )
-                    .on_click(cx.listener(|this, _, window, cx| {
-                        cx.stop_propagation();
-                        this.info_back(window, cx);
-                    })),
-                )
-                .child(
-                    small_button(
-                        "question-confirm",
-                        format!("{selector}-confirm"),
-                        yes,
-                        palette,
-                    )
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        cx.stop_propagation();
-                        this.confirmed(cx);
-                    })),
-                ),
-        )
+                    .child(
+                        small_button(
+                            "question-confirm",
+                            format!("{selector}-confirm"),
+                            yes,
+                            palette,
+                        )
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            cx.stop_propagation();
+                            this.confirmed(cx);
+                        })),
+                    ),
+            )
     }
 
     /// "Add participants": the address book without who is already in.

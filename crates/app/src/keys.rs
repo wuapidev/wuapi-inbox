@@ -374,6 +374,8 @@ pub enum Command {
     BackToComposer,
     /// Replies to the message.
     Reply,
+    /// Replies to a message of a group in the chat with whoever wrote it.
+    ReplyPrivately,
     /// Edits it.
     Edit,
     /// Copies its text, or what is selected.
@@ -1369,6 +1371,13 @@ pub const BINDINGS: &[Binding] = &[
         S::Message,
         W::Message,
         &[key("enter"), key("r")],
+    ),
+    bind(
+        C::ReplyPrivately,
+        "Reply privately",
+        S::Message,
+        W::Message,
+        &[shift("r")],
     ),
     bind(
         C::React,
@@ -2468,6 +2477,7 @@ mod tests {
             ("e", C::Edit),
             ("r", C::Reply),
             ("enter", C::Reply),
+            ("shift-r", C::ReplyPrivately),
             ("c", C::Copy),
             ("f", C::Forward),
             ("s", C::Star),

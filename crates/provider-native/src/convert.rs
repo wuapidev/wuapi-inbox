@@ -595,6 +595,24 @@ mod tests {
             "no quote in a quote"
         );
         assert_eq!(quoted.extended_text_message.text.as_deref(), Some("one"));
+        assert_eq!(info.remote_jid, None, "a quote of the same chat names none");
+
+        // An answer in private names the group its quote is from.
+        let group: Jid = "120363000000000001@g.us".parse().unwrap();
+        let private = text_message(
+            "three",
+            context(Some((&first, Some(&author))), Some(&group), &[], false),
+        );
+        let info = private
+            .extended_text_message
+            .context_info
+            .as_option()
+            .unwrap();
+        assert_eq!(info.remote_jid.as_deref(), Some("120363000000000001@g.us"));
+        assert_eq!(
+            info.participant.as_deref(),
+            Some("584245550199@s.whatsapp.net")
+        );
 
         let row = stored(encode(&reply));
         let message = to_message(&account(), &row, None).unwrap();

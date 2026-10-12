@@ -741,11 +741,11 @@ fn the_emoji_picker_gives_the_sheet_back_on_the_same_file_and_caret(cx: &mut Tes
 }
 
 #[gpui_kit::test]
-fn the_sheet_fits_at_every_interface_size_with_ten_files_and_the_strip_scrolls(
+fn the_sheet_fits_at_every_interface_size_with_twenty_files_and_the_strip_scrolls(
     cx: &mut TestAppContext,
 ) {
     let dir = tempfile::tempdir().unwrap();
-    let harness = group_for_attaching(cx, pictures(dir.path(), 10));
+    let harness = group_for_attaching(cx, pictures(dir.path(), 20));
     // The tallest the sheet gets: a reply under way, a long caption.
     cx.update(|cx| {
         harness.shell.update(cx, |shell, _| {
@@ -766,7 +766,7 @@ fn the_sheet_fits_at_every_interface_size_with_ten_files_and_the_strip_scrolls(
             shell.acting.compose = Compose::Reply(Box::new(message));
         })
     });
-    open_sheet(&harness, cx, 10);
+    open_sheet(&harness, cx, 20);
     type_text(harness.window, "a caption", cx);
     for _ in 0..3 {
         press(harness.window, "shift-enter", cx);
@@ -780,7 +780,7 @@ fn the_sheet_fits_at_every_interface_size_with_ten_files_and_the_strip_scrolls(
         for last in [false, true] {
             // By key: a thumbnail scrolled out of the strip is not there
             // to be clicked.
-            for _ in 0..9 {
+            for _ in 0..19 {
                 press(
                     harness.window,
                     if last { "ctrl-pagedown" } else { "ctrl-pageup" },
@@ -831,11 +831,12 @@ fn the_sheet_fits_at_every_interface_size_with_ten_files_and_the_strip_scrolls(
                     "{what}: caption above strip"
                 );
             }
-            // The strip scrolls: ten files are wider than it. The one on
-            // show is in it, whole.
+            // The strip scrolls: twenty files are wider than it, even in
+            // the wide sheet a picture is retouched in. The one on show
+            // is in it, whole.
             let on_show = bounds_of(
                 harness.window,
-                &format!("attach-item-{}", if last { 9 } else { 0 }),
+                &format!("attach-item-{}", if last { 19 } else { 0 }),
                 cx,
             );
             assert!(
@@ -844,7 +845,7 @@ fn the_sheet_fits_at_every_interface_size_with_ten_files_and_the_strip_scrolls(
                 "{what}: the file on show is in view: {on_show:?} in {strip:?}"
             );
             let first = bounds_of(harness.window, "attach-item-0", cx);
-            let tenth = bounds_of(harness.window, "attach-item-9", cx);
+            let tenth = bounds_of(harness.window, "attach-item-19", cx);
             assert!(
                 tenth.right() - first.left() > strip.size.width,
                 "{what}: the strip is longer than what it shows"
@@ -1061,4 +1062,127 @@ fn a_file_refused_as_it_is_sent_is_said_even_when_more_files_are_attached_at_onc
             .as_ref()
             .is_some_and(|draft| draft.items.len() == 1)
     });
+}
+
+// ----- retouching a picture before it goes ---------------------------------------
+
+/// The file on show: its bytes, decoded, and how many edits it carries.
+fn on_show(harness: &Harness, cx: &mut TestAppContext) -> (Arc<Vec<u8>>, image::RgbaImage, usize) {
+    cx.update(|cx| {
+        let item = harness
+            .shell
+            .read(cx)
+            .attach
+            .as_ref()
+            .unwrap()
+            .current()
+            .unwrap();
+        (
+            item.file.bytes.clone(),
+            image::load_from_memory(&item.file.bytes)
+                .unwrap()
+                .into_rgba8(),
+            item.retouch.edits.len(),
+        )
+    })
+}
+
+/// Waits for the file to be made again after an edit.
+fn retouched(harness: &Harness, cx: &mut TestAppContext) {
+    until(harness, cx, |shell| !shell.retouch_busy());
+    cx.run_until_parked();
+}
+
+#[gpui_kit::test]
+fn a_picture_is_turned_drawn_on_and_put_back_before_it_goes(cx: &mut TestAppContext) {
+    let dir = tempfile::tempdir().unwrap();
+    let harness = group_for_attaching(cx, pictures(dir.path(), 1));
+    open_sheet(&harness, cx, 1);
+    until_shown(&harness, cx, "retouch-shown");
+    let (came, picture, edits) = on_show(&harness, cx);
+    assert_eq!((picture.dimensions(), edits), ((160, 90), 0));
+
+    // The tools and the picture are inside the sheet, the picture whole
+    // inside its room and in its proportions.
+    let sheet = bounds(harness.window, "attach-sheet", cx);
+    for part in [
+        "attach-tools",
+        "attach-preview",
+        "retouch-shown",
+        "attach-send",
+    ] {
+        assert!(within(bounds_of(harness.window, part, cx), sheet), "{part}");
+    }
+    let shown = bounds(harness.window, "retouch-shown", cx);
+    assert!(within(shown, bounds(harness.window, "attach-preview", cx)));
+    assert!((shown.size.width / shown.size.height - 160. / 90.).abs() < 0.02);
+
+    // A quarter turn: the file that goes is the turned one.
+    click(harness.window, "retouch-turn", cx);
+    retouched(&harness, cx);
+    let (_, picture, edits) = on_show(&harness, cx);
+    assert_eq!((picture.dimensions(), edits), ((90, 160), 1));
+    let shown = bounds(harness.window, "retouch-shown", cx);
+    assert!((shown.size.width / shown.size.height - 90. / 160.).abs() < 0.02);
+
+    // The pen: a line dragged across the middle is on the file, in the
+    // colour in hand.
+    click(harness.window, "retouch-pen", cx);
+    assert!(shows(harness.window, "retouch-detail", cx));
+    click(harness.window, "retouch-ink-0", cx);
+    // (The row of colours took some of the picture's room.)
+    let shown = bounds(harness.window, "retouch-shown", cx);
+    let middle = shown.center();
+    let (from, to) = (
+        gpui_kit::point(shown.left() + shown.size.width / 4., middle.y),
+        gpui_kit::point(shown.right() - shown.size.width / 4., middle.y),
+    );
+    {
+        let mut visual = VisualTestContext::from_window(harness.window.into(), cx);
+        visual.simulate_mouse_down(from, gpui_kit::MouseButton::Left, Modifiers::none());
+        visual.simulate_mouse_move(middle, Some(gpui_kit::MouseButton::Left), Modifiers::none());
+        visual.simulate_mouse_move(to, Some(gpui_kit::MouseButton::Left), Modifiers::none());
+        visual.simulate_mouse_up(to, gpui_kit::MouseButton::Left, Modifiers::none());
+        visual.run_until_parked();
+    }
+    retouched(&harness, cx);
+    let (_, picture, edits) = on_show(&harness, cx);
+    assert_eq!(edits, 2);
+    assert_eq!(picture.dimensions(), (90, 160));
+    // (The picture is blue; the first colour is red.)
+    let on_line = (78..=82)
+        .map(|y| picture.get_pixel(45, y).0)
+        .any(|pixel| pixel[0] > 200 && pixel[2] < 100);
+    assert!(on_line, "{:?}", picture.get_pixel(45, 80));
+    assert_eq!(picture.get_pixel(45, 20).0, [0, 120, 200, 255]);
+
+    // A crop keeps what was dragged over, and puts the tool down.
+    click(harness.window, "retouch-crop", cx);
+    let shown = bounds(harness.window, "retouch-shown", cx);
+    {
+        let mut visual = VisualTestContext::from_window(harness.window.into(), cx);
+        let (from, to) = (shown.origin, shown.center());
+        visual.simulate_mouse_down(from, gpui_kit::MouseButton::Left, Modifiers::none());
+        visual.simulate_mouse_move(to, Some(gpui_kit::MouseButton::Left), Modifiers::none());
+        visual.simulate_mouse_up(to, gpui_kit::MouseButton::Left, Modifiers::none());
+        visual.run_until_parked();
+    }
+    retouched(&harness, cx);
+    let (_, picture, edits) = on_show(&harness, cx);
+    assert_eq!(edits, 3);
+    let (wide, tall) = picture.dimensions();
+    assert!(
+        (44..=46).contains(&wide) && (79..=81).contains(&tall),
+        "{wide}x{tall}"
+    );
+    assert!(!shows(harness.window, "retouch-detail", cx));
+
+    // Undo, three times: the file is the one that came, byte for byte.
+    for _ in 0..3 {
+        click(harness.window, "retouch-undo", cx);
+        retouched(&harness, cx);
+    }
+    let (now, _, edits) = on_show(&harness, cx);
+    assert_eq!(edits, 0);
+    assert!(Arc::ptr_eq(&now, &came) || *now == *came);
 }

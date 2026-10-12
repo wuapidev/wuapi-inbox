@@ -88,6 +88,12 @@ icon_assets!(
         PhoneOff,
         VideoOff,
         Monitor,
+        Crop,
+        Type,
+        Square,
+        Grid3x3,
+        Undo2,
+        Reply,
     ]
 );
 

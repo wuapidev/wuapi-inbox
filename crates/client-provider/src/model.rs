@@ -783,7 +783,13 @@ pub struct OutgoingMessage {
     pub chat_id: ChatId,
     /// The payload.
     pub content: OutgoingContent,
-    /// The message to quote, when replying.
+    /// The message to quote, when replying. It is one of `chat_id`, with
+    /// one exception where
+    /// [`Capabilities::private_replies`](crate::Capabilities) is set: a
+    /// message somebody wrote in a group, quoted in the chat with them
+    /// ("Reply privately"). The provider finds the group from the id and
+    /// names it in the quote, which is how the other side shows where
+    /// the message is from.
     pub reply_to: Option<MessageId>,
     /// The people the text mentions: the text names each of them as `@`
     /// followed by the mention's `handle`, which is what

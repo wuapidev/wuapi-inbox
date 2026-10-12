@@ -271,6 +271,9 @@ impl Provider for WuapiProvider {
             // TODO(wuapi-api): GET /v1/messages has no since/after filter.
             incremental_sync: false,
             replies: true,
+            // `replyToMessageId` takes a message of a group when `to` is
+            // the chat with whoever wrote it.
+            private_replies: true,
             reactions: true,
             // `PATCH /v1/messages/{messageId}` and `DELETE` (for everyone,
             // or with `forEveryone=false` on the linked devices only):

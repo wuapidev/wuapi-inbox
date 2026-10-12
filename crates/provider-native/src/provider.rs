@@ -732,6 +732,7 @@ impl Provider for NativeProvider {
             // is reading the newest pages again, which cost nothing.
             incremental_sync: false,
             replies: true,
+            private_replies: true,
             reactions: true,
             edits: true,
             deletes: true,
@@ -911,13 +912,29 @@ impl Provider for NativeProvider {
             return Ok(receipt);
         }
         let chat = message.chat_id.as_str();
-        let quoted = match &message.reply_to {
+        let mut quoted = match &message.reply_to {
             Some(id) => inner
                 .archive
                 .message(account.as_str(), chat, id.as_str())
                 .map_err(db)?,
             None => None,
         };
+        // An answer in private: what it quotes is in a group, which the
+        // quote names so that the other side shows where it is from.
+        let mut quoted_chat = None;
+        if let (None, Some(id)) = (&quoted, &message.reply_to) {
+            let elsewhere = inner
+                .archive
+                .find_message(account.as_str(), id.as_str())
+                .map_err(db)?
+                .filter(|stored| !stored.from_me && crate::ids::is_group(&stored.chat));
+            if let Some(stored) = elsewhere {
+                if let Some(group) = jid_of(&stored.chat) {
+                    quoted_chat = Some(group);
+                    quoted = Some(stored);
+                }
+            }
+        }
         let quoted_author = quoted.as_ref().and_then(|stored| {
             if stored.from_me {
                 inner
@@ -937,7 +954,7 @@ impl Provider for NativeProvider {
             quoted
                 .as_ref()
                 .map(|stored| (stored, quoted_author.as_ref())),
-            None,
+            quoted_chat.as_ref(),
             &mentions,
             message.forwarded,
         );

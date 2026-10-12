@@ -331,6 +331,8 @@ pub(super) enum Overlay {
     NumberAction,
     /// An image, as large as the window allows.
     Viewer,
+    /// A PDF, read here.
+    Reader,
     /// "New poll": a question and its options, for the open chat.
     NewPoll,
     /// The form that creates a group.
@@ -630,6 +632,8 @@ pub struct Shell {
     pub(super) poll_form: Option<super::poll_form::PollForm>,
     /// The image the viewer is showing.
     pub(super) viewing: Option<Media>,
+    /// The PDF being read, and its pages.
+    pub(super) reader: super::reader::Reader,
     /// A file that is being downloaded to be opened when it arrives.
     opening: Option<Media>,
     /// Voice notes and other audio: the player and what it is waiting for.
@@ -678,6 +682,8 @@ pub struct Shell {
     pub(super) attach: Option<super::attach::AttachDraft>,
     /// The sheet's strip of files: scrolls to the one on show.
     pub(super) attach_strip: gpui_kit::ScrollHandle,
+    /// The retouch of the picture on show in the attach sheet.
+    pub(super) retouching: super::retouch::Retouching,
     /// The strip has the keyboard: the arrows go from file to file.
     pub(super) attach_strip_focus: FocusHandle,
     /// The caption of the file on show takes the keyboard at the next
@@ -968,6 +974,7 @@ impl Shell {
             tiles: Default::default(),
             poll_form: None,
             viewing: None,
+            reader: Default::default(),
             opening: None,
             // At the speed voice notes were last played.
             audio: AudioDeck::new(
@@ -1010,6 +1017,7 @@ impl Shell {
             thread_search: None,
             attach: None,
             attach_strip: gpui_kit::ScrollHandle::new(),
+            retouching: Default::default(),
             attach_strip_focus: cx.focus_handle().tab_stop(true),
             attach_wants_focus: false,
             rail: settings::sibling(crate::rail::FILE_NAME, cx)
@@ -1684,6 +1692,7 @@ impl Shell {
             | Overlay::ContactInfo
             | Overlay::ConfirmSignOut
             | Overlay::Viewer
+            | Overlay::Reader
             | Overlay::React
             | Overlay::Reactors
             | Overlay::DeleteMessage
@@ -1743,6 +1752,9 @@ impl Shell {
         if self.overlay == Overlay::Viewer {
             // The picture's pixels are let go with the viewer.
             self.viewer.reset();
+        }
+        if self.overlay == Overlay::Reader {
+            self.end_reading();
         }
         if self.overlay == Overlay::Status {
             self.status.sheet = None;
@@ -1841,6 +1853,12 @@ impl Shell {
         if self.overlay == Overlay::RailMenu {
             self.rail_menu_key(key, window, cx);
             return cx.stop_propagation();
+        }
+        if self.overlay == Overlay::Reader {
+            if self.reader_key(event, window, cx) {
+                cx.stop_propagation();
+            }
+            return;
         }
         if self.overlay == Overlay::Viewer {
             // The viewer's own keys, and those that act on a message's
@@ -2899,6 +2917,10 @@ impl Shell {
         if self.overlay == Overlay::Viewer {
             self.load_viewed(cx);
         }
+        // The PDF in the reader: read, its pages can be drawn.
+        if self.overlay == Overlay::Reader {
+            self.load_read(cx);
+        }
         let waiting = self
             .opening
             .as_ref()
@@ -3105,6 +3127,8 @@ impl Render for Shell {
         self.picker.release(window);
         self.call_deck.release(window);
         self.viewer.release(window);
+        self.reader.release(window);
+        self.read_ahead(window, cx);
         self.engine.set_read_receipts(chosen.read_receipts);
         self.engine.set_story_receipts(chosen.story_receipts);
         // A new interface size: what was measured at the old one is
@@ -3132,6 +3156,9 @@ impl Render for Shell {
         self.list_px = self.list_width_for(self.viewport.width);
         // The sheet just opened: the caption is where typing goes.
         self.ensure_captions(window, cx);
+        self.ensure_retouch(window, cx);
+        let alive = self.retouch_alive();
+        self.retouching.release(&alive, window);
         if std::mem::take(&mut self.attach_wants_focus) && self.overlay == Overlay::AttachSheet {
             if let Some(caption) = self.captioned_field() {
                 caption.update(cx, |field, cx| field.focus(window, cx));

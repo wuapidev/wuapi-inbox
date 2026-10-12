@@ -16,8 +16,11 @@ use super::bubble::Row;
 use super::media::{export_name, FileState};
 use super::shell::{Overlay, Shell};
 use crate::clipboard::{self, ImageClipboard, SystemClipboard};
+use crate::theme::px;
+use crate::theme::{metrics, Palette};
 use client_provider::{Media, MediaKind, Message, MessageContent, Timestamp};
-use gpui_kit::{AppContext as _, Context, SharedString, Task, Window};
+use gpui_kit::prelude::*;
+use gpui_kit::{div, Context, Div, SharedString, Task, Window};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::Arc;
@@ -211,6 +214,47 @@ impl Shell {
             .ok();
         }));
         cx.notify();
+    }
+
+    /// What was just done with the file on show, or what went wrong,
+    /// said over the viewer and the reader: they cover the place it is
+    /// said in otherwise (above the chat list), and a copy that says
+    /// nothing looks like a copy that did not happen.
+    pub(super) fn render_overlay_word(&self, palette: &Palette) -> Option<Div> {
+        let (light, words, selector) = match (&self.problem, &self.leaving.notice) {
+            (Some(problem), _) => (palette.danger, problem.clone(), "overlay-problem"),
+            (None, Some(notice)) => (palette.accent, notice.text.clone(), "overlay-notice"),
+            (None, None) => return None,
+        };
+        Some(
+            div()
+                .absolute()
+                .bottom(px(20.))
+                .left_0()
+                .w_full()
+                .px_4()
+                .flex()
+                .justify_center()
+                .child(
+                    div()
+                        .debug_selector(move || selector.into())
+                        .max_w_full()
+                        .px_3()
+                        .py_2()
+                        .rounded(metrics::PANEL_RADIUS())
+                        .border_1()
+                        .border_color(palette.elevated_border)
+                        .bg(palette.elevated)
+                        .flex()
+                        .items_center()
+                        .gap_2()
+                        .text_size(metrics::TEXT_SMALL())
+                        .line_height(px(18.))
+                        .text_color(palette.text)
+                        .child(div().flex_none().size(px(8.)).rounded_full().bg(light))
+                        .child(div().min_w_0().truncate().child(words)),
+                ),
+        )
     }
 
     /// "Show in folder": the system's file manager, on the file.
@@ -423,6 +467,9 @@ impl Shell {
     fn out_subject(&self) -> Option<Media> {
         if self.overlay == Overlay::Viewer {
             return self.viewing.clone();
+        }
+        if self.overlay == Overlay::Reader {
+            return self.reader.media.clone();
         }
         self.focused_message().as_ref().and_then(media_of).cloned()
     }
