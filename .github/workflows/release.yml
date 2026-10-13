@@ -175,7 +175,7 @@ jobs:
           ditto -c -k --keepParent "work/Wuapi.app" "$RUNNER_TEMP/notarize.zip"
           xcrun notarytool submit "$RUNNER_TEMP/notarize.zip" \
             --apple-id "$APPLE_ID" --password "$APPLE_APP_PASSWORD" --team-id "$APPLE_TEAM_ID" --wait
-          xcrun stapler staple "work/Wuapi.app"
+          packaging/macos/staple.sh "work/Wuapi.app"
 
       - name: Say that the bundle is not notarized (macOS)
         if: runner.os == 'macOS' && !(env.HAS_MACOS_CERTIFICATE == 'true' && env.HAS_APPLE_NOTARY == 'true')
@@ -207,7 +207,7 @@ jobs:
             if [ "$HAS_APPLE_NOTARY" = "true" ]; then
               xcrun notarytool submit "$image" \
                 --apple-id "$APPLE_ID" --password "$APPLE_APP_PASSWORD" --team-id "$APPLE_TEAM_ID" --wait
-              xcrun stapler staple "$image"
+              packaging/macos/staple.sh "$image"
             fi
           fi
 
