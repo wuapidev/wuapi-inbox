@@ -2,14 +2,17 @@
 
 ## [Unreleased]
 
+## [0.4.0]
+
 * A PDF somebody sent is read inside the window: its pages one under the other, scrolled with the wheel, the arrows, Space and the page keys, with the page being read and their number in the toolbar, zoom, Save as… and the way to open it with another application. A PDF that asks for a password, and any other kind of file, still opens with the system's application.
 * The list of people behind `@`: Up and Down move in it and Tab picks (the text field kept those keys to itself), and each person is shown with their picture.
 * Copying or saving the picture in the viewer says so over the picture. It was said above the chat list, behind the viewer.
 * A picture is retouched before it is sent: the sheet of files opens large on a picture, with tools over it to turn it, crop it, draw on it, put a rectangle around something, hide a part (turned into blocks) and write words on it, in a few colours, and Undo. What is sent is the retouched picture; with every edit taken back, the file as it came.
 * Far up a conversation, a button in its corner goes back to the newest message.
-* A message somebody wrote in a group is answered in private: "Reply privately" in its menu (Shift+R) opens the chat with them, and what is sent there quotes the message of the group. A click on that quote goes back to the group. With wuapi it needs the API to take a quote of a group in the chat with its author; a backend that does not yet refuses the message and says why.
+* A message somebody wrote in a group is answered in private: "Reply privately" in its menu (Shift+R) opens the chat with them, and what is sent there quotes the message of the group. A click on that quote goes back to the group. With Wuapi Cloud and with the numbers of this computer.
 * The provider trait has the `private_replies` capability: `OutgoingMessage::reply_to` may then name a message of a group, sent to the chat with whoever wrote it.
-* A group's "Manage" page is laid out as cards: what the group is (name, description, picture), its invite link, and what participants may do.
+* A group's "Manage" page is laid out as cards: what the group is (name, description, picture), its invite link, and what participants may do. A question asked on that page stays inside its card.
+* New dependencies: `hayro` (draws the pages of a PDF) and `ab_glyph` (the words written on a picture).
 
 ## [0.3.0]
 
