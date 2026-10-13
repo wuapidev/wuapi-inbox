@@ -518,6 +518,9 @@ fn the_viewer_has_a_toolbar_walks_the_pictures_and_zooms(cx: &mut TestAppContext
         outside.clipboard.copied.lock().unwrap()[0].types(),
         ["image/png", "image/jpeg"]
     );
+    // And says so over the picture: the viewer covers the chat list,
+    // where it is said otherwise.
+    assert!(shows(harness.window, "overlay-notice", cx));
     *outside.answer.borrow_mut() = Some(outside.chosen.path().join("from-viewer.jpg"));
     click(harness.window, "viewer-save", cx);
     wait(&harness, cx, "saved from the viewer", || {

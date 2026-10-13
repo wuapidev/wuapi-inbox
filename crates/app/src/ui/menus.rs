@@ -167,6 +167,10 @@ impl Shell {
                 self.render_viewer(palette, window, cx)?.into_any_element(),
                 true,
             ),
+            Overlay::Reader => (
+                self.render_reader(palette, window, cx)?.into_any_element(),
+                true,
+            ),
             Overlay::NewPoll => (self.render_poll_form(palette, cx)?.into_any_element(), true),
             Overlay::ConfirmSignOut => (
                 self.render_confirm_sign_out(palette, cx).into_any_element(),
@@ -784,6 +788,7 @@ impl Shell {
                 )
                 .child(toolbar)
                 .children(button)
+                .children(self.render_overlay_word(palette))
                 .text_color(palette.text),
         )
     }

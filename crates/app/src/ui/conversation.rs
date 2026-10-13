@@ -23,6 +23,17 @@ use gpui_kit::component::Sizable;
 use gpui_kit::prelude::*;
 use gpui_kit::{div, list, Context, Div, Focusable, FontWeight, SharedString, Window};
 
+/// How far up the conversation is scrolled, in the window's points,
+/// before the way back to the newest message is offered: about a screen.
+const JUMP_AFTER: f32 = 480.;
+
+/// How far the list is from its end, as far as it has measured.
+pub(super) fn away_from_newest(list: &gpui_kit::ListState) -> f32 {
+    let most = list.max_offset_for_scrollbar().y.as_f32();
+    let now = -list.scroll_px_offset_for_scrollbar().y.as_f32();
+    (most - now).max(0.)
+}
+
 impl Shell {
     pub(super) fn render_conversation(
         &self,
@@ -428,6 +439,55 @@ impl Shell {
                 .pb(metrics::FOCUS_ROOM()),
             )
             .child(Scrollbar::vertical(&open.list))
+            .children(self.render_jump_to_newest(open, &palette, cx))
+    }
+
+    /// The way back to the newest message, over the corner of the
+    /// conversation while it is scrolled far up: a click is there at once,
+    /// and the list follows what arrives again.
+    fn render_jump_to_newest(
+        &self,
+        open: &OpenChat,
+        palette: &Palette,
+        cx: &mut Context<Self>,
+    ) -> Option<Div> {
+        if away_from_newest(&open.list) < JUMP_AFTER {
+            return None;
+        }
+        let hint: SharedString = match crate::keys::keys_label(crate::keys::Command::JumpToNewest) {
+            Some(keys) => format!("Newest message ({keys})").into(),
+            None => "Newest message".into(),
+        };
+        let (fill, hover) = (palette.elevated, palette.elevated_selected);
+        Some(
+            div().absolute().right(px(18.)).bottom(px(14.)).child(
+                div()
+                    .id("jump-to-newest")
+                    .debug_selector(|| "jump-to-newest".into())
+                    .size(px(36.))
+                    .rounded_full()
+                    .border_1()
+                    .border_color(palette.elevated_border)
+                    .bg(fill)
+                    .shadow_md()
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .cursor_pointer()
+                    .hover(move |style| style.bg(hover))
+                    .tooltip(move |window, cx| {
+                        gpui_kit::component::tooltip::Tooltip::new(hint.clone()).build(window, cx)
+                    })
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        cx.stop_propagation();
+                        if let Some(open) = &this.open {
+                            open.list.scroll_to_end();
+                        }
+                        cx.notify();
+                    }))
+                    .child(icon(IconName::ChevronDown, px(18.), palette.icon)),
+            ),
+        )
     }
 
     /// What is under the messages: the composer, or the recording bar
@@ -462,8 +522,8 @@ impl Shell {
             .py_3()
             .border_t_1()
             .border_color(palette.border)
-            // While a mention is typed, the arrows, Tab and Escape are
-            // the list's before they are the text field's.
+            // While a mention is typed, Escape is the list's before
+            // it is the conversation's (its arrows and Tab: `mention_list_key`).
             .capture_key_down(
                 cx.listener(|this, event: &gpui_kit::KeyDownEvent, window, cx| {
                     this.mention_key(event, window, cx);

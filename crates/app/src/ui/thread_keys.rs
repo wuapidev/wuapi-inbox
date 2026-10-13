@@ -590,7 +590,7 @@ impl Shell {
             C::Star => return self.star_subjects(cx),
             C::Delete => return self.begin_delete(window, cx),
             C::Forward => return self.begin_forward(window, cx),
-            C::Reply | C::Edit | C::React | C::Info => {
+            C::Reply | C::ReplyPrivately | C::Edit | C::React | C::Info => {
                 let Some(message) = self.focused_message() else {
                     return false;
                 };
@@ -601,6 +601,7 @@ impl Shell {
                 }
                 return match command {
                     C::Reply => self.begin_reply(window, cx),
+                    C::ReplyPrivately => self.begin_private_reply(window, cx),
                     C::Edit => self.begin_message_edit(window, cx),
                     C::React => self.begin_react(window, cx),
                     _ => self.begin_info(window, cx),
@@ -680,7 +681,8 @@ impl Shell {
                 MediaKind::Image => self.begin_viewing(media.clone(), window, cx),
                 MediaKind::Sticker => return false,
                 MediaKind::Voice | MediaKind::Audio => self.toggle_audio(media.clone(), cx),
-                MediaKind::Video | MediaKind::Document => self.open_file(media.clone(), cx),
+                MediaKind::Video => self.open_file(media.clone(), cx),
+                MediaKind::Document => self.open_document(media.clone(), window, cx),
             },
             _ => match copy_link(&message) {
                 Some(link) if link.starts_with("http") => self.open_link(&link, cx),

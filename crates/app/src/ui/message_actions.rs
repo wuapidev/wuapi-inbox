@@ -20,7 +20,7 @@ use crate::theme::px;
 use crate::theme::{metrics, Palette};
 use client_core::message_preview;
 use client_provider::{
-    ChatId, ChatKind, DeliveryStatus, Direction, Message, MessageContent, MessageId,
+    ChatId, ChatKind, Contact, DeliveryStatus, Direction, Message, MessageContent, MessageId,
 };
 use gpui_kit::component::input::InputState;
 use gpui_kit::prelude::*;
@@ -169,8 +169,21 @@ impl Shell {
         cx.notify();
     }
 
-    /// Goes to a message of the open chat and lights it.
+    /// Goes to a message and lights it. It is one of the open chat, but
+    /// for what an answer in private quotes: that one is in its group,
+    /// which is opened first.
     pub(super) fn jump_and_flash(&mut self, message: MessageId, cx: &mut Context<Self>) {
+        let elsewhere = self.open.as_ref().and_then(|open| {
+            let stored = self
+                .store
+                .message(&open.chat.account_id, &message)
+                .ok()
+                .flatten()?;
+            (stored.chat_id != open.chat.id).then_some(stored.chat_id)
+        });
+        if let Some(chat) = elsewhere {
+            self.show_chat(chat, None, cx);
+        }
         self.jump_to_message(message.clone(), cx);
         if let Some(key) = self.key_of(&message) {
             self.flash_row(key, cx);
@@ -185,6 +198,60 @@ impl Shell {
         let Some(message) = self.focused_message() else {
             return false;
         };
+        self.acting.compose = Compose::Reply(Box::new(message));
+        self.leave_messages(window, cx);
+        true
+    }
+
+    /// Whether the conversation that is open is a group.
+    pub(super) fn in_a_group(&self) -> bool {
+        self.open
+            .as_ref()
+            .is_some_and(|open| open.chat.kind == ChatKind::Group)
+    }
+
+    /// Starts an answer in private to the message in focus, which
+    /// somebody wrote in a group: the chat with them opens (made here if
+    /// there was none), and its composer shows the message it answers.
+    /// What is sent from there quotes the message of the group.
+    pub(super) fn begin_private_reply(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let Some(message) = self.focused_message() else {
+            return false;
+        };
+        let account = message.account_id.clone();
+        let known = self
+            .engine
+            .store()
+            .contact(&account, &message.sender)
+            .ok()
+            .flatten()
+            .unwrap_or_else(|| {
+                let mut bare = Contact::new(account.clone(), message.sender.clone());
+                bare.name = message.sender_name.clone();
+                bare.phone = message
+                    .sender
+                    .as_str()
+                    .starts_with('+')
+                    .then(|| message.sender.to_string());
+                bare
+            });
+        let chat = match self.engine.chat_with_contact(&known) {
+            Ok(chat) => chat,
+            Err(error) => {
+                tracing::error!(%error, "could not open the chat to answer in");
+                return false;
+            }
+        };
+        // Opening the chat forgets what was being written in the group;
+        // the answer is said after it.
+        self.show_chat(chat.clone(), Some(window), cx);
+        if !self.open.as_ref().is_some_and(|open| open.chat.id == chat) {
+            return false;
+        }
         self.acting.compose = Compose::Reply(Box::new(message));
         self.leave_messages(window, cx);
         true
@@ -256,9 +323,16 @@ impl Shell {
         let (title, message, glyph, selector) = match &self.acting.compose {
             Compose::New => return None,
             Compose::Reply(message) => {
+                // An answer in private is to a message of another chat.
+                let private = self
+                    .open
+                    .as_ref()
+                    .is_some_and(|open| open.chat.id != message.chat_id);
                 let who = match (&message.direction, &message.sender_name) {
                     (Direction::Outgoing, _) => "Replying to yourself".to_owned(),
+                    (_, Some(name)) if private => format!("Replying privately to {name}"),
                     (_, Some(name)) => format!("Replying to {name}"),
+                    _ if private => "Replying privately".to_owned(),
                     _ => "Replying".to_owned(),
                 };
                 (who, message, IconName::MessageSquareText, "compose-reply")

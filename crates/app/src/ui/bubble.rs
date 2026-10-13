@@ -1313,9 +1313,11 @@ fn file_action(media: &Media, message: &Message, side: &Side, context: &RowConte
             .cursor_pointer()
             .text_color(text_colour)
             .hover(|style| style.opacity(0.7))
-            .on_click(move |_, _, cx| {
-                view.update(cx, |shell, cx| shell.open_file(media.clone(), cx))
-                    .ok();
+            .on_click(move |_, window, cx| {
+                view.update(cx, |shell, cx| {
+                    shell.open_document(media.clone(), window, cx)
+                })
+                .ok();
             })
             .child(icon(IconName::ExternalLink, px(13.), text_colour))
             .child(mono(text)),

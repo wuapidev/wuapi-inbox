@@ -15,7 +15,7 @@ use super::shell::Shell;
 use crate::mentioning::{self, Picked};
 use crate::theme::{metrics, px, Palette};
 use client_core::StoredParticipant;
-use client_provider::ChatKind;
+use client_provider::{ChatId, ChatKind};
 use gpui_kit::prelude::*;
 use gpui_kit::{div, Context, Div, KeyDownEvent, SharedString, Window};
 
@@ -214,29 +214,48 @@ impl Shell {
         true
     }
 
-    /// The keys the list takes before the text field sees them: the
-    /// arrows move, Tab picks, Escape closes.
-    pub(super) fn mention_key(
+    /// The keys that move in the list, taken before the text field's own
+    /// bindings see them: the field moves its caret with the arrows and
+    /// indents with Tab, so a key it was let have never gets here. The
+    /// arrows move, Tab picks. (Enter comes from the field; Escape is
+    /// [`Self::mention_key`].)
+    pub(super) fn mention_list_key(
         &mut self,
-        event: &KeyDownEvent,
+        stroke: &gpui_kit::Keystroke,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> bool {
+        if stroke.modifiers.modified() || !self.writing_has_keyboard(window, cx) {
+            return false;
+        }
         let count = self.mention_matches(cx).len();
         if count == 0 {
             return false;
         }
-        let cursor = self.mentions().cursor;
-        match event.keystroke.key.as_str() {
+        let cursor = self.mentions().cursor.min(count - 1);
+        match stroke.key.as_str() {
             "down" => self.mentions_mut().cursor = (cursor + 1) % count,
             "up" => self.mentions_mut().cursor = (cursor + count - 1) % count,
-            "tab" => self.pick_mention(cursor.min(count - 1), window, cx),
-            "escape" => {
-                let closed_at = self.around_caret(cx).0;
-                self.mentions_mut().dismissed = Some(closed_at);
-            }
+            "tab" => self.pick_mention(cursor, window, cx),
             _ => return false,
         }
+        cx.notify();
+        true
+    }
+
+    /// Escape while the list is open closes the list, and nothing else:
+    /// it stays closed until the text changes.
+    pub(super) fn mention_key(
+        &mut self,
+        event: &KeyDownEvent,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        if event.keystroke.key != "escape" || self.mention_matches(cx).is_empty() {
+            return false;
+        }
+        let closed_at = self.around_caret(cx).0;
+        self.mentions_mut().dismissed = Some(closed_at);
         cx.stop_propagation();
         cx.notify();
         true
@@ -278,11 +297,17 @@ impl Shell {
                 .map(crate::format::phone)
                 .filter(|phone| *phone != name);
             let hover = palette.hover;
-            // In the colour their messages carry in this group.
-            let tone = self.open.as_ref().map_or(0, |open| {
-                self.senders
-                    .of(&open.chat.account_id, Some(&open.chat.id), &person.contact)
-                    .tone
+            // In the colour their messages carry in this group, and with
+            // their picture when it is here (asking is what fetches it).
+            let (tone, picture) = self.open.as_ref().map_or((0, None), |open| {
+                let account = &open.chat.account_id;
+                (
+                    self.senders
+                        .of(account, Some(&open.chat.id), &person.contact)
+                        .tone,
+                    self.media
+                        .avatar(account, &ChatId::new(person.contact.as_str().to_owned())),
+                )
             });
             list =
                 list.child(
@@ -301,7 +326,7 @@ impl Shell {
                         .on_click(cx.listener(move |this, _, window, cx| {
                             this.pick_mention(index, window, cx)
                         }))
-                        .child(person_avatar(None, &name, px(24.), tone, palette))
+                        .child(person_avatar(picture, &name, px(24.), tone, palette))
                         .child(
                             div()
                                 .min_w_0()

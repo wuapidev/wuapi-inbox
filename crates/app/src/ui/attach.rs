@@ -64,6 +64,8 @@ pub(in crate::ui) struct AttachItem {
     /// The people its caption mentions.
     pub(in crate::ui) mentioning: Mentioning,
     _caption_events: Option<Subscription>,
+    /// What was done to it, when it is a picture that was retouched.
+    pub(in crate::ui) retouch: super::retouch::Retouched,
 }
 
 impl AttachItem {
@@ -74,6 +76,22 @@ impl AttachItem {
             .as_ref()
             .map(|field| field.read(cx).value().trim().to_owned())
             .unwrap_or_default()
+    }
+
+    /// The file it sends from now on (a picture, retouched), with the
+    /// small picture of it. One that grew past the limit is held back.
+    pub(in crate::ui) fn set_sent_file(
+        &mut self,
+        file: Attachment,
+        preview: Option<Arc<Image>>,
+        limit: Option<u64>,
+    ) {
+        self.size = file.bytes.len() as u64;
+        self.blocked = limit
+            .filter(|limit| self.size > *limit)
+            .map(|limit| SharedString::from(attach::too_large(self.size, limit)));
+        self.preview = preview;
+        self.file = file;
     }
 
     /// What it is, in a word.
@@ -117,7 +135,7 @@ impl AttachDraft {
             || self
                 .items
                 .iter()
-                .any(|item| !item.caption_text(cx).is_empty())
+                .any(|item| !item.caption_text(cx).is_empty() || !item.retouch.edits.is_empty())
     }
 }
 
@@ -130,7 +148,7 @@ pub(in crate::ui) struct Staged {
 }
 
 /// A small picture of an image file, made here from its bytes.
-fn preview_of(file: &Attachment) -> Option<Arc<Image>> {
+pub(in crate::ui) fn preview_of(file: &Attachment) -> Option<Arc<Image>> {
     if !file.is_image() {
         return None;
     }
@@ -283,6 +301,7 @@ impl Shell {
                 caption: None,
                 mentioning: Mentioning::default(),
                 _caption_events: None,
+                retouch: Default::default(),
             }));
         if draft.items.len() > first_new {
             draft.selected = first_new;
@@ -523,6 +542,11 @@ impl Shell {
         {
             return;
         }
+        // A picture whose last edit is still being made would go without
+        // it: the files wait for it.
+        if self.retouch_busy() {
+            return;
+        }
         let (Some(draft), Some(open)) = (self.attach.take(), self.open.as_ref()) else {
             return;
         };
@@ -670,13 +694,19 @@ impl Shell {
         let room = self.viewport;
 
         // ----- the file on show
+        // A picture that can be retouched has the tools over it and
+        // takes the room there is.
+        let tools = self.render_retouch_tools(palette, cx);
+        let retouched = self.render_retouch_picture(palette, cx);
+        let editing = tools.is_some();
         let show = current.map(|item| {
-            let face = match &item.preview {
-                Some(preview) => img(preview.clone())
+            let face = match (retouched, &item.preview) {
+                (Some(picture), _) => picture,
+                (None, Some(preview)) => img(preview.clone())
                     .size_full()
                     .object_fit(ObjectFit::Contain)
                     .into_any_element(),
-                None => div()
+                (None, None) => div()
                     .max_w_full()
                     .px_4()
                     .flex()
@@ -717,7 +747,7 @@ impl Shell {
                         .debug_selector(|| "attach-preview".into())
                         .flex_1()
                         .min_h(px(96.))
-                        .max_h(px(280.))
+                        .when(!editing, |this| this.max_h(px(280.)))
                         .w_full()
                         .rounded(metrics::RADIUS())
                         .bg(palette.muted)
@@ -772,9 +802,9 @@ impl Shell {
                     .flex()
                     .flex_col()
                     .gap_1()
-                    // While a mention or a shortcode is typed, the arrows,
-                    // Tab and Escape are the list's before they are the
-                    // field's or the sheet's.
+                    // While a mention or a shortcode is typed, Escape is the
+                    // list's before it is the sheet's (the arrows and Tab
+                    // are taken in `mention_list_key`).
                     .capture_key_down(cx.listener(
                         |this, event: &gpui_kit::KeyDownEvent, window, cx| {
                             this.mention_key(event, window, cx);
@@ -1072,7 +1102,7 @@ impl Shell {
                         ),
                 )
         } else {
-            let can_send = first.is_some();
+            let can_send = first.is_some() && !self.retouch_busy();
             footer
                 .child(
                     mono(summary)
@@ -1134,9 +1164,17 @@ impl Shell {
 
         Some(
             self.card("attach-sheet", palette)
-                .w(px(520.))
                 .max_w((room.width - px(32.)).max(px(240.)))
-                .max_h((room.height - px(32.)).max(px(240.)).min(px(720.)))
+                .map(|this| {
+                    let most = (room.height - px(32.)).max(px(240.));
+                    if editing {
+                        // A picture to work on: as much of the window as
+                        // a picture is looked at in.
+                        this.w(px(920.)).h(most.min(px(900.)))
+                    } else {
+                        this.w(px(520.)).max_h(most.min(px(720.)))
+                    }
+                })
                 .flex()
                 .flex_col()
                 .child(super::menus::panel_header(
@@ -1164,6 +1202,7 @@ impl Shell {
                                 .map(|bar| bar.mb(px(0.))),
                         )
                         .children(reply_note)
+                        .children(tools)
                         .children(show)
                         .children(caption)
                         .child(strip)

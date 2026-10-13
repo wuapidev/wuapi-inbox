@@ -114,7 +114,7 @@ One number, one chat; what you write comes back.
 | `set_call_camera`, `call_video`, `call_cameras` | no | `video_calls` |
 | `set_call_devices`, `invite_to_call` | no | `calls` |
 
-The flags that gate no method describe what the required ones carry: `groups` (group chats are listed and can be sent to), `contact_names` (names are the address book's), `replies`, `reactions`, `forwards` and `polls` (what `send` takes), `presence` (typing is pushed), `incremental_sync`, `story_contacts`.
+The flags that gate no method describe what the required ones carry: `groups` (group chats are listed and can be sent to), `contact_names` (names are the address book's), `replies`, `private_replies` (`reply_to` may name a message somebody wrote in a group while `chat_id` is the chat with them: the provider finds the group from the id and names it in the quote), `reactions`, `forwards` and `polls` (what `send` takes), `presence` (typing is pushed), `incremental_sync`, `story_contacts`.
 
 ## The trait
 

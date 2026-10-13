@@ -54,6 +54,12 @@ ropus = "0.12"
 cpal = "0.18"
 # Decodes profile pictures and message images, and makes their thumbnails.
 image = { version = "0.25", default-features = false, features = ["gif", "jpeg", "png", "webp"] }
+# Draws the pages of a PDF for the reader inside the application: a
+# rasterizer in pure Rust, nothing of the system's. Apache-2.0 OR MIT.
+hayro = "0.8"
+# The words written on a picture before it is sent, drawn with the
+# bundled Inter: glyph outlines to coverage, in pure Rust. Apache-2.0.
+ab_glyph = "0.2"
 # Names a sticker or GIF by its content, so that the same file is one.
 sha2 = "0.10"
 serde = { version = "1", features = ["derive"] }

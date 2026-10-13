@@ -23,8 +23,13 @@ pub(super) enum CommandState {
 }
 
 /// The commands of a message's menu, in its order, with their glyphs.
-pub(super) const MENU: [(Command, &str, IconName); 17] = [
+pub(super) const MENU: [(Command, &str, IconName); 18] = [
     (Command::Reply, "message-reply", IconName::MessageSquareText),
+    (
+        Command::ReplyPrivately,
+        "message-reply-privately",
+        IconName::Reply,
+    ),
     (
         Command::React,
         "message-react",
@@ -140,6 +145,12 @@ impl Shell {
             C::Reply if !caps.replies => Hidden,
             C::Reply if !sent(message) => Disabled(NOT_SENT),
             C::Reply => Enabled,
+            // Only what somebody else wrote in a group has a chat to be
+            // answered in apart from this one.
+            C::ReplyPrivately if !caps.replies || !caps.private_replies => Hidden,
+            C::ReplyPrivately if own || !self.in_a_group() => Hidden,
+            C::ReplyPrivately if !sent(message) => Disabled(NOT_SENT),
+            C::ReplyPrivately => Enabled,
             C::React if !caps.reactions => Hidden,
             C::React if !sent(message) => Disabled(NOT_SENT),
             C::React => Enabled,

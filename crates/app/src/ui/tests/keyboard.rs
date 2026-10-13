@@ -714,6 +714,73 @@ fn a_reply_names_what_it_answers_and_its_quote_leads_back(cx: &mut TestAppContex
 // ----- react, star, delete ---------------------------------------------------------
 
 #[gpui_kit::test]
+fn a_message_of_a_group_is_answered_in_private_with_its_quote(cx: &mut TestAppContext) {
+    let harness = open_chat_one(cx);
+    let (account, _) = open_ids(&harness, cx);
+    let group = harness
+        .engine
+        .store()
+        .chats(&account, None)
+        .unwrap()
+        .into_iter()
+        .find(|chat| chat.kind == client_provider::ChatKind::Group)
+        .expect("the mock has groups")
+        .id;
+    super::social::open_chat(&harness, cx, &group);
+    let author = ContactId::new("+584140000002");
+    let mut theirs = text_message(&account, &group, "g1", false, "who has the keys?", -300);
+    theirs.sender = author.clone();
+    theirs.sender_name = Some("Ana".to_owned());
+    let mine = text_message(&account, &group, "g2", true, "asking around", -200);
+    for message in [theirs, mine] {
+        harness
+            .engine
+            .apply_event(ProviderEvent::MessageUpserted(message))
+            .unwrap();
+    }
+    cx.run_until_parked();
+    let offered = |cx: &mut TestAppContext| {
+        cx.update(|cx| harness.shell.read(cx).message_menu_items())
+            .iter()
+            .any(|item| item.id == "message-reply-privately")
+    };
+
+    // One's own message has nobody to answer in private.
+    focus_composer(&harness, cx);
+    press(harness.window, "up", cx);
+    assert_eq!(focused(&harness, cx).as_deref(), Some("g2"));
+    assert!(!offered(cx));
+    press(harness.window, "shift-r", cx);
+    assert_eq!(open_ids(&harness, cx).1, group);
+
+    // Somebody else's has: Shift+R opens the chat with them, and its
+    // composer says what is being answered.
+    press(harness.window, "up", cx);
+    assert_eq!(focused(&harness, cx).as_deref(), Some("g1"));
+    assert!(offered(cx));
+    press(harness.window, "shift-r", cx);
+    let direct = ChatId::new(author.as_str());
+    assert_eq!(open_ids(&harness, cx).1, direct);
+    assert!(shows(harness.window, "compose-reply", cx));
+
+    // What is sent goes to them and quotes the message of the group.
+    type_text(harness.window, "I do, come by", cx);
+    press(harness.window, "enter", cx);
+    assert!(!shows(harness.window, "compose-reply", cx));
+    let pending = harness.engine.store().outbox_pending().unwrap();
+    assert_eq!(pending.len(), 1);
+    assert_eq!(pending[0].message.chat_id, direct);
+    assert_eq!(pending[0].message.reply_to, Some(MessageId::new("g1")));
+    let quote = bounds(harness.window, "quote", cx);
+    assert!(within(quote, bounds(harness.window, "bubble", cx)));
+
+    // The quote leads back to the group, where the message is.
+    click(harness.window, "quote", cx);
+    harness.settle(cx);
+    assert_eq!(open_ids(&harness, cx).1, group);
+}
+
+#[gpui_kit::test]
 fn a_reaction_is_picked_shows_as_ones_own_and_is_taken_back(cx: &mut TestAppContext) {
     let harness = open_chat_one(cx);
     put(&harness, cx, "r1", false, "we won!", 1);

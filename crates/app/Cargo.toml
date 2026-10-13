@@ -30,6 +30,10 @@ symphonia.workspace = true
 gpui-kit.workspace = true
 # Decodes the bundled application icon. The same `image` GPUI already uses.
 image.workspace = true
+# Words written on a picture that is about to be sent.
+ab_glyph.workspace = true
+# The pages of a PDF, drawn for the reader.
+hayro.workspace = true
 # The database key lives in the OS keychain.
 keyring.workspace = true
 # The online GIF search, when the user turns it on: plain HTTPS to the

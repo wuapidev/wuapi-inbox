@@ -77,6 +77,10 @@ pub struct Capabilities {
     pub incremental_sync: bool,
     /// Messages can quote another message.
     pub replies: bool,
+    /// A message of a group can be answered in private: quoted in the
+    /// chat with whoever wrote it
+    /// ([`OutgoingMessage::reply_to`](crate::OutgoingMessage)).
+    pub private_replies: bool,
     /// Reactions can be sent.
     pub reactions: bool,
     /// Sent messages can be edited.
@@ -229,6 +233,7 @@ impl Capabilities {
             realtime_push: false,
             incremental_sync: false,
             replies: false,
+            private_replies: false,
             reactions: false,
             edits: false,
             deletes: false,
@@ -295,6 +300,7 @@ impl Capabilities {
             realtime_push: true,
             incremental_sync: true,
             replies: true,
+            private_replies: true,
             reactions: true,
             edits: true,
             deletes: true,
@@ -363,6 +369,7 @@ impl Capabilities {
             realtime_push: self.realtime_push || other.realtime_push,
             incremental_sync: self.incremental_sync || other.incremental_sync,
             replies: self.replies || other.replies,
+            private_replies: self.private_replies || other.private_replies,
             reactions: self.reactions || other.reactions,
             edits: self.edits || other.edits,
             deletes: self.deletes || other.deletes,
