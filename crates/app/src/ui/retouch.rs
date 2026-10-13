@@ -685,9 +685,15 @@ impl Shell {
         let over = canvas(
             move |bounds, _, cx| {
                 // Where the room is, for the next frame and the pointer.
+                // A view told of a change while the window is being drawn
+                // is not drawn again, so the telling waits until this
+                // frame is done: the picture, placed in the room as it
+                // was (no room at all the first time), is then drawn
+                // where it belongs without waiting for something else
+                // to draw the window.
                 if room.get() != bounds {
                     room.set(bounds);
-                    cx.notify(view);
+                    cx.defer(move |cx| cx.notify(view));
                 }
             },
             move |_, _, window, _| {

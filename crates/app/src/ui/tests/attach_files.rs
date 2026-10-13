@@ -1115,7 +1115,10 @@ fn a_picture_is_turned_drawn_on_and_put_back_before_it_goes(cx: &mut TestAppCont
     }
     let shown = bounds(harness.window, "retouch-shown", cx);
     assert!(within(shown, bounds(harness.window, "attach-preview", cx)));
-    assert!((shown.size.width / shown.size.height - 160. / 90.).abs() < 0.02);
+    assert!(
+        (shown.size.width / shown.size.height - 160. / 90.).abs() < 0.02,
+        "{shown:?}"
+    );
 
     // A quarter turn: the file that goes is the turned one.
     click(harness.window, "retouch-turn", cx);
