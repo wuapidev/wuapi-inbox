@@ -34,7 +34,7 @@ use tokio::sync::Notify;
 use tokio::task::JoinHandle;
 
 mod actions;
-pub use actions::{ForwardError, ForwardRefusal};
+pub use actions::{ForwardError, ForwardRefusal, PINS_PER_CHAT};
 mod calls;
 pub use calls::LiveCall;
 mod library;
@@ -2685,7 +2685,11 @@ impl SyncEngine {
             hints
                 .get(&key)
                 .is_some_and(|known| known.asked.is_some() && known.asked == hint)
-        };
+        }
+        // Or in an earlier session: the store remembers what was asked.
+        || stored
+            .as_ref()
+            .is_some_and(|stored| stored.asked_for.is_some() && stored.asked_for == hint);
         match &hint {
             Some(id) if held.as_ref() == Some(id) => return AVATAR_TTL,
             // Another picture than the one held, not asked about yet.
@@ -2760,6 +2764,12 @@ impl SyncEngine {
         if let Err(error) = stored {
             tracing::error!(%error, "could not store a picture");
             return AVATAR_RETRY;
+        }
+        if let Err(error) = inner
+            .store
+            .set_avatar_asked(account, subject, hint.as_deref())
+        {
+            tracing::warn!(%error, "could not note what a picture was asked for");
         }
         AVATAR_TTL
     }

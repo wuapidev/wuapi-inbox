@@ -34,7 +34,7 @@ pub use calls::{
 pub use capabilities::{Capabilities, Feature};
 pub use content::{
     mention_handle, CalendarEvent, ContactCard, EventCall, EventPlace, GeoPoint, LinkPreview,
-    Location, Mention, MessageExtras, Party, Poll, PollOption, SystemEvent, SystemKind,
+    Location, Mention, MessageExtras, Party, PinFor, Poll, PollOption, SystemEvent, SystemKind,
 };
 pub use error::{ProviderError, ProviderResult};
 pub use event::{EventStream, ProviderEvent};

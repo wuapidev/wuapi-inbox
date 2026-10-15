@@ -32,6 +32,8 @@ pub(crate) struct Report {
     pub width: u32,
     pub height: u32,
     pub position: Duration,
+    /// How long it is, once the decoder knows.
+    pub duration: Option<Duration>,
     pub finished: bool,
     pub failure: Option<String>,
 }
@@ -47,6 +49,8 @@ struct Shared {
     failure: Option<String>,
     /// Advances on [`Clip::poll`] instead of a decoder thread.
     clock: bool,
+    /// Where to go next, asked for by [`Clip::seek`].
+    seek: Option<Duration>,
 }
 
 /// One playback. Dropping it stops the decoder; it does not wait for it.
@@ -80,7 +84,21 @@ impl Clip {
             BUNDLE,
             &cache_root(),
         )?;
-        native::start(&path, bytes)
+        native::start(&path, bytes, false)
+    }
+
+    /// Plays `bytes` as a GIF: silent, and over again from the start for
+    /// as long as the clip is kept.
+    pub(crate) fn open_looping(bytes: Arc<[u8]>) -> Result<Self, String> {
+        if let Some(open) = opener() {
+            return open(bytes);
+        }
+        let path = resolve_library(
+            std::env::var_os("WUAPI_LIBMPV_PATH").map(PathBuf::from),
+            BUNDLE,
+            &cache_root(),
+        )?;
+        native::start(&path, bytes, true)
     }
 
     /// Holds or continues. A clock clip stops advancing; libmpv pauses.
@@ -101,6 +119,18 @@ impl Clip {
         }
     }
 
+    /// Goes to `at`. A clock clip is there at once; libmpv gets there on
+    /// its next turn.
+    pub(crate) fn seek(&self, at: Duration) {
+        let mut shared = lock(&self.shared);
+        if shared.clock {
+            shared.position = at.min(shared.duration);
+            shared.finished = shared.position >= shared.duration;
+        } else {
+            shared.seek = Some(at);
+        }
+    }
+
     pub(crate) fn report(&self) -> Report {
         let shared = lock(&self.shared);
         Report {
@@ -108,6 +138,7 @@ impl Clip {
             width: shared.width,
             height: shared.height,
             position: shared.position,
+            duration: (!shared.duration.is_zero()).then_some(shared.duration),
             finished: shared.finished,
             failure: shared.failure.clone(),
         }
@@ -134,6 +165,7 @@ pub(crate) fn clock(duration: Duration) -> Clip {
             finished: false,
             failure: None,
             clock: true,
+            seek: None,
         })),
         paused: Arc::new(AtomicBool::new(false)),
         stop: Arc::new(AtomicBool::new(false)),
@@ -210,6 +242,16 @@ fn resolve_library(env: Option<PathBuf>, bundle: &[u8], cache: &Path) -> Result<
         return Err("no video runtime was embedded".into());
     }
     let dir = cache.join(digest(bundle));
+    // Extracted once per runtime: the library may be loaded already, and
+    // a file that is loaded is never written over (truncating it under
+    // the mapping crashes the process).
+    let complete = dir.join(".complete");
+    if let Ok(name) = std::fs::read_to_string(&complete) {
+        let library = dir.join(name.trim());
+        if library.is_file() {
+            return Ok(library);
+        }
+    }
     std::fs::create_dir_all(&dir).map_err(|error| error.to_string())?;
     #[cfg(unix)]
     {
@@ -222,6 +264,11 @@ fn resolve_library(env: Option<PathBuf>, bundle: &[u8], cache: &Path) -> Result<
     let mut library = None;
     for entry in entries {
         let mut entry = entry.map_err(|error| error.to_string())?;
+        // Only files are written: a directory entry (`./`, as `tar -C dir .`
+        // writes one) names nothing to check.
+        if !entry.header().entry_type().is_file() {
+            continue;
+        }
         let path = entry
             .path()
             .map_err(|error| error.to_string())?
@@ -231,25 +278,31 @@ fn resolve_library(env: Option<PathBuf>, bundle: &[u8], cache: &Path) -> Result<
                 "the video runtime archive has an unsafe path ({path:?})"
             ));
         };
-        if !entry.header().entry_type().is_file() {
-            continue;
-        }
         let dest = dir.join(&relative);
         if let Some(parent) = dest.parent() {
             std::fs::create_dir_all(parent).map_err(|error| error.to_string())?;
         }
-        let mut file = std::fs::File::create(&dest).map_err(|error| error.to_string())?;
+        // Written beside it and renamed over it: whatever had the old
+        // file open keeps it.
+        let part = dest.with_extension("part");
+        let mut file = std::fs::File::create(&part).map_err(|error| error.to_string())?;
         std::io::copy(&mut entry, &mut file).map_err(|error| error.to_string())?;
+        drop(file);
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
-            let _ = std::fs::set_permissions(&dest, std::fs::Permissions::from_mode(0o644));
+            let _ = std::fs::set_permissions(&part, std::fs::Permissions::from_mode(0o644));
         }
+        std::fs::rename(&part, &dest).map_err(|error| error.to_string())?;
         if is_library(relative.as_path()) {
-            library = Some(dest);
+            library = Some((dest, relative));
         }
     }
-    library.ok_or_else(|| "the video runtime archive has no libmpv".into())
+    let (library, relative) =
+        library.ok_or_else(|| "the video runtime archive has no libmpv".to_owned())?;
+    std::fs::write(&complete, relative.to_string_lossy().as_bytes())
+        .map_err(|error| error.to_string())?;
+    Ok(library)
 }
 
 fn digest(bytes: &[u8]) -> String {
@@ -458,7 +511,7 @@ mod native {
         Ok(*symbol)
     }
 
-    pub(super) fn start(path: &Path, bytes: Arc<[u8]>) -> Result<Clip, String> {
+    pub(super) fn start(path: &Path, bytes: Arc<[u8]>, looping: bool) -> Result<Clip, String> {
         if bytes.is_empty() {
             return Err("the video file is empty".into());
         }
@@ -473,6 +526,7 @@ mod native {
             finished: false,
             failure: None,
             clock: false,
+            seek: None,
         }));
         let paused = Arc::new(AtomicBool::new(false));
         let stop = Arc::new(AtomicBool::new(false));
@@ -480,7 +534,16 @@ mod native {
             (Arc::clone(&shared), Arc::clone(&paused), Arc::clone(&stop));
         let join = std::thread::Builder::new()
             .name("story-video".into())
-            .spawn(move || play(api, bytes, shared_worker, paused_worker, stop_worker))
+            .spawn(move || {
+                play(
+                    api,
+                    bytes,
+                    shared_worker,
+                    paused_worker,
+                    stop_worker,
+                    looping,
+                )
+            })
             .map_err(|error| error.to_string())?;
         Ok(Clip {
             shared,
@@ -496,8 +559,9 @@ mod native {
         shared: Arc<Mutex<Shared>>,
         paused: Arc<AtomicBool>,
         stop: Arc<AtomicBool>,
+        looping: bool,
     ) {
-        let result = session(&api, &bytes, &shared, &paused, &stop);
+        let result = session(&api, &bytes, &shared, &paused, &stop, looping);
         if let Err(error) = result {
             tracing::warn!(%error, "story video stopped");
             lock(&shared).failure = Some(error);
@@ -510,14 +574,20 @@ mod native {
         shared: &Mutex<Shared>,
         paused: &AtomicBool,
         stop: &AtomicBool,
+        looping: bool,
     ) -> Result<(), String> {
-        let (ctx, render) = core(api, "auto").or_else(|error| {
-            if error.contains("audio output") {
-                core(api, "null")
-            } else {
-                Err(error)
-            }
-        })?;
+        // A GIF has no sound to give to an audio output.
+        let (ctx, render) = if looping {
+            core(api, "null", true)
+        } else {
+            core(api, "auto", false).or_else(|error| {
+                if error.contains("audio output") {
+                    core(api, "null", false)
+                } else {
+                    Err(error)
+                }
+            })
+        }?;
         let source = Box::into_raw(Box::new(Source {
             bytes: Arc::clone(bytes),
             cancel: api.version >= ((1 << 16) | 106) as std::os::raw::c_ulong,
@@ -583,6 +653,16 @@ mod native {
                     break;
                 }
             }
+            let seek = lock(shared).seek.take();
+            if let Some(at) = seek {
+                let to = CString::new(format!("{:.3}", at.as_secs_f64())).unwrap();
+                let verb = CString::new("seek").unwrap();
+                let how = CString::new("absolute").unwrap();
+                let args = [verb.as_ptr(), to.as_ptr(), how.as_ptr(), std::ptr::null()];
+                unsafe { (api.command)(ctx, args.as_ptr()) };
+                // Held, the frame there is drawn all the same.
+                render_frame(api, render, ctx, shared, &mut size);
+            }
             publish_position(api, ctx, shared);
             if !want_pause && last_frame.elapsed() >= Duration::from_millis(33) {
                 render_frame(api, render, ctx, shared, &mut size);
@@ -608,6 +688,7 @@ mod native {
     fn core(
         api: &Api,
         audio: &str,
+        looping: bool,
     ) -> Result<(*mut std::ffi::c_void, *mut std::ffi::c_void), String> {
         let ctx = unsafe { (api.create)() };
         if ctx.is_null() {
@@ -628,6 +709,13 @@ mod native {
             ("input-vo-keyboard", "no"),
             ("ytdl", "no"),
             ("sw-fast", "yes"),
+            ("loop-file", if looping { "inf" } else { "no" }),
+            // A sound card that does not open when playback starts (none
+            // at all, one just unplugged, one held by another program)
+            // costs the sound, not the picture: without this libmpv ends
+            // the file there, as if it could not be read.
+            ("audio-fallback-to-null", "yes"),
+            ("audio", if looping { "no" } else { "auto" }),
         ] {
             let required = name == "vo" || name == "idle" || name == "config";
             if let Err(error) = set_string(api, ctx, false, name, value) {
@@ -708,6 +796,12 @@ mod native {
     }
 
     fn publish_position(api: &Api, ctx: *mut std::ffi::c_void, shared: &Mutex<Shared>) {
+        if lock(shared).duration.is_zero() {
+            let length = property(api, ctx, "duration").and_then(|text| text.parse::<f64>().ok());
+            if let Some(seconds) = length.filter(|seconds| seconds.is_finite() && *seconds > 0.) {
+                lock(shared).duration = Duration::from_secs_f64(seconds);
+            }
+        }
         let Some(text) = property(api, ctx, "time-pos") else {
             return;
         };
@@ -946,8 +1040,12 @@ mod tests {
         let extracted = resolve_library(None, &packed, &cache).unwrap();
         assert_eq!(std::fs::read(&extracted).unwrap(), b"libmpv-bytes");
         assert!(extracted.starts_with(&cache));
+        // Asked again (the next video), the file is not written again: it
+        // may be loaded, and writing over a loaded library crashes.
+        std::fs::write(&extracted, b"loaded").unwrap();
         let again = resolve_library(None, &packed, &cache).unwrap();
         assert_eq!(again, extracted);
+        assert_eq!(std::fs::read(&extracted).unwrap(), b"loaded");
 
         let replacement = root.join("other-libmpv");
         std::fs::write(&replacement, b"replacement").unwrap();
@@ -962,6 +1060,56 @@ mod tests {
         assert!(refused.contains("unsafe"));
         assert!(!root.join(library_name()).exists());
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// The real decoder on a real file: run by name, with
+    /// `WUAPI_LIBMPV_PATH` set to a libmpv (the one
+    /// `packaging/video/build-libmpv.sh` makes) and `WUAPI_TEST_VIDEO` to
+    /// an MP4, as WhatsApp sends them (H.264 and AAC).
+    #[test]
+    #[ignore = "needs a libmpv and a video: run it by name"]
+    fn a_real_libmpv_plays_a_real_file_and_loops_a_gif() {
+        let video = std::env::var_os("WUAPI_TEST_VIDEO").expect("WUAPI_TEST_VIDEO");
+        let bytes: Arc<[u8]> = std::fs::read(video).expect("the video").into();
+        let wait = |clip: &Clip, until: &dyn Fn(&Report) -> bool| {
+            let started = std::time::Instant::now();
+            loop {
+                let report = clip.report();
+                assert!(report.failure.is_none(), "{:?}", report.failure);
+                if until(&report) {
+                    return report;
+                }
+                assert!(
+                    started.elapsed() < Duration::from_secs(20),
+                    "it never got there"
+                );
+                std::thread::sleep(Duration::from_millis(20));
+            }
+        };
+
+        let clip = Clip::open(bytes.clone()).expect("libmpv opens");
+        let shown = wait(&clip, &|report| report.image.is_some());
+        assert!(shown.width > 0 && shown.height > 0);
+        let length = wait(&clip, &|report| report.duration.is_some())
+            .duration
+            .unwrap();
+        assert!(length > Duration::from_secs(1), "{length:?}");
+        // To the middle, and on to the end.
+        clip.seek(length / 2);
+        wait(&clip, &|report| report.position >= length / 2);
+        wait(&clip, &|report| report.finished);
+
+        // As a GIF: it starts over instead of finishing.
+        let gif = Clip::open_looping(bytes).expect("libmpv opens");
+        wait(&gif, &|report| report.image.is_some());
+        std::thread::sleep(length + Duration::from_millis(800));
+        let report = gif.report();
+        assert!(!report.finished && report.failure.is_none());
+        assert!(
+            report.position < length,
+            "{:?} of {length:?}",
+            report.position
+        );
     }
 
     #[test]

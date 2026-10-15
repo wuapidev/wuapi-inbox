@@ -55,6 +55,16 @@ pub fn date(ts: Timestamp) -> String {
     local(ts).format("%-d %B %Y").to_string()
 }
 
+/// The month a message was sent in, for a heading: `October 2026`.
+pub fn month(ts: Timestamp) -> String {
+    local(ts).format("%B %Y").to_string()
+}
+
+/// A date in a few characters: `13 Oct 2026`.
+pub fn short_date(ts: Timestamp) -> String {
+    local(ts).format("%-d %b %Y").to_string()
+}
+
 /// A phone number as people write it: the country code, then the rest in
 /// groups (`+58 424 555 0199`). What is not a number in E.164 with a known
 /// country code is returned as it is.

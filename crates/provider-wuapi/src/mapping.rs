@@ -508,6 +508,9 @@ fn extras(wire: &api::Message) -> MessageExtras {
         forwarded: wire.forwarded || wire.forwarded_many_times,
         forwarded_many: wire.forwarded_many_times,
         starred: wire.starred,
+        // TODO(wuapi-api): the API's `Message` does not say whether it is
+        // pinned in its chat.
+        pinned_until: None,
         view_once: wire.view_once,
         // TODO(wuapi-api): `mentions` lists the mentioned contacts' ids,
         // with a hidden-number id already turned into the number when

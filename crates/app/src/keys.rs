@@ -173,6 +173,12 @@ pub enum Command {
     /// A pane to the right.
     PaneRight,
 
+    // ----- tasks
+    /// Opens or closes the tasks beside the conversation.
+    ToggleTasks,
+    /// A new task, with its day and notes.
+    NewTask,
+
     // ----- status (stories)
     /// The Status list, in place of the chats.
     ShowStatus,
@@ -390,6 +396,10 @@ pub enum Command {
     Forward,
     /// Stars or unstars it.
     Star,
+    /// Pins it at the top of the chat, or unpins it.
+    Pin,
+    /// Makes a task from it.
+    CreateTask,
     /// Deletes it.
     Delete,
     /// Reacts to it.
@@ -1424,6 +1434,20 @@ pub const BINDINGS: &[Binding] = &[
         &[key("s")],
     ),
     bind(
+        C::Pin,
+        "Pin or unpin in the chat",
+        S::Message,
+        W::Message,
+        &[key("p")],
+    ),
+    bind(
+        C::CreateTask,
+        "Create task",
+        S::Message,
+        W::Message,
+        &[key("t")],
+    ),
+    bind(
         C::Reactions,
         "Who reacted",
         S::Message,
@@ -1494,6 +1518,15 @@ pub const BINDINGS: &[Binding] = &[
         W::Message,
         &[key("m")],
     ),
+    // Tasks.
+    bind(
+        C::ToggleTasks,
+        "Show or hide tasks",
+        S::View,
+        W::Anywhere,
+        &[alt("t")],
+    ),
+    bind(C::NewTask, "New task", S::View, W::Anywhere, &[]),
     // Status: getting to it, and what is done to a status.
     bind(
         C::ShowStatus,
@@ -2481,6 +2514,8 @@ mod tests {
             ("c", C::Copy),
             ("f", C::Forward),
             ("s", C::Star),
+            ("p", C::Pin),
+            ("t", C::CreateTask),
             ("i", C::Info),
             ("w", C::Reactions),
             ("o", C::Open),

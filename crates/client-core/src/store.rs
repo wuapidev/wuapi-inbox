@@ -23,6 +23,7 @@ pub(crate) mod sends;
 mod social;
 mod stories;
 mod story_posts;
+mod tasks;
 pub use library::{
     IndexState, LibraryItem, LibraryKind, LibraryPack, LibrarySource, LibraryStats, NewLibraryItem,
     SeenSticker, StickerMessage,
@@ -35,6 +36,7 @@ pub use stories::{
     StoryAuthor, StoryFeed, StoryItem, StoryPostState, StoryReceipt, StoryRing, STORIES_KEPT,
 };
 pub use story_posts::{local_story_id, StoryPostEntry};
+pub use tasks::{Task, TaskDraft, TaskSource};
 
 /// Why a store operation failed.
 #[derive(Debug, thiserror::Error)]
@@ -222,6 +224,8 @@ pub enum StoreChange {
     /// The sticker and GIF library changed: an item came, went, was
     /// starred or used.
     Library,
+    /// A task came, changed, was done or went.
+    Tasks,
     /// A story, who saw it, who is muted, the audience, or a story on its
     /// way out, changed. Read from the store by whoever shows them.
     Stories {
@@ -251,6 +255,19 @@ pub struct StoredAvatar {
     pub image: Option<Vec<u8>>,
     /// When the provider was last asked.
     pub checked_at: Timestamp,
+    /// The id the chat list carried when the provider was last asked.
+    pub asked_for: Option<String>,
+}
+
+/// Which of a chat's messages the gallery lists.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum GalleryKind {
+    /// Photos and videos, GIFs among them.
+    Media,
+    /// Documents and audio files.
+    Files,
+    /// Messages with a link in them.
+    Links,
 }
 
 /// A cached media payload.
@@ -658,7 +675,7 @@ impl Store {
         self.read(|conn| {
             Ok(conn
                 .query_row(
-                    "SELECT picture_id, image, checked_at FROM avatars
+                    "SELECT picture_id, image, checked_at, asked_for FROM avatars
                      WHERE account_id = ?1 AND subject = ?2",
                     params![account.as_str(), subject.as_str()],
                     |row| {
@@ -666,6 +683,7 @@ impl Store {
                             picture_id: row.get(0)?,
                             image: row.get(1)?,
                             checked_at: Timestamp::from_millis(row.get(2)?),
+                            asked_for: row.get(3)?,
                         })
                     },
                 )
@@ -739,6 +757,102 @@ impl Store {
                 params![account.as_str(), subject.as_str(), now.as_millis()],
             )?;
             Ok(())
+        })
+    }
+
+    /// Records which id of the chat list the provider was asked about,
+    /// so that the same question is not asked again after a restart.
+    pub fn set_avatar_asked(
+        &self,
+        account: &AccountId,
+        subject: &ChatId,
+        asked_for: Option<&str>,
+    ) -> StoreResult<()> {
+        self.write(|tx| {
+            tx.execute(
+                "UPDATE avatars SET asked_for = ?3 WHERE account_id = ?1 AND subject = ?2",
+                params![account.as_str(), subject.as_str(), asked_for],
+            )?;
+            Ok(())
+        })
+    }
+
+    /// The messages of a chat pinned at `now`, the one pinned to stay
+    /// longest first.
+    pub fn pinned_messages(
+        &self,
+        account: &AccountId,
+        chat: &ChatId,
+        now: Timestamp,
+    ) -> StoreResult<Vec<Message>> {
+        self.read(|conn| {
+            let sql = format!(
+                "SELECT {MESSAGE_COLUMNS} FROM messages m
+                 WHERE m.account_id = ?1 AND m.chat_id = ?2 AND m.deleted = 0
+                   AND json_extract(m.extras, '$.pinned_until') > ?3
+                 ORDER BY json_extract(m.extras, '$.pinned_until') DESC, m.ts DESC"
+            );
+            let mut stmt = conn.prepare_cached(&sql)?;
+            let mut rows = stmt.query(params![account.as_str(), chat.as_str(), now.as_millis()])?;
+            let mut messages = Vec::new();
+            let mut people = People::new(conn);
+            while let Some(row) = rows.next()? {
+                let mut message = message_from_row(row, 0)?;
+                people.name_message(&mut message)?;
+                messages.push(message);
+            }
+            Ok(messages)
+        })
+    }
+
+    /// A chat's photos and videos, its files, or its messages with a
+    /// link, newest first: at most `limit` of them, and how many there
+    /// are in all. Deleted and view-once messages are left out.
+    pub fn gallery(
+        &self,
+        account: &AccountId,
+        chat: &ChatId,
+        kind: GalleryKind,
+        limit: usize,
+    ) -> StoreResult<(Vec<Message>, usize)> {
+        let of_kind = match kind {
+            GalleryKind::Media => {
+                "json_extract(m.content, '$.type') = 'media'
+                 AND json_extract(m.content, '$.kind') IN ('image', 'video')"
+            }
+            GalleryKind::Files => {
+                "json_extract(m.content, '$.type') = 'media'
+                 AND json_extract(m.content, '$.kind') IN ('document', 'audio')"
+            }
+            GalleryKind::Links => {
+                "json_extract(m.content, '$.type') = 'text'
+                 AND (m.body LIKE '%http://%' OR m.body LIKE '%https://%')"
+            }
+        };
+        let filter = format!(
+            "m.account_id = ?1 AND m.chat_id = ?2 AND m.deleted = 0
+             AND COALESCE(json_extract(m.extras, '$.view_once'), 0) = 0
+             AND {of_kind}"
+        );
+        self.read(|conn| {
+            let total: i64 = conn.query_row(
+                &format!("SELECT COUNT(*) FROM messages m WHERE {filter}"),
+                params![account.as_str(), chat.as_str()],
+                |row| row.get(0),
+            )?;
+            let mut stmt = conn.prepare_cached(&format!(
+                "SELECT {MESSAGE_COLUMNS} FROM messages m WHERE {filter}
+                 ORDER BY m.ts DESC, m.pk DESC LIMIT ?3"
+            ))?;
+            let mut rows = stmt.query(params![account.as_str(), chat.as_str(), limit as i64])?;
+            let mut messages = Vec::new();
+            let mut people = People::new(conn);
+            while let Some(row) = rows.next()? {
+                let mut message = message_from_row(row, 0)?;
+                people.name_message(&mut message)?;
+                messages.push(message);
+            }
+            Ok((messages, total as usize))
         })
     }
 
@@ -960,6 +1074,7 @@ impl Store {
                 "group_join_requests",
                 "blocked_contacts",
                 "contact_profiles",
+                "tasks",
             ] {
                 tx.execute(
                     &format!("DELETE FROM {table} WHERE account_id = ?1"),

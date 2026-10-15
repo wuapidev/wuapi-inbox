@@ -41,6 +41,25 @@ use std::time::{Duration, Instant};
 /// together. One animation is at most `AnimationLimits::max_bytes`.
 const ANIMATION_BUDGET: usize = 96 * 1024 * 1024;
 
+/// How many GIFs that are videos may play at once. Each is a decoder of
+/// its own; one more than this stays a tile.
+const LOOPS: usize = 6;
+/// How long after its last paint a GIF that is a video is held: it left
+/// the screen, or something lies over it.
+const LOOP_HELD: Duration = Duration::from_millis(250);
+
+/// A GIF that is a video, in the open chat.
+enum Loop {
+    /// It plays, or is held where it was.
+    Playing {
+        clip: Arc<crate::video::Clip>,
+        /// When it was last painted where it can be seen.
+        painted: Instant,
+    },
+    /// It could not be played here: its tile stays.
+    Failed,
+}
+
 /// What the blocking pool hands back: an image's url and its animation.
 type Decoded = Arc<Mutex<Vec<(String, Option<Animation>)>>>;
 
@@ -151,6 +170,8 @@ pub struct MediaShelf {
     /// Animations the blocking pool has finished decoding (`None`: it
     /// turned out not to be one).
     decoded: Decoded,
+    /// The GIFs of the open chat that are videos, by url.
+    loops: RefCell<HashMap<String, Loop>>,
     /// Animations let go, whose frames the window still holds.
     released: RefCell<Vec<Arc<RenderImage>>>,
     /// The memory the decoded animations may take together.
@@ -171,6 +192,13 @@ pub(super) fn image_of(bytes: Vec<u8>, mime: Option<&str>) -> Option<Arc<Image>>
         _ => return None,
     };
     Some(Arc::new(Image::from_bytes(format, bytes)))
+}
+
+/// Every frame of a clip the window may still hold.
+fn frames_of(clip: &crate::video::Clip) -> Vec<Arc<RenderImage>> {
+    let mut frames = clip.take_stale();
+    frames.extend(clip.report().image);
+    frames
 }
 
 /// The format of image bytes this application made itself.
@@ -198,6 +226,7 @@ impl MediaShelf {
             policy: Cell::new(MediaChoice::default()),
             moving: RefCell::default(),
             decoded: Arc::default(),
+            loops: RefCell::default(),
             released: RefCell::default(),
             animation_budget: Cell::new(ANIMATION_BUDGET),
             wake: Cell::new(None),
@@ -291,6 +320,11 @@ impl MediaShelf {
                 released.push(animation.image.clone());
             }
         }
+        for (_, state) in self.loops.borrow_mut().drain() {
+            if let Loop::Playing { clip, .. } = state {
+                released.extend(frames_of(&clip));
+            }
+        }
         self.decoded.lock().expect("decoded lock").clear();
         self.wake.set(None);
         self.wake_serial.set(self.wake_serial.get() + 1);
@@ -301,6 +335,112 @@ impl MediaShelf {
         for image in self.released.borrow_mut().drain(..) {
             let _ = window.drop_image(image);
         }
+    }
+
+    /// The player of a GIF that is a video, once its file is here. Asking
+    /// is what starts it. `None` when it cannot be played here (no
+    /// decoder, a file it does not read) or when [`LOOPS`] others already
+    /// play: the tile is drawn then.
+    pub fn gif_clip(&self, url: &str) -> Option<Arc<crate::video::Clip>> {
+        let mut loops = self.loops.borrow_mut();
+        match loops.get(url) {
+            Some(Loop::Playing { clip, .. }) if clip.report().failure.is_none() => {
+                return Some(clip.clone())
+            }
+            Some(Loop::Playing { clip, .. }) => {
+                self.released.borrow_mut().extend(frames_of(clip));
+                loops.insert(url.to_owned(), Loop::Failed);
+                return None;
+            }
+            Some(Loop::Failed) => return None,
+            None => {}
+        }
+        let playing = |loops: &HashMap<String, Loop>| {
+            loops
+                .values()
+                .filter(|state| matches!(state, Loop::Playing { .. }))
+                .count()
+        };
+        if playing(&loops) >= LOOPS {
+            // The one painted longest ago makes room, if it is off screen.
+            let now = Instant::now();
+            let idle = loops
+                .iter()
+                .filter_map(|(url, state)| match state {
+                    Loop::Playing { painted, .. }
+                        if now.saturating_duration_since(*painted) >= IDLE =>
+                    {
+                        Some((*painted, url.clone()))
+                    }
+                    _ => None,
+                })
+                .min();
+            let (_, idle) = idle?;
+            if let Some(Loop::Playing { clip, .. }) = loops.remove(&idle) {
+                self.released.borrow_mut().extend(frames_of(&clip));
+            }
+        }
+        let (bytes, _) = self.file(url)?;
+        let state = match crate::video::Clip::open_looping(Arc::<[u8]>::from(bytes)) {
+            Ok(clip) => Loop::Playing {
+                clip: Arc::new(clip),
+                painted: Instant::now(),
+            },
+            Err(error) => {
+                tracing::warn!(%error, "a gif could not be played in the conversation");
+                Loop::Failed
+            }
+        };
+        let clip = match &state {
+            Loop::Playing { clip, .. } => Some(clip.clone()),
+            Loop::Failed => None,
+        };
+        loops.insert(url.to_owned(), state);
+        clip
+    }
+
+    /// The GIF at `url` was painted where it can be seen, with motion
+    /// running: it plays on.
+    pub fn loop_painted(&self, url: &str) {
+        if let Some(Loop::Playing { clip, painted }) = self.loops.borrow_mut().get_mut(url) {
+            *painted = Instant::now();
+            clip.set_paused(false);
+        }
+    }
+
+    /// Holds the GIFs that are no longer painted, and asks for one more
+    /// look while any still runs unseen. Called when the conversation is
+    /// drawn; a GIF that is painted after that plays on.
+    pub fn tend_loops<V: 'static>(
+        self: &Rc<Self>,
+        view: gpui_kit::WeakEntity<V>,
+        cx: &mut gpui_kit::App,
+    ) {
+        let now = Instant::now();
+        let mut running = false;
+        for state in self.loops.borrow().values() {
+            let Loop::Playing { clip, painted } = state else {
+                continue;
+            };
+            if now.saturating_duration_since(*painted) >= LOOP_HELD {
+                clip.set_paused(true);
+            } else {
+                running = true;
+            }
+        }
+        if running {
+            self.wake_in(LOOP_HELD, view, cx);
+        }
+    }
+
+    /// How many GIFs that are videos have a player.
+    #[cfg(test)]
+    pub fn loops(&self) -> usize {
+        self.loops
+            .borrow()
+            .values()
+            .filter(|state| matches!(state, Loop::Playing { .. }))
+            .count()
     }
 
     /// Whether an attachment can be an image that moves: a sticker, or a

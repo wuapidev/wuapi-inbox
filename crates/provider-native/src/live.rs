@@ -1329,6 +1329,32 @@ impl Session for LiveSession {
         .await
     }
 
+    async fn pin(
+        &self,
+        target: &Target,
+        pin: Option<client_provider::PinFor>,
+    ) -> SessionResult<()> {
+        use client_provider::PinFor;
+        use whatsapp_rust::PinDuration;
+        let reference = reference(target)?;
+        bounded(REQUEST_TIMEOUT, async {
+            match pin {
+                Some(pin) => {
+                    let duration = match pin {
+                        PinFor::Day => PinDuration::Hours24,
+                        PinFor::Week => PinDuration::Days7,
+                        PinFor::Month => PinDuration::Days30,
+                    };
+                    self.client.pin_message(&reference, duration).await
+                }
+                None => self.client.unpin_message(&reference).await,
+            }
+            .map(|_| ())
+            .map_err(send_error)
+        })
+        .await
+    }
+
     async fn vote(
         &self,
         target: &Target,

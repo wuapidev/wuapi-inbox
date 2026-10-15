@@ -11,7 +11,7 @@ use super::widgets::{mono, status_tick};
 use crate::animation::Motion;
 use crate::format::{clock, duration, file_size};
 use crate::icons::{icon, IconName};
-use crate::theme::px;
+use crate::theme::{media_px, px};
 use crate::theme::{metrics, Palette, SENDER_TONES};
 use client_core::StoredMessage;
 use client_provider::{
@@ -48,6 +48,13 @@ pub struct MessageRow {
     /// many there were: "3 unread messages" stands above it, until the
     /// chat is left.
     pub unread_above: Option<u32>,
+    /// The pictures sent just before this one that make an album with
+    /// it, oldest first. This row draws them all.
+    pub album: Vec<Message>,
+    /// Drawn by the row that closes its album: this one draws nothing.
+    pub folded: bool,
+    /// A task to do was made from it.
+    pub tasked: bool,
     /// Identity of the row across reloads.
     pub key: String,
     /// Changes whenever the row's size may have changed.
@@ -206,6 +213,9 @@ fn THREAD_GUTTER() -> gpui_kit::Pixels {
 
 fn message_row(row: &MessageRow, palette: &Palette, in_group: bool, context: &RowContext) -> Div {
     let message = &row.stored.message;
+    if row.folded {
+        return div();
+    }
     let outgoing = message.direction == Direction::Outgoing;
     let side = Side::of(outgoing, palette);
     let failed = outgoing && matches!(message.status, DeliveryStatus::Failed { .. });
@@ -311,7 +321,11 @@ fn message_row(row: &MessageRow, palette: &Palette, in_group: bool, context: &Ro
             }
             MessageContent::Media(media) => {
                 let caption = media.caption.clone().filter(|caption| !caption.is_empty());
-                let mut attachment = media_block(media, message, &side, context);
+                let mut attachment = if row.album.is_empty() {
+                    media_block(media, message, &side, context)
+                } else {
+                    album_block(row, &side, context)
+                };
                 // A file of the user's own that has not gone yet: how far
                 // it is, and the way to take it back.
                 if let Some(line) = sending_line(message, &side, context) {
@@ -657,6 +671,13 @@ fn meta_line(row: &MessageRow, side: &Side, palette: &Palette) -> Div {
         .when(message.extras.starred && !message.deleted, |this| {
             this.child(tiles::starred_mark(side))
         })
+        .when(
+            message.extras.pinned_at(client_provider::Timestamp::now()) && !message.deleted,
+            |this| this.child(super::pins::pinned_mark(side.meta)),
+        )
+        .when(row.tasked, |this| {
+            this.child(super::tasks::tasked_mark(side.meta))
+        })
         .when(message.edited && !message.deleted, |this| {
             this.child(
                 mono("edited")
@@ -992,6 +1013,152 @@ fn image_block(
     div().max_w_full().child(element)
 }
 
+/// How many pictures of an album are shown; the last says how many more.
+const ALBUM_SHOWN: usize = 4;
+
+/// An album: the pictures one person sent together, in one bubble. Two
+/// rows of two, with the count of the rest over the last. A click on one
+/// opens it in the viewer, where the arrows go through the others.
+fn album_block(row: &MessageRow, side: &Side, context: &RowContext) -> Div {
+    let pieces: Vec<&Message> = row
+        .album
+        .iter()
+        .chain(std::iter::once(&row.stored.message))
+        .collect();
+    let gap = media_px(3.);
+    let full = media_px(300.);
+    let half = (full - gap) / 2.;
+    let hidden = pieces.len().saturating_sub(ALBUM_SHOWN);
+    let cells = pieces
+        .iter()
+        .take(ALBUM_SHOWN)
+        .enumerate()
+        .map(|(index, piece)| {
+            let more = (index + 1 == ALBUM_SHOWN)
+                .then_some(hidden)
+                .filter(|more| *more > 0);
+            album_cell(piece, half, half, more, side, context)
+        });
+    div()
+        .debug_selector(|| "album".into())
+        .w(full)
+        .max_w_full()
+        .flex()
+        .flex_wrap()
+        .gap(gap)
+        .children(cells)
+}
+
+/// One picture of an album, filling its cell. `more`: how many pictures
+/// of the album are not shown, written over this one.
+fn album_cell(
+    message: &Message,
+    width: gpui_kit::Pixels,
+    height: gpui_kit::Pixels,
+    more: Option<usize>,
+    side: &Side,
+    context: &RowContext,
+) -> gpui_kit::AnyElement {
+    let frame = div()
+        .id(SharedString::from(format!("album-{}", message.id)))
+        .debug_selector(|| "album-cell".into())
+        .relative()
+        .flex_none()
+        .w(width)
+        .h(height)
+        .rounded(px(4.))
+        .overflow_hidden()
+        .bg(side.quote)
+        .flex()
+        .items_center()
+        .justify_center()
+        .text_color(side.meta);
+    let MessageContent::Media(media) = &message.content else {
+        return frame.into_any_element();
+    };
+    let video = media.kind == MediaKind::Video;
+    // A video has no picture of its own here: its glyph, and a click
+    // opens it.
+    let visual = (!video).then(|| context.shelf.visual(&message.account_id, media));
+    let (view, opened) = (context.view.clone(), media.clone());
+    let open =
+        move |_: &gpui_kit::ClickEvent, window: &mut gpui_kit::Window, cx: &mut gpui_kit::App| {
+            view.update(cx, |shell, cx| {
+                if video {
+                    shell.open_document(opened.clone(), window, cx)
+                } else {
+                    shell.begin_viewing(opened.clone(), window, cx)
+                }
+            })
+            .ok();
+        };
+    let frame = match visual {
+        Some(MediaVisual::Image(image)) => frame.cursor_pointer().on_click(open).child(
+            div()
+                .debug_selector(|| "media-image".into())
+                .size_full()
+                .child(img(image).size_full().object_fit(ObjectFit::Cover)),
+        ),
+        None => frame.cursor_pointer().on_click(open).child(tile_glyph(
+            IconName::Video,
+            media,
+            message,
+            side,
+            context,
+        )),
+        Some(MediaVisual::Unavailable(_) | MediaVisual::Unsupported(_) | MediaVisual::NoFile) => {
+            frame.child(icon(IconName::Ban, px(24.), side.meta))
+        }
+        Some(
+            visual @ (MediaVisual::Loading { .. }
+            | MediaVisual::Download { .. }
+            | MediaVisual::Failed(_)),
+        ) => {
+            let state = match visual {
+                MediaVisual::Loading { fraction } => Transfer::Loading { fraction },
+                MediaVisual::Download { size } => Transfer::Download { size },
+                MediaVisual::Failed(reason) => Transfer::Retry(reason),
+                _ => unreachable!("matched above"),
+            };
+            let (view, shelf) = (context.view.clone(), context.shelf.clone());
+            let account = message.account_id.clone();
+            let url = media.source.as_ref().map(|source| source.to_string());
+            let stop = matches!(state, Transfer::Loading { .. });
+            frame.child(transfer_button(
+                SharedString::from(format!("transfer-{}", message.id)),
+                &state,
+                &context.palette,
+                context.still,
+                move |_, _, cx| {
+                    if let Some(url) = &url {
+                        if stop {
+                            shelf.cancel(url);
+                        } else {
+                            shelf.ask(&account, url);
+                        }
+                    }
+                    view.update(cx, |_, cx| cx.notify()).ok();
+                },
+            ))
+        }
+    };
+    frame
+        .children(more.map(|more| {
+            div()
+                .debug_selector(|| "album-more".into())
+                .absolute()
+                .inset_0()
+                .bg(gpui_kit::black().opacity(0.55))
+                .flex()
+                .items_center()
+                .justify_center()
+                .text_size(px(22.))
+                .text_color(gpui_kit::white())
+                .child(SharedString::from(format!("+{more}")))
+        }))
+        .into_any_element()
+}
+
 /// The buttons in the corner of a picture, there while the pointer is on
 /// it or the keyboard is on one of them: save, copy, open in the viewer.
 fn picture_buttons(media: &Media, message: &Message, context: &RowContext) -> Div {
@@ -1162,6 +1329,148 @@ fn moving_picture(
                 .size_full(),
             )
             .into_any_element(),
+    )
+}
+
+/// A GIF that is a video, in the box a picture would have: the round
+/// button while its file is on the way, then the GIF itself, playing over
+/// and over without sound. A click opens it like a video.
+///
+/// `None` when the tile says it better: not a GIF, no file to fetch,
+/// reduced motion, or nothing here can play it.
+///
+/// Painting is what keeps it going, as for a sticker: each paint shows
+/// the newest frame and asks for one repaint. A GIF that is not painted
+/// is held (`MediaShelf::tend_loops`).
+fn gif_block(media: &Media, message: &Message, side: &Side, context: &RowContext) -> Option<Div> {
+    if !media.gif || context.still {
+        return None;
+    }
+    let url = media.source.as_ref()?.to_string();
+    let state = context.shelf.file_state(&url);
+    let clip = match state {
+        FileState::Ready => Some(context.shelf.gif_clip(&url)?),
+        _ => None,
+    };
+    if state == FileState::NotFetched
+        && (context.shelf.fetches_everything() || context.shelf.fetches_gif_unasked(media))
+    {
+        context.shelf.prefetch(&message.account_id, &url);
+    }
+    let size = context.shelf.image_box(media);
+    let frame = div()
+        .id(SharedString::from(format!("media-{}", message.id)))
+        .debug_selector(|| "gif-box".into())
+        .relative()
+        .flex_none()
+        .w(size.width)
+        .h(size.height)
+        .max_w_full()
+        .rounded(px(4.))
+        .overflow_hidden()
+        .bg(side.quote)
+        .flex()
+        .flex_col()
+        .items_center()
+        .justify_center()
+        .gap_2()
+        .text_color(side.meta);
+    let Some(clip) = clip else {
+        // Not here yet: what it is, and the button that fetches it, shows
+        // how far it is and stops it, or tries again.
+        return Some(
+            div().max_w_full().child(
+                frame
+                    .child(
+                        mono("GIF")
+                            .debug_selector(|| "gif-badge".into())
+                            .absolute()
+                            .top(px(6.))
+                            .left(px(6.))
+                            .px(px(5.))
+                            .rounded(px(3.))
+                            .border_1()
+                            .border_color(side.meta)
+                            .line_height(px(15.)),
+                    )
+                    .child(tile_glyph(IconName::Video, media, message, side, context))
+                    .children(
+                        media
+                            .size_bytes
+                            .filter(|_| state == FileState::NotFetched)
+                            .map(|size| {
+                                mono(file_size(size)).debug_selector(|| "media-size".into())
+                            }),
+                    ),
+            ),
+        );
+    };
+    let (shelf, view, motion) = (context.shelf.clone(), context.view.clone(), context.motion);
+    let (open_view, open_media) = (context.view.clone(), media.clone());
+    Some(
+        div().max_w_full().child(
+            frame
+                .cursor_pointer()
+                .on_click(move |_, window, cx| {
+                    open_view
+                        .update(cx, |shell, cx| {
+                            shell.open_document(open_media.clone(), window, cx)
+                        })
+                        .ok();
+                })
+                .child(
+                    div()
+                        .debug_selector(|| "gif-playing".into())
+                        .size_full()
+                        .child(
+                            gpui_kit::canvas(
+                                |_, _, _| {},
+                                move |bounds, _, window, cx| {
+                                    for stale in clip.take_stale() {
+                                        let _ = window.drop_image(stale);
+                                    }
+                                    // Rows just outside the viewport are painted
+                                    // too: they hold their frame.
+                                    let seen = window.content_mask().bounds.intersects(&bounds);
+                                    if seen && motion == Motion::Running {
+                                        shelf.loop_painted(&url);
+                                        shelf.wake_in(crate::motion::animated::MIN_TICK, view, cx);
+                                    }
+                                    let report = clip.report();
+                                    let Some(image) = report.image else {
+                                        return;
+                                    };
+                                    // Contained in the box, centred.
+                                    let (width, height) =
+                                        (report.width.max(1) as f32, report.height.max(1) as f32);
+                                    let scale = (bounds.size.width.as_f32() / width)
+                                        .min(bounds.size.height.as_f32() / height);
+                                    let size = gpui_kit::size(
+                                        gpui_kit::px(width * scale),
+                                        gpui_kit::px(height * scale),
+                                    );
+                                    let fitted = gpui_kit::Bounds {
+                                        origin: gpui_kit::point(
+                                            bounds.origin.x + (bounds.size.width - size.width) / 2.,
+                                            bounds.origin.y
+                                                + (bounds.size.height - size.height) / 2.,
+                                        ),
+                                        size,
+                                    };
+                                    let _ = window.paint_image(
+                                        fitted,
+                                        fitted,
+                                        gpui_kit::Corners::all(px(4.)),
+                                        image,
+                                        0,
+                                        false,
+                                    );
+                                },
+                            )
+                            .size_full(),
+                        ),
+                ),
+        ),
     )
 }
 
@@ -1353,8 +1662,11 @@ fn media_block(media: &Media, message: &Message, side: &Side, context: &RowConte
         MediaKind::Image | MediaKind::Sticker => image_block(media, message, side, context, true),
         MediaKind::Video => {
             // A GIF on WhatsApp is a short, silent, looping video. It is
-            // fetched with the pictures. It is not played here: a click
-            // opens it like a video.
+            // fetched with the pictures and plays where it is. The tile
+            // below is what is left when it cannot.
+            if let Some(block) = gif_block(media, message, side, context) {
+                return block;
+            }
             let (kind, title) = if media.gif {
                 ("GIF", "GIF")
             } else {

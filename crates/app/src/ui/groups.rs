@@ -493,6 +493,7 @@ impl Shell {
             );
         }
         if chat.is_some() {
+            actions = actions.children(self.gallery_row(account, group, palette, cx));
             let search_in = group.clone();
             actions = actions.child(
                 action_row(

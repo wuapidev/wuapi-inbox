@@ -202,8 +202,8 @@ impl Shell {
             && pdf::is_pdf(media.mime_type.as_deref(), media.file_name.as_deref())
     }
 
-    /// Opens a file of a message: a PDF in the reader, anything else with
-    /// the system's application for it.
+    /// Opens a file of a message: a PDF in the reader, a video in the
+    /// player, anything else with the system's application for it.
     pub(super) fn open_document(
         &mut self,
         media: Media,
@@ -212,6 +212,8 @@ impl Shell {
     ) {
         if Self::reads_here(&media) {
             self.begin_reading(media, window, cx);
+        } else if media.kind == client_provider::MediaKind::Video {
+            self.watch_video(media, window, cx);
         } else {
             self.open_file(media, cx);
         }

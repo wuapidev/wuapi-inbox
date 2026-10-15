@@ -75,6 +75,8 @@ pub(super) struct Acting {
     pub(super) forward_cursor: usize,
     /// The choice the delete sheet is on.
     pub(super) delete_cursor: usize,
+    /// The choice the pin sheet is on.
+    pub(super) pin_cursor: usize,
 }
 
 impl Acting {
@@ -93,6 +95,7 @@ impl Acting {
             forward_rows: Vec::new(),
             forward_cursor: 0,
             delete_cursor: 0,
+            pin_cursor: 0,
         }
     }
 

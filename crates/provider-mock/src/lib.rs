@@ -1737,6 +1737,24 @@ impl Provider for MockProvider {
         })
     }
 
+    async fn pin_message(
+        &self,
+        account: &AccountId,
+        chat: &ChatId,
+        message: &MessageId,
+        pin: Option<client_provider::PinFor>,
+    ) -> ProviderResult<()> {
+        let what = if pin.is_some() { "pin" } else { "unpin" };
+        self.act(account, chat, message, what, move |found| {
+            found.extras.pinned_until = pin.map(|pin| {
+                Timestamp::from_millis(
+                    Timestamp::now().as_millis() + pin.duration().as_millis() as i64,
+                )
+            });
+            Ok(true)
+        })
+    }
+
     async fn update_chat(
         &self,
         account: &AccountId,

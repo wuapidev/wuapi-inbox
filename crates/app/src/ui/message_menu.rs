@@ -23,7 +23,7 @@ pub(super) enum CommandState {
 }
 
 /// The commands of a message's menu, in its order, with their glyphs.
-pub(super) const MENU: [(Command, &str, IconName); 18] = [
+pub(super) const MENU: [(Command, &str, IconName); 20] = [
     (Command::Reply, "message-reply", IconName::MessageSquareText),
     (
         Command::ReplyPrivately,
@@ -49,6 +49,8 @@ pub(super) const MENU: [(Command, &str, IconName); 18] = [
     (Command::SaveGif, "message-save-gif", IconName::Film),
     (Command::Forward, "message-forward", IconName::Forward),
     (Command::Star, "message-star", IconName::Star),
+    (Command::Pin, "message-pin", IconName::Pin),
+    (Command::CreateTask, "message-task", IconName::SquareCheck),
     (Command::Edit, "message-edit", IconName::Pencil),
     (Command::Info, "message-info", IconName::Info),
     (Command::Open, "message-open", IconName::ExternalLink),
@@ -169,6 +171,14 @@ impl Shell {
             C::Star if !caps.stars => Hidden,
             C::Star if !sent(message) => Disabled(NOT_SENT),
             C::Star => Enabled,
+            C::Pin if !caps.pins => Hidden,
+            C::Pin if !sent(message) => Disabled(NOT_SENT),
+            C::Pin if matches!(message.content, MessageContent::System(_)) => Hidden,
+            C::Pin => Enabled,
+            // Kept here, so anything with something to say will do,
+            // sent or not.
+            C::CreateTask if matches!(message.content, MessageContent::System(_)) => Hidden,
+            C::CreateTask => Enabled,
             C::Forward if !caps.forwards => Hidden,
             C::Forward if !sent(message) => Disabled(NOT_SENT),
             C::Forward => match self.forwardable(message) {
@@ -189,6 +199,8 @@ impl Shell {
             Command::SaveGif => "Save GIF",
             Command::Star if message.extras.starred => "Unstar",
             Command::Star => "Star",
+            Command::Pin if message.extras.pinned_at(client_provider::Timestamp::now()) => "Unpin",
+            Command::Pin => "Pin",
             Command::CopyLink => match &message.content {
                 MessageContent::Contacts { .. } => "Copy number",
                 _ => "Copy link",

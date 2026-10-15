@@ -513,6 +513,36 @@ const MIGRATIONS: &[&str] = &[
     CREATE INDEX groups_by_community ON groups (account_id, community_id)
         WHERE community_id IS NOT NULL;
     "#,
+    // v14: the id the chat list gave for a picture when the provider was
+    // last asked about it (`asked_for`). The list's id and the id the
+    // picture came with need not be the same word; without this the
+    // question was asked again at every start. Only an added column: a
+    // row that exists is asked about once more, and then no more.
+    r#"
+    ALTER TABLE avatars ADD COLUMN asked_for TEXT;
+    "#,
+    // v15: tasks, written here and kept here (`store/tasks.rs`). A task
+    // made from a message names it (`account_id`, `chat_id`,
+    // `message_id`) and keeps it in one line (`quote`); one written on
+    // its own has none of them. `due_at` is the start of the day it is
+    // due; `done_at` is NULL until it is done. A new table: nothing that
+    // exists changes.
+    r#"
+    CREATE TABLE tasks (
+        id          TEXT PRIMARY KEY,
+        title       TEXT NOT NULL,
+        notes       TEXT,
+        due_at      INTEGER,
+        done_at     INTEGER,
+        created_at  INTEGER NOT NULL,
+        updated_at  INTEGER NOT NULL,
+        account_id  TEXT,
+        chat_id     TEXT,
+        message_id  TEXT,
+        quote       TEXT
+    );
+    CREATE INDEX tasks_by_chat ON tasks (account_id, chat_id) WHERE account_id IS NOT NULL;
+    "#,
 ];
 
 /// The schema version this build expects.
