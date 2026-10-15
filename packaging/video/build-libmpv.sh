@@ -279,7 +279,7 @@ case "$os" in
         strip --strip-unneeded "$stage/$name"
         needed="$(objdump -p "$stage/$name" | sed -n 's/.*DLL Name: \(.*\)/\1/p')"
         # Windows' own DLLs and the universal C runtime.
-        allowed='^((api-ms-win-|ext-ms-win-).*|(kernel32|user32|gdi32|advapi32|shell32|ole32|oleaut32|ws2_32|bcrypt|crypt32|secur32|shlwapi|winmm|avrt|ksuser|mfplat|mf|mfuuid|propsys|uuid|version|dwmapi|uxtheme|imm32|ntdll|ucrtbase|msvcrt|setupapi|cfgmgr32|dxgi|d3d11|dwrite|usp10|comdlg32|winspool)\.dll)$'
+        allowed='^((api-ms-win-|ext-ms-win-).*|(kernel32|user32|gdi32|advapi32|shell32|ole32|oleaut32|ws2_32|bcrypt|crypt32|secur32|shlwapi|winmm|avrt|ksuser|mfplat|mf|mfuuid|propsys|uuid|version|dwmapi|uxtheme|imm32|ntdll|ucrtbase|msvcrt|setupapi|cfgmgr32|dxgi|d3d11|dwrite|usp10|comdlg32|winspool|shcore)\.dll)$'
         ;;
 esac
 if [ -z "$library" ]; then
