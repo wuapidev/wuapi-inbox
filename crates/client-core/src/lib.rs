@@ -52,7 +52,8 @@ pub use store::{
     NewLibraryItem, Person, ReactionSummary, Reactor, SearchHit, SeenSticker, SendTiming,
     StickerMessage, Store, StoreChange, StoreError, StoreKey, StoreResult, StoredAvatar,
     StoredGroup, StoredMessage, StoredParticipant, StoryAuthor, StoryFeed, StoryItem,
-    StoryPostEntry, StoryPostState, StoryReceipt, StoryRing, Upsert, STORIES_KEPT,
+    StoryPostEntry, StoryPostState, StoryReceipt, StoryRing, Task, TaskDraft, TaskSource, Upsert,
+    STORIES_KEPT,
 };
 pub use summary::system_line;
 pub use sync::{

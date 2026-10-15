@@ -53,6 +53,8 @@ pub struct MessageRow {
     pub album: Vec<Message>,
     /// Drawn by the row that closes its album: this one draws nothing.
     pub folded: bool,
+    /// A task to do was made from it.
+    pub tasked: bool,
     /// Identity of the row across reloads.
     pub key: String,
     /// Changes whenever the row's size may have changed.
@@ -673,6 +675,9 @@ fn meta_line(row: &MessageRow, side: &Side, palette: &Palette) -> Div {
             message.extras.pinned_at(client_provider::Timestamp::now()) && !message.deleted,
             |this| this.child(super::pins::pinned_mark(side.meta)),
         )
+        .when(row.tasked, |this| {
+            this.child(super::tasks::tasked_mark(side.meta))
+        })
         .when(message.edited && !message.deleted, |this| {
             this.child(
                 mono("edited")

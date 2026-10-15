@@ -222,8 +222,8 @@ fn a_database_from_before_sends_were_measured_measures_the_next_one() {
 }
 
 #[test]
-fn the_schema_is_at_v14() {
-    assert_eq!(SCHEMA_VERSION, 14);
+fn the_schema_is_at_v15() {
+    assert_eq!(SCHEMA_VERSION, 15);
 }
 
 /// v13 added two columns to a group (the community it is linked to, and

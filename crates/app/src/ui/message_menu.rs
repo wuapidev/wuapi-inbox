@@ -23,7 +23,7 @@ pub(super) enum CommandState {
 }
 
 /// The commands of a message's menu, in its order, with their glyphs.
-pub(super) const MENU: [(Command, &str, IconName); 19] = [
+pub(super) const MENU: [(Command, &str, IconName); 20] = [
     (Command::Reply, "message-reply", IconName::MessageSquareText),
     (
         Command::ReplyPrivately,
@@ -50,6 +50,7 @@ pub(super) const MENU: [(Command, &str, IconName); 19] = [
     (Command::Forward, "message-forward", IconName::Forward),
     (Command::Star, "message-star", IconName::Star),
     (Command::Pin, "message-pin", IconName::Pin),
+    (Command::CreateTask, "message-task", IconName::SquareCheck),
     (Command::Edit, "message-edit", IconName::Pencil),
     (Command::Info, "message-info", IconName::Info),
     (Command::Open, "message-open", IconName::ExternalLink),
@@ -174,6 +175,10 @@ impl Shell {
             C::Pin if !sent(message) => Disabled(NOT_SENT),
             C::Pin if matches!(message.content, MessageContent::System(_)) => Hidden,
             C::Pin => Enabled,
+            // Kept here, so anything with something to say will do,
+            // sent or not.
+            C::CreateTask if matches!(message.content, MessageContent::System(_)) => Hidden,
+            C::CreateTask => Enabled,
             C::Forward if !caps.forwards => Hidden,
             C::Forward if !sent(message) => Disabled(NOT_SENT),
             C::Forward => match self.forwardable(message) {

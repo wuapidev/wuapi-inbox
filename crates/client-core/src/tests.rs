@@ -3723,6 +3723,7 @@ mod people;
 mod sending;
 mod social;
 mod stories;
+mod tasks;
 mod upgrade;
 
 // ----- downloads the user watches -------------------------------------------
