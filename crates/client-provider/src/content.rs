@@ -351,6 +351,54 @@ pub struct MessageExtras {
     pub sender_username: Option<String>,
     /// It answers a story.
     pub story_reply: Option<crate::StoryReplyRef>,
+    /// It is pinned at the top of its chat until then, for everyone in
+    /// it. A time that has passed means it is no longer pinned.
+    pub pinned_until: Option<crate::Timestamp>,
+}
+
+/// How long a message stays pinned, the three lengths WhatsApp offers.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PinFor {
+    /// A day.
+    Day,
+    /// A week, WhatsApp's own choice when none is made.
+    #[default]
+    Week,
+    /// Thirty days.
+    Month,
+}
+
+impl PinFor {
+    /// How long that is.
+    pub fn duration(self) -> std::time::Duration {
+        let day = 24 * 60 * 60;
+        std::time::Duration::from_secs(match self {
+            Self::Day => day,
+            Self::Week => 7 * day,
+            Self::Month => 30 * day,
+        })
+    }
+
+    /// The length a pin of `seconds` was made for: the nearest of the
+    /// three.
+    pub fn of_seconds(seconds: u64) -> Self {
+        let day = 24 * 60 * 60;
+        if seconds <= 2 * day {
+            Self::Day
+        } else if seconds <= 14 * day {
+            Self::Week
+        } else {
+            Self::Month
+        }
+    }
+}
+
+impl MessageExtras {
+    /// Whether it is pinned at `now`.
+    pub fn pinned_at(&self, now: crate::Timestamp) -> bool {
+        self.pinned_until.is_some_and(|until| until > now)
+    }
 }
 
 impl MessageExtras {

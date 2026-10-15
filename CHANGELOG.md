@@ -2,6 +2,16 @@
 
 ## [Unreleased]
 
+* A GIF plays in its bubble, silent and over and over, as soon as it is downloaded (it was a file tile to open). Under reduced motion, or without the video runtime, the tile stays.
+* A video of a conversation plays inside the window: play and hold (Space), the bar to go anywhere in it, five seconds back and forward with the arrows, Save as… and the way to open it with another application.
+* Four or more pictures one person sent together are one album: a grid of four in one bubble, with how many more over the last. A click opens a picture in the viewer, where the arrows go through the rest.
+* A chat's photos and videos, files and links are listed from its panel ("Media, files and links"): by month, newest first, with who sent each and when, and the way to the message in the conversation.
+* A message is pinned at the top of its chat for everyone in it, for 24 hours, 7 days or 30 days ("Pin" in its menu, or P). A bar under the chat's header shows the pinned message and goes to it; a chat keeps three. With the numbers of this computer; Wuapi Cloud's API has no way to pin yet.
+* A chat's picture is no longer downloaded again at every start when the chat list names it differently from the picture itself.
+* A story's video that could not open the sound card now plays without sound, instead of saying it cannot be played. A second video, story or GIF no longer brings the application down.
+* The provider trait has `pin_message`, the `pins` capability, `MessageExtras::pinned_until` and `PinFor`.
+* Releases embed the video runtime on every platform: libmpv with FFmpeg, built LGPL-only from pinned sources by `packaging/video/build-libmpv.sh` (`video-runtime.yml`), and required by the release workflow.
+
 ## [0.4.0]
 
 * A PDF somebody sent is read inside the window: its pages one under the other, scrolled with the wheel, the arrows, Space and the page keys, with the page being read and their number in the toolbar, zoom, Save as… and the way to open it with another application. A PDF that asks for a password, and any other kind of file, still opens with the system's application.

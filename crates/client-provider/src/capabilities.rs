@@ -96,6 +96,9 @@ pub struct Capabilities {
     /// Messages can be starred and unstarred
     /// ([`Provider::star_message`](crate::Provider::star_message)).
     pub stars: bool,
+    /// Messages can be pinned at the top of their chat, for everyone in
+    /// it ([`Provider::pin_message`](crate::Provider::pin_message)).
+    pub pins: bool,
     /// A sent message can be marked as forwarded
     /// ([`OutgoingMessage::forwarded`](crate::OutgoingMessage)), which is
     /// how a message is forwarded: its content sent again, with the mark.
@@ -240,6 +243,7 @@ impl Capabilities {
             delete_for_me: false,
             delete_received: false,
             stars: false,
+            pins: false,
             forwards: false,
             polls: false,
             poll_votes: false,
@@ -307,6 +311,7 @@ impl Capabilities {
             delete_for_me: true,
             delete_received: true,
             stars: true,
+            pins: true,
             forwards: true,
             polls: true,
             poll_votes: true,
@@ -376,6 +381,7 @@ impl Capabilities {
             delete_for_me: self.delete_for_me || other.delete_for_me,
             delete_received: self.delete_received || other.delete_received,
             stars: self.stars || other.stars,
+            pins: self.pins || other.pins,
             forwards: self.forwards || other.forwards,
             polls: self.polls || other.polls,
             poll_votes: self.poll_votes || other.poll_votes,

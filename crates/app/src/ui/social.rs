@@ -158,6 +158,11 @@ pub(super) struct SocialUi {
     /// What the info panel shows. A stack: a participant opened from a
     /// group goes back to the group.
     pub(super) stack: Vec<Target>,
+    /// The chat's photos, files and links, over the page of the panel.
+    pub(super) gallery: Option<super::gallery::Gallery>,
+    /// How much the gallery of the chat in the panel holds, counted once
+    /// per page: the panel is drawn often and the count reads the chat.
+    pub(super) gallery_count: std::cell::RefCell<Option<(ChatId, usize)>>,
     pub(super) tab: GroupTab,
     /// "Add participants" is showing in the group panel.
     pub(super) adding: Option<People>,
@@ -199,6 +204,8 @@ impl SocialUi {
     pub(super) fn new() -> Self {
         Self {
             stack: Vec::new(),
+            gallery: None,
+            gallery_count: Default::default(),
             tab: GroupTab::default(),
             adding: None,
             linking: false,
@@ -230,6 +237,8 @@ impl SocialUi {
     /// Clears what belongs to one page of the panel.
     fn clear_page(&mut self) {
         self.tab = GroupTab::default();
+        self.gallery = None;
+        self.gallery_count.take();
         self.adding = None;
         self.linking = false;
         self.community_people = None;
@@ -346,7 +355,8 @@ impl Shell {
             // The provider is being asked: its answer decides.
             return;
         }
-        if social.confirm.take().is_some()
+        if social.gallery.take().is_some()
+            || social.confirm.take().is_some()
             || social.edit.take().is_some()
             || social.adding.take().is_some()
             || std::mem::take(&mut social.linking)
@@ -369,7 +379,10 @@ impl Shell {
 
     /// Whether the back arrow has somewhere to go that is not "closed".
     pub(super) fn info_can_go_back(&self) -> bool {
-        self.social.stack.len() > 1 || self.social.adding.is_some() || self.social.linking
+        self.social.stack.len() > 1
+            || self.social.gallery.is_some()
+            || self.social.adding.is_some()
+            || self.social.linking
     }
 
     // ----- small actions -------------------------------------------------

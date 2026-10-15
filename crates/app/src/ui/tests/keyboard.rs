@@ -450,6 +450,7 @@ fn the_message_menu_lists_what_can_be_done_with_its_keys(cx: &mut TestAppContext
             "message-copy",
             "message-forward",
             "message-star",
+            "message-pin",
             "message-edit",
             "message-info",
             "message-select",
@@ -846,6 +847,48 @@ fn a_reaction_is_picked_shows_as_ones_own_and_is_taken_back(cx: &mut TestAppCont
             emoji: String::new()
         }
     );
+}
+
+#[gpui_kit::test]
+fn p_asks_for_how_long_pins_shows_the_bar_and_unpins(cx: &mut TestAppContext) {
+    let harness = open_chat_one(cx);
+    let id = send(&harness, cx, "the address is on the card");
+    focus_composer(&harness, cx);
+    press(harness.window, "up", cx);
+    press(harness.window, "p", cx);
+    assert!(shows(harness.window, "pin-message", cx), "it asks first");
+    click(harness.window, "pin-day", cx);
+    assert!(!shows(harness.window, "pin-message", cx));
+    let until = row(&harness, cx, &id)
+        .unwrap()
+        .message
+        .extras
+        .pinned_until
+        .expect("pinned");
+    let left = until.as_millis() - client_provider::Timestamp::now().as_millis();
+    assert!((left - 86_400_000).abs() < 60_000, "for a day: {left}");
+    assert!(shows(harness.window, "pinned-mark", cx));
+    assert!(shows(harness.window, "pinned-bar", cx));
+    harness.settle(cx);
+    assert_eq!(harness.mock.actions(), [format!("pin {id}")]);
+
+    // The bar goes to it.
+    click(harness.window, "pinned-open", cx);
+
+    // On a pinned message the same key unpins it at once.
+    focus_composer(&harness, cx);
+    press(harness.window, "up", cx);
+    press(harness.window, "p", cx);
+    assert!(!shows(harness.window, "pin-message", cx));
+    assert!(row(&harness, cx, &id)
+        .unwrap()
+        .message
+        .extras
+        .pinned_until
+        .is_none());
+    assert!(!shows(harness.window, "pinned-bar", cx));
+    harness.settle(cx);
+    assert_eq!(harness.mock.actions()[1], format!("unpin {id}"));
 }
 
 #[gpui_kit::test]

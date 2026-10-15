@@ -513,6 +513,14 @@ const MIGRATIONS: &[&str] = &[
     CREATE INDEX groups_by_community ON groups (account_id, community_id)
         WHERE community_id IS NOT NULL;
     "#,
+    // v14: the id the chat list gave for a picture when the provider was
+    // last asked about it (`asked_for`). The list's id and the id the
+    // picture came with need not be the same word; without this the
+    // question was asked again at every start. Only an added column: a
+    // row that exists is asked about once more, and then no more.
+    r#"
+    ALTER TABLE avatars ADD COLUMN asked_for TEXT;
+    "#,
 ];
 
 /// The schema version this build expects.

@@ -246,6 +246,7 @@ fn what_rides_along_is_kept_and_follows_the_provider() {
         }),
         sender_username: None,
         story_reply: None,
+        pinned_until: Some(Timestamp::from_millis(1_900_000_000_000)),
     };
     assert_eq!(store.upsert_message(&message).unwrap(), Upsert::Inserted);
     assert_eq!(store.upsert_message(&message).unwrap(), Upsert::Unchanged);
@@ -644,4 +645,80 @@ async fn a_notice_is_not_an_unread_message() {
             .unread_count,
         1
     );
+}
+
+#[test]
+fn the_gallery_lists_a_chats_pictures_files_and_links_newest_first() {
+    let store = store();
+    let media = |kind: MediaKind| MessageContent::Media(Media::new(kind));
+    let mut once = with("once", 7, media(MediaKind::Image));
+    once.extras.view_once = true;
+    let mut gone = with("gone", 8, media(MediaKind::Image));
+    gone.deleted = true;
+    store
+        .upsert_messages(&[
+            with("photo", 1, media(MediaKind::Image)),
+            with("video", 2, media(MediaKind::Video)),
+            with("sticker", 3, media(MediaKind::Sticker)),
+            with("voice", 4, media(MediaKind::Voice)),
+            with("pdf", 5, media(MediaKind::Document)),
+            with("song", 6, media(MediaKind::Audio)),
+            once,
+            gone,
+            text(
+                "link",
+                "chat",
+                9,
+                "see https://example.org/a",
+                Direction::Incoming,
+            ),
+            text("words", "chat", 10, "no address here", Direction::Incoming),
+        ])
+        .unwrap();
+    let ids = |kind: GalleryKind, limit: usize| {
+        let (messages, total) = store.gallery(&account(), &chat_id(), kind, limit).unwrap();
+        let ids: Vec<String> = messages.iter().map(|m| m.id.to_string()).collect();
+        (ids, total)
+    };
+    assert_eq!(
+        ids(GalleryKind::Media, 10),
+        (vec!["video".to_owned(), "photo".to_owned()], 2),
+        "no sticker, nothing deleted, nothing to be seen once"
+    );
+    assert_eq!(
+        ids(GalleryKind::Files, 10),
+        (vec!["song".to_owned(), "pdf".to_owned()], 2),
+        "a voice note is not a file"
+    );
+    assert_eq!(ids(GalleryKind::Links, 10), (vec!["link".to_owned()], 1));
+    // The count is of all of them, whatever the page.
+    assert_eq!(ids(GalleryKind::Media, 1), (vec!["video".to_owned()], 2));
+    assert_eq!(ids(GalleryKind::Media, 0), (Vec::new(), 2));
+}
+
+#[test]
+fn what_a_picture_was_asked_for_is_kept_with_it() {
+    let store = store();
+    let now = Timestamp::now();
+    store
+        .put_avatar(&account(), &chat_id(), Some(("pic-1", b"image")), now)
+        .unwrap();
+    assert_eq!(
+        store
+            .avatar(&account(), &chat_id())
+            .unwrap()
+            .unwrap()
+            .asked_for,
+        None
+    );
+    store
+        .set_avatar_asked(&account(), &chat_id(), Some("list-id"))
+        .unwrap();
+    // Another picture under the same question: the question stays.
+    store
+        .put_avatar(&account(), &chat_id(), Some(("pic-2", b"image")), now)
+        .unwrap();
+    let stored = store.avatar(&account(), &chat_id()).unwrap().unwrap();
+    assert_eq!(stored.asked_for.as_deref(), Some("list-id"));
+    assert_eq!(stored.picture_id.as_deref(), Some("pic-2"));
 }

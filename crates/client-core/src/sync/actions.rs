@@ -1,5 +1,5 @@
 //! What is done to a message after it was sent: editing it, deleting it,
-//! starring it, reacting to it, passing it on.
+//! starring it, pinning it, reacting to it, passing it on.
 //!
 //! Each of these shows at once and is told to the provider in the
 //! background, like a chat's pin or a vote in a poll. A dropped connection
@@ -21,8 +21,11 @@ use super::SyncEngine;
 use crate::store::{StoreChange, StoreError};
 use client_provider::{
     AccountId, ChatId, ClientMessageId, DeliveryStatus, Direction, Feature, Message,
-    MessageContent, MessageId, OutgoingContent, OutgoingMessage, ProviderError,
+    MessageContent, MessageId, OutgoingContent, OutgoingMessage, PinFor, ProviderError, Timestamp,
 };
+
+/// How many messages a chat can have pinned at once, as on WhatsApp.
+pub const PINS_PER_CHAT: usize = 3;
 
 /// What is being done.
 #[derive(Clone, Debug)]
@@ -30,6 +33,7 @@ enum Action {
     Edit(String),
     Delete { for_everyone: bool },
     Star(bool),
+    Pin(Option<PinFor>),
 }
 
 impl Action {
@@ -40,6 +44,7 @@ impl Action {
             Action::Edit(_) => 0,
             Action::Delete { .. } => 1,
             Action::Star(_) => 2,
+            Action::Pin(_) => 3,
         }
     }
 
@@ -50,6 +55,8 @@ impl Action {
             Action::Delete { .. } => "deleted",
             Action::Star(true) => "starred",
             Action::Star(false) => "unstarred",
+            Action::Pin(Some(_)) => "pinned",
+            Action::Pin(None) => "unpinned",
         }
     }
 }
@@ -238,6 +245,40 @@ impl SyncEngine {
         now.extras.starred = starred;
         store.upsert_message(&now)?;
         self.tell_provider(account, chat, before, Action::Star(starred));
+        Ok(())
+    }
+
+    /// Pins a message at the top of its chat for `pin`, or unpins it
+    /// (`None`). A chat holds [`PINS_PER_CHAT`] pins: pinning one more
+    /// unpins the one that would end first, as WhatsApp does.
+    pub fn pin_message(
+        &self,
+        account: &AccountId,
+        chat: &ChatId,
+        message: &MessageId,
+        pin: Option<PinFor>,
+    ) -> Result<(), StoreError> {
+        let store = &self.inner.store;
+        let Some(before) = store.message(account, message)? else {
+            return Ok(());
+        };
+        let now = Timestamp::now();
+        if is_local(message) || (pin.is_none() && !before.extras.pinned_at(now)) {
+            return Ok(());
+        }
+        if pin.is_some() && !before.extras.pinned_at(now) {
+            let pinned = store.pinned_messages(account, chat, now)?;
+            let over = (pinned.len() + 1).saturating_sub(PINS_PER_CHAT);
+            // Ending first: the last ones in the newest-first list.
+            for oldest in pinned.iter().rev().take(over) {
+                self.pin_message(account, chat, &oldest.id, None)?;
+            }
+        }
+        let mut pinned = before.clone();
+        pinned.extras.pinned_until = pin
+            .map(|pin| Timestamp::from_millis(now.as_millis() + pin.duration().as_millis() as i64));
+        store.upsert_message(&pinned)?;
+        self.tell_provider(account, chat, before, Action::Pin(pin));
         Ok(())
     }
 
@@ -443,6 +484,10 @@ impl SyncEngine {
                         this.bounded(provider.star_message(account, &chat, message, *starred))
                             .await
                     }
+                    Action::Pin(pin) => {
+                        this.bounded(provider.pin_message(account, &chat, message, *pin))
+                            .await
+                    }
                 };
                 match outcome {
                     Ok(()) => return,
@@ -479,6 +524,7 @@ impl SyncEngine {
                         }
                         Action::Delete { .. } => now.deleted = before.deleted,
                         Action::Star(_) => now.extras.starred = before.extras.starred,
+                        Action::Pin(_) => now.extras.pinned_until = before.extras.pinned_until,
                     }
                     now
                 }

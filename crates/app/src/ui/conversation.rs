@@ -52,6 +52,7 @@ impl Shell {
             Some(open) => pane
                 .child(self.render_header(open, palette, cx))
                 .children(self.render_thread_search(palette, cx))
+                .children(self.render_pinned_bar(palette, cx))
                 .child(self.render_messages(open, palette, window, cx))
                 // A number that is not connected says so where the
                 // message is written; sending is not held back.

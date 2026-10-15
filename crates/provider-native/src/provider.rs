@@ -281,7 +281,14 @@ impl Inner {
                     .ok()
             })
             .flatten();
-        convert::to_message(account, stored, votes.as_ref())
+        let mut message = convert::to_message(account, stored, votes.as_ref())?;
+        if let Ok(Some(until)) = self
+            .archive
+            .pin_until(account.as_str(), &stored.chat, &stored.id)
+        {
+            message.extras.pinned_until = Some(Timestamp::from_millis(until));
+        }
+        Some(message)
     }
 
     pub(crate) fn chat_model(&self, account: &AccountId, stored: &StoredChat) -> Chat {
@@ -739,6 +746,7 @@ impl Provider for NativeProvider {
             delete_for_me: true,
             delete_received: true,
             stars: true,
+            pins: true,
             forwards: true,
             polls: true,
             poll_votes: true,
@@ -1360,6 +1368,25 @@ impl Provider for NativeProvider {
         inner
             .archive
             .set_starred(account.as_str(), &stored.chat, &stored.id, starred)
+            .map_err(db)?;
+        Ok(())
+    }
+
+    async fn pin_message(
+        &self,
+        account: &AccountId,
+        chat: &ChatId,
+        message: &MessageId,
+        pin: Option<client_provider::PinFor>,
+    ) -> ProviderResult<()> {
+        let inner = &self.inner;
+        let (stored, target) = inner.target(account, Some(chat), message)?;
+        let session = inner.online(account)?;
+        session.pin(&target, pin).await.map_err(fail)?;
+        let until = pin.map(|pin| now_ms() + pin.duration().as_millis() as i64);
+        inner
+            .archive
+            .set_pin(account.as_str(), &stored.chat, &stored.id, until)
             .map_err(db)?;
         Ok(())
     }

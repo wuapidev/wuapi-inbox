@@ -35,7 +35,9 @@ impl Shell {
         palette: &Palette,
         cx: &mut Context<Self>,
     ) -> Option<Stateful<Div>> {
+        let in_gallery = self.social.gallery.is_some();
         let (title, body) = match self.social.target()? {
+            _ if in_gallery => ("Media, files and links", self.render_gallery(palette, cx)),
             Target::Contact { account, contact } => (
                 "Contact info",
                 self.render_contact(account, contact, palette, cx),
@@ -51,7 +53,8 @@ impl Shell {
         );
         Some(
             self.card("contact-info", palette)
-                .w(px(420.))
+                // The gallery is a grid: it takes the room of five pictures.
+                .w(px(if in_gallery { 640. } else { 420. }))
                 .max_h(px(700.))
                 .flex()
                 .flex_col()
@@ -231,6 +234,7 @@ impl Shell {
             );
         }
         if chat.is_some() {
+            actions = actions.children(self.gallery_row(account, &chat_id, palette, cx));
             let search_in = chat_id.clone();
             actions = actions.child(
                 action_row(
@@ -366,6 +370,37 @@ impl Shell {
             panel = panel.child(self.render_common_groups(account, contact, palette, cx));
         }
         panel
+    }
+
+    /// The row of a panel that opens the chat's gallery, saying how much
+    /// is in it. `None` when the store holds nothing to show.
+    pub(super) fn gallery_row(
+        &self,
+        account: &AccountId,
+        chat: &ChatId,
+        palette: &Palette,
+        cx: &mut Context<Self>,
+    ) -> Option<Stateful<Div>> {
+        let total = self.gallery_total(account, chat);
+        if total == 0 {
+            return None;
+        }
+        let (of_account, of_chat) = (account.clone(), chat.clone());
+        Some(
+            action_row(
+                "profile-gallery",
+                IconName::Image,
+                "Media, files and links",
+                false,
+                palette,
+            )
+            .child(div().flex_1())
+            .child(mono(total.to_string()).text_color(palette.text_muted))
+            .on_click(cx.listener(move |this, _, _, cx| {
+                cx.stop_propagation();
+                this.open_gallery(of_account.clone(), of_chat.clone(), cx);
+            })),
+        )
     }
 
     /// The groups the account and the contact are both in, as far as the

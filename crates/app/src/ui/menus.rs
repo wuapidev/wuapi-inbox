@@ -134,6 +134,7 @@ impl Shell {
                 self.render_delete_sheet(palette, cx).into_any_element(),
                 true,
             ),
+            Overlay::PinMessage => (self.render_pin_sheet(palette, cx).into_any_element(), true),
             Overlay::MessageInfo => (
                 self.render_info_sheet(palette, cx)?.into_any_element(),
                 true,
@@ -171,6 +172,7 @@ impl Shell {
                 self.render_reader(palette, window, cx)?.into_any_element(),
                 true,
             ),
+            Overlay::Video => (self.render_video(palette, cx)?.into_any_element(), true),
             Overlay::NewPoll => (self.render_poll_form(palette, cx)?.into_any_element(), true),
             Overlay::ConfirmSignOut => (
                 self.render_confirm_sign_out(palette, cx).into_any_element(),

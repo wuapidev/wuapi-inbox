@@ -390,6 +390,8 @@ pub enum Command {
     Forward,
     /// Stars or unstars it.
     Star,
+    /// Pins it at the top of the chat, or unpins it.
+    Pin,
     /// Deletes it.
     Delete,
     /// Reacts to it.
@@ -1422,6 +1424,13 @@ pub const BINDINGS: &[Binding] = &[
         S::Message,
         W::Message,
         &[key("s")],
+    ),
+    bind(
+        C::Pin,
+        "Pin or unpin in the chat",
+        S::Message,
+        W::Message,
+        &[key("p")],
     ),
     bind(
         C::Reactions,
@@ -2481,6 +2490,7 @@ mod tests {
             ("c", C::Copy),
             ("f", C::Forward),
             ("s", C::Star),
+            ("p", C::Pin),
             ("i", C::Info),
             ("w", C::Reactions),
             ("o", C::Open),

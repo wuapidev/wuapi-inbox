@@ -4970,6 +4970,7 @@ mod connection;
 mod design;
 mod emoji;
 mod forward;
+mod gallery;
 mod keyboard;
 mod link_dialog;
 mod media_out;
@@ -4988,6 +4989,7 @@ mod stickers;
 mod together;
 mod transport;
 mod updates;
+mod video;
 mod viewer;
 mod voice_note;
 

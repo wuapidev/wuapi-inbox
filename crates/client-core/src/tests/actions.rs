@@ -264,6 +264,107 @@ async fn a_star_is_set_and_taken_back_and_the_newest_wish_wins() {
 }
 
 #[tokio::test(start_paused = true)]
+async fn a_pin_shows_at_once_ends_on_time_and_a_fourth_replaces_the_first_to_end() {
+    use client_provider::PinFor;
+    let mock = MockProvider::quiet();
+    let engine = engine_for(&mock);
+    let (account, chat, day) = sent(&engine, "for a day").await;
+    let (_, _, week) = sent(&engine, "for a week").await;
+    let (_, _, month) = sent(&engine, "for a month").await;
+    let (_, _, late) = sent(&engine, "pinned last").await;
+
+    let now = Timestamp::now();
+    engine
+        .pin_message(&account, &chat, &day, Some(PinFor::Day))
+        .unwrap();
+    let pinned = stored(&engine, &account, &day).unwrap();
+    assert!(pinned.extras.pinned_at(now), "shown at once");
+    let until = pinned.extras.pinned_until.unwrap().as_millis() - now.as_millis();
+    assert!((until - 86_400_000).abs() < 60_000, "for a day: {until}");
+    assert!(!pinned.extras.pinned_at(Timestamp::from_millis(
+        now.as_millis() + 86_400_000 + 60_000
+    )));
+    settle().await;
+    assert_eq!(mock.actions(), [format!("pin {day}")]);
+    assert!(mock
+        .message(&account, &day)
+        .unwrap()
+        .extras
+        .pinned_until
+        .is_some());
+
+    engine
+        .pin_message(&account, &chat, &week, Some(PinFor::Week))
+        .unwrap();
+    engine
+        .pin_message(&account, &chat, &month, Some(PinFor::Month))
+        .unwrap();
+    let listed: Vec<MessageId> = engine
+        .store()
+        .pinned_messages(&account, &chat, Timestamp::now())
+        .unwrap()
+        .into_iter()
+        .map(|message| message.id)
+        .collect();
+    assert_eq!(listed, [month.clone(), week.clone(), day.clone()]);
+
+    // A fourth: the one that would end first makes room, as on the phone.
+    engine
+        .pin_message(&account, &chat, &late, Some(PinFor::Week))
+        .unwrap();
+    let listed = engine
+        .store()
+        .pinned_messages(&account, &chat, Timestamp::now())
+        .unwrap();
+    assert_eq!(listed.len(), client_core_pins());
+    assert!(listed.iter().all(|message| message.id != day));
+    settle().await;
+    assert!(mock.actions().contains(&format!("unpin {day}")));
+
+    // Unpinning one that is not pinned asks nobody.
+    let asked = mock.actions().len();
+    engine.pin_message(&account, &chat, &day, None).unwrap();
+    settle().await;
+    assert_eq!(mock.actions().len(), asked);
+}
+
+fn client_core_pins() -> usize {
+    crate::PINS_PER_CHAT
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_pin_the_provider_refuses_is_taken_back_and_said() {
+    use client_provider::PinFor;
+    let mock = MockProvider::quiet();
+    let engine = engine_for(&mock);
+    let (account, chat, id) = sent(&engine, "pin me").await;
+    let mut changes = engine.store().subscribe();
+    mock.fail_next_actions([ProviderError::Rejected {
+        code: "forbidden".into(),
+        message: "Only admins can pin messages in this group.".into(),
+    }]);
+    engine
+        .pin_message(&account, &chat, &id, Some(PinFor::Week))
+        .unwrap();
+    assert!(stored(&engine, &account, &id)
+        .unwrap()
+        .extras
+        .pinned_at(Timestamp::now()));
+    settle().await;
+    assert!(stored(&engine, &account, &id)
+        .unwrap()
+        .extras
+        .pinned_until
+        .is_none());
+    let said = problems(&mut changes);
+    assert!(
+        said.iter()
+            .any(|line| line.starts_with("The message was not pinned")),
+        "{said:?}"
+    );
+}
+
+#[tokio::test(start_paused = true)]
 async fn a_reaction_and_a_forward_are_messages_of_the_outbox() {
     let mock = MockProvider::quiet();
     let engine = engine_for(&mock);

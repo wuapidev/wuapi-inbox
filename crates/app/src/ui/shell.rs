@@ -317,6 +317,8 @@ pub(super) enum Overlay {
     Reactors,
     /// "Delete for everyone, or for me?"
     DeleteMessage,
+    /// For how long a message is pinned.
+    PinMessage,
     /// When a message was sent and how far it got.
     MessageInfo,
     /// The chats to forward to.
@@ -333,6 +335,8 @@ pub(super) enum Overlay {
     Viewer,
     /// A PDF, read here.
     Reader,
+    /// A video, played here.
+    Video,
     /// "New poll": a question and its options, for the open chat.
     NewPoll,
     /// The form that creates a group.
@@ -547,6 +551,11 @@ pub(super) struct OpenChat {
     /// What was unread when the chat was opened, for the divider above
     /// the first of those messages. It stays until the chat is left.
     pub(super) unread: Option<UnreadAtOpen>,
+    /// The chat's pinned messages, the one pinned to stay longest first.
+    /// Read with the messages.
+    pub(super) pinned: Vec<client_provider::Message>,
+    /// Which of them the bar under the header shows.
+    pub(super) pinned_shown: usize,
     /// How many of the newest stored messages are loaded into `rows`.
     limit: usize,
     /// A page of older history has been requested from the provider.
@@ -613,6 +622,8 @@ pub struct Shell {
     pub(super) rail_handles: std::cell::RefCell<HashMap<String, gpui_kit::FocusHandle>>,
     /// The picture viewer: its scale, where the picture is, its pixels.
     pub(super) viewer: super::viewer::Viewer,
+    /// The video being played in the window.
+    pub(super) video: super::video_player::VideoDeck,
     /// What had the keyboard when the palette or the shortcuts sheet
     /// opened: it gets it back when they close.
     return_focus: Option<FocusHandle>,
@@ -961,6 +972,7 @@ impl Shell {
                 .unwrap_or_else(super::media_out::MediaOut::system),
             leaving: Default::default(),
             viewer: Default::default(),
+            video: Default::default(),
             voice: super::voice_record::VoiceDeck::new(
                 crate::record::Recorder::new(super::voice_record::system_input()),
                 None,
@@ -1439,6 +1451,13 @@ impl Shell {
         self.audio.follow(&open.rows, &rows);
         open.rows = Rc::new(rows);
         open.subtitle = chat_subtitle(&self.store, &self.senders, &open.chat);
+        open.pinned = self
+            .store
+            .pinned_messages(&open.chat.account_id, &open.chat.id, Timestamp::now())
+            .unwrap_or_else(|error| {
+                tracing::error!(%error, "could not read the pinned messages");
+                Vec::new()
+            });
         // The panel of who reacted lists what the store has now.
         self.refresh_reactors();
         let Some(open) = &mut self.open else { return };
@@ -1692,10 +1711,12 @@ impl Shell {
             | Overlay::ContactInfo
             | Overlay::ConfirmSignOut
             | Overlay::Viewer
+            | Overlay::Video
             | Overlay::Reader
             | Overlay::React
             | Overlay::Reactors
             | Overlay::DeleteMessage
+            | Overlay::PinMessage
             | Overlay::MessageInfo
             | Overlay::Forward
             | Overlay::Palette
@@ -1755,6 +1776,9 @@ impl Shell {
         }
         if self.overlay == Overlay::Reader {
             self.end_reading();
+        }
+        if self.overlay == Overlay::Video {
+            self.end_video(cx);
         }
         if self.overlay == Overlay::Status {
             self.status.sheet = None;
@@ -1860,6 +1884,12 @@ impl Shell {
             }
             return;
         }
+        if self.overlay == Overlay::Video {
+            if self.video_key(key, cx) {
+                cx.stop_propagation();
+            }
+            return;
+        }
         if self.overlay == Overlay::Viewer {
             // The viewer's own keys, and those that act on a message's
             // file, which act on the picture here.
@@ -1923,6 +1953,12 @@ impl Shell {
         }
         if self.overlay == Overlay::Forward {
             if self.forward_key(event, window, cx) {
+                cx.stop_propagation();
+            }
+            return;
+        }
+        if self.overlay == Overlay::PinMessage {
+            if self.pin_key(key, window, cx) {
                 cx.stop_propagation();
             }
             return;
@@ -2921,6 +2957,11 @@ impl Shell {
         if self.overlay == Overlay::Reader {
             self.load_read(cx);
         }
+        // The video in the player: here, it can be played.
+        if self.overlay == Overlay::Video {
+            self.start_video();
+            cx.notify();
+        }
         let waiting = self
             .opening
             .as_ref()
@@ -3043,6 +3084,8 @@ impl Shell {
             list,
             subtitle: None,
             unread,
+            pinned: Vec::new(),
+            pinned_shown: 0,
             limit,
             awaiting_older: false,
         });
@@ -3124,6 +3167,7 @@ impl Render for Shell {
         self.media.set_policy(chosen.media);
         // Frames of animations that were let go leave the window too.
         self.media.release(window);
+        self.media.tend_loops(cx.weak_entity(), cx);
         self.picker.release(window);
         self.call_deck.release(window);
         self.viewer.release(window);
@@ -3438,10 +3482,13 @@ fn build_rows(
             sender,
             quoted,
             unread_above,
+            album: Vec::new(),
+            folded: false,
             key,
             signature,
         })));
     }
+    fold_albums(&mut rows);
     // A run ends where the next row is a separator or starts a new run.
     let mut next_starts_run = true;
     for row in rows.iter_mut().rev() {
@@ -3460,10 +3507,106 @@ fn build_rows(
             let mut hasher = std::collections::hash_map::DefaultHasher::new();
             message.signature.hash(&mut hasher);
             message.last_of_run.hash(&mut hasher);
+            message.first_of_run.hash(&mut hasher);
+            message.folded.hash(&mut hasher);
+            for piece in &message.album {
+                piece.id.hash(&mut hasher);
+            }
             message.signature = hasher.finish();
         }
     }
     rows
+}
+
+/// How far apart two pictures may be sent and still be one album.
+const ALBUM_WINDOW_MS: i64 = 60_000;
+/// The fewest pictures that make an album, as on the phone: two or three
+/// sent together stay bubbles of their own.
+const ALBUM_LEAST: usize = 4;
+
+/// Whether a row is a picture that can stand in an album: a photo or a
+/// video with nothing of its own to say or show (no caption, no quote,
+/// no reaction), that has arrived or gone.
+fn album_piece(row: &MessageRow) -> bool {
+    let message = &row.stored.message;
+    let plain = match &message.content {
+        MessageContent::Media(media) => {
+            (media.kind == MediaKind::Image || (media.kind == MediaKind::Video && !media.gif))
+                && media
+                    .caption
+                    .as_ref()
+                    .is_none_or(|caption| caption.is_empty())
+        }
+        _ => false,
+    };
+    plain
+        && !message.deleted
+        && !message.extras.view_once
+        && message.reply_to.is_none()
+        && row.stored.reactions.is_empty()
+        && row.unread_above.is_none()
+        && !matches!(
+            message.status,
+            client_provider::DeliveryStatus::Pending
+                | client_provider::DeliveryStatus::Failed { .. }
+        )
+}
+
+/// Folds pictures sent together into one album. WhatsApp sends an album
+/// as so many messages; what makes them one is that the same person sent
+/// four or more of them one after the other, each within a minute of the
+/// one before. The last of them carries
+/// the album (it is the row that is drawn); the others stay rows, so that
+/// everything that names a message still finds it, and draw nothing.
+fn fold_albums(rows: &mut [Row]) {
+    let piece = |row: &Row| match row {
+        Row::Message(row) if album_piece(row) => Some((
+            row.stored.message.timestamp.as_millis(),
+            row.stored.message.direction,
+            row.stored.message.extras.forwarded,
+            row.first_of_run,
+        )),
+        _ => None,
+    };
+    let mut start = 0;
+    while start < rows.len() {
+        let Some((mut at, direction, forwarded, _)) = piece(&rows[start]) else {
+            start += 1;
+            continue;
+        };
+        let mut end = start;
+        while let Some((next, next_direction, next_forwarded, first_of_run)) =
+            rows.get(end + 1).and_then(piece)
+        {
+            if first_of_run
+                || next_direction != direction
+                || next_forwarded != forwarded
+                || next - at > ALBUM_WINDOW_MS
+            {
+                break;
+            }
+            at = next;
+            end += 1;
+        }
+        if end + 1 - start >= ALBUM_LEAST {
+            let mut album = Vec::with_capacity(end - start);
+            let mut first_of_run = false;
+            for (index, row) in rows[start..end].iter_mut().enumerate() {
+                if let Row::Message(row) = row {
+                    if index == 0 {
+                        first_of_run = row.first_of_run;
+                    }
+                    row.folded = true;
+                    album.push(row.stored.message.clone());
+                }
+            }
+            if let Row::Message(last) = &mut rows[end] {
+                last.album = album;
+                last.first_of_run = first_of_run;
+            }
+        }
+        start = end + 1;
+    }
 }
 
 fn row_identity(row: &Row) -> (&str, u64) {

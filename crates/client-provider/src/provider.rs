@@ -477,6 +477,23 @@ pub trait Provider: Send + Sync + 'static {
         Err(ProviderError::Unsupported("starring a message"))
     }
 
+    /// Pins a message at the top of its chat for everyone in it, for as
+    /// long as `pin` says; `None` unpins it.
+    ///
+    /// Only called when [`Capabilities::pins`] is set; the default
+    /// answers [`ProviderError::Unsupported`]. Pinning again restarts the
+    /// time, so it is safe to repeat.
+    async fn pin_message(
+        &self,
+        account: &AccountId,
+        chat: &ChatId,
+        message: &MessageId,
+        pin: Option<crate::PinFor>,
+    ) -> ProviderResult<()> {
+        let _ = (account, chat, message, pin);
+        Err(ProviderError::Unsupported("pinning a message"))
+    }
+
     // ----- forwarding ----------------------------------------------------
 
     /// Passes messages on to chats the way WhatsApp does: the original is

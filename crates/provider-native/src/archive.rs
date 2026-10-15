@@ -190,6 +190,10 @@ CREATE TABLE IF NOT EXISTS story_views (
     reaction TEXT,
     PRIMARY KEY (account, story, viewer)
 ) WITHOUT ROWID;
+CREATE TABLE IF NOT EXISTS pins (
+    account TEXT NOT NULL, chat TEXT NOT NULL, id TEXT NOT NULL, until_ms INTEGER NOT NULL,
+    PRIMARY KEY (account, chat, id)
+) WITHOUT ROWID;
 CREATE TABLE IF NOT EXISTS kv (
     account TEXT NOT NULL, key TEXT NOT NULL, value TEXT NOT NULL,
     PRIMARY KEY (account, key)
@@ -334,6 +338,7 @@ impl Archive {
             "aliases",
             "poll_votes",
             "story_views",
+            "pins",
             "kv",
         ] {
             tx.execute(&format!("DELETE FROM {table} WHERE account = ?1"), [id])?;
@@ -542,6 +547,40 @@ impl Archive {
         Ok(changed > 0)
     }
 
+    /// Pins a message until `until_ms`, or unpins it (`None`).
+    pub fn set_pin(
+        &self,
+        account: &str,
+        chat: &str,
+        id: &str,
+        until_ms: Option<i64>,
+    ) -> ArchiveResult<()> {
+        match until_ms {
+            Some(until) => self.db().execute(
+                "INSERT INTO pins (account, chat, id, until_ms) VALUES (?1, ?2, ?3, ?4)
+                 ON CONFLICT (account, chat, id) DO UPDATE SET until_ms = excluded.until_ms",
+                params![account, chat, id, until],
+            )?,
+            None => self.db().execute(
+                "DELETE FROM pins WHERE account = ?1 AND chat = ?2 AND id = ?3",
+                params![account, chat, id],
+            )?,
+        };
+        Ok(())
+    }
+
+    /// Until when a message is pinned, if it is or was.
+    pub fn pin_until(&self, account: &str, chat: &str, id: &str) -> ArchiveResult<Option<i64>> {
+        Ok(self
+            .db()
+            .query_row(
+                "SELECT until_ms FROM pins WHERE account = ?1 AND chat = ?2 AND id = ?3",
+                params![account, chat, id],
+                |row| row.get(0),
+            )
+            .optional()?)
+    }
+
     /// Moves everything a chat holds to another id: the same person was
     /// known by a hidden-number id and is now known by their number.
     pub fn merge_chat(&self, account: &str, from: &str, into: &str) -> ArchiveResult<()> {
@@ -553,6 +592,14 @@ impl Archive {
         )?;
         tx.execute(
             "DELETE FROM messages WHERE account = ?1 AND chat = ?2",
+            params![account, from],
+        )?;
+        tx.execute(
+            "UPDATE OR IGNORE pins SET chat = ?3 WHERE account = ?1 AND chat = ?2",
+            params![account, from, into],
+        )?;
+        tx.execute(
+            "DELETE FROM pins WHERE account = ?1 AND chat = ?2",
             params![account, from],
         )?;
         tx.execute(

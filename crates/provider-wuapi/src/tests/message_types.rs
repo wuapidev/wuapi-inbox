@@ -222,6 +222,8 @@ fn maps_view_once_forwarded_starred_edited_and_mentions() {
             link: None,
             sender_username: None,
             story_reply: None,
+            // Nor whether it is pinned.
+            pinned_until: None,
         }
     );
     assert!(marked.edited && !marked.deleted);

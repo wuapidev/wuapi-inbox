@@ -108,6 +108,17 @@ pub enum Effect {
         /// What it says now.
         replacement: Box<wa::Message>,
     },
+    /// It pins another message in its chat for everyone, or unpins it.
+    Pin {
+        /// The message pinned.
+        target: String,
+        /// Pinned (`false`: unpinned).
+        pin: bool,
+        /// For how long, when the message says.
+        seconds: Option<u32>,
+        /// When it was pinned, in milliseconds, when the message says.
+        at_ms: Option<i64>,
+    },
     /// A vote in a poll, still encrypted.
     PollVote {
         /// The poll.
@@ -208,6 +219,34 @@ pub fn effect(message: &wa::Message, votes: Option<&PollVotes>) -> Effect {
                 }
             }
             _ => Effect::Nothing,
+        };
+    }
+    if let Some(pin) = base.pin_in_chat_message.as_option() {
+        use wa::message::pin_in_chat_message::Type;
+        let target = pin
+            .key
+            .as_option()
+            .and_then(|key| key.id.clone())
+            .unwrap_or_default();
+        let pinned = match pin.r#type {
+            Some(Type::PIN_FOR_ALL) => true,
+            Some(Type::UNPIN_FOR_ALL) => false,
+            _ => return Effect::Nothing,
+        };
+        if target.is_empty() {
+            return Effect::Nothing;
+        }
+        let seconds = [message, base].into_iter().find_map(|outer| {
+            outer
+                .message_context_info
+                .as_option()
+                .and_then(|info| info.message_add_on_duration_in_secs)
+        });
+        return Effect::Pin {
+            target,
+            pin: pinned,
+            seconds,
+            at_ms: pin.sender_timestamp_ms,
         };
     }
     if let Some(update) = base.poll_update_message.as_option() {
@@ -926,6 +965,39 @@ mod tests {
                 emoji: String::new(),
             }
         );
+    }
+
+    #[test]
+    fn a_pin_names_its_message_its_length_and_an_unpin_ends_it() {
+        use wa::message::pin_in_chat_message::Type;
+        let pin = |kind: Type, seconds: Option<u32>| wa::Message {
+            pin_in_chat_message: MessageField::some(wa::message::PinInChatMessage {
+                key: MessageField::some(wa::MessageKey {
+                    id: Some("3EB0DDDD".into()),
+                    ..Default::default()
+                }),
+                r#type: Some(kind),
+                sender_timestamp_ms: Some(1_700_000_000_000),
+            }),
+            message_context_info: MessageField::some(wa::MessageContextInfo {
+                message_add_on_duration_in_secs: seconds,
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        assert_eq!(
+            effect(&pin(Type::PIN_FOR_ALL, Some(86_400)), None),
+            Effect::Pin {
+                target: "3EB0DDDD".into(),
+                pin: true,
+                seconds: Some(86_400),
+                at_ms: Some(1_700_000_000_000),
+            }
+        );
+        assert!(matches!(
+            effect(&pin(Type::UNPIN_FOR_ALL, None), None),
+            Effect::Pin { pin: false, .. }
+        ));
     }
 
     #[test]

@@ -514,6 +514,24 @@ impl Inner {
                     self.message_changed(account, &chat, &target);
                 }
             }
+            Effect::Pin {
+                target,
+                pin,
+                seconds,
+                at_ms,
+            } => {
+                let until = pin.then(|| {
+                    let from = at_ms.unwrap_or(incoming.timestamp_ms);
+                    let length = seconds.map_or_else(
+                        || client_provider::PinFor::default().duration(),
+                        |seconds| std::time::Duration::from_secs(u64::from(seconds)),
+                    );
+                    from + length.as_millis() as i64
+                });
+                if self.archive.set_pin(me, &chat, &target, until).is_ok() && live {
+                    self.message_changed(account, &chat, &target);
+                }
+            }
             Effect::PollVote { poll } => {
                 if self.take_vote(account, &chat, &poll, &incoming, &sender) && live {
                     self.message_changed(account, &chat, &poll);

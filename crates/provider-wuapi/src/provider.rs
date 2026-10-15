@@ -285,6 +285,8 @@ impl Provider for WuapiProvider {
             delete_received: false,
             // `POST /v1/messages/{messageId}/star` and `/unstar`.
             stars: true,
+            // TODO(wuapi-api): no route pins a message in its chat.
+            pins: false,
             // `forwarded` on `POST /v1/messages` labels a new message; a
             // stored one is passed on by naming it (`forward_any`).
             forwards: true,

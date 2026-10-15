@@ -462,6 +462,16 @@ pub trait Session: Send + Sync + 'static {
         unsupported("starring a message")
     }
 
+    /// Pins a message for everyone in its chat, or unpins it (`None`).
+    async fn pin(
+        &self,
+        target: &Target,
+        pin: Option<client_provider::PinFor>,
+    ) -> SessionResult<()> {
+        let _ = (target, pin);
+        unsupported("pinning a message")
+    }
+
     /// Casts the account's vote in a poll; `poll` is the poll's own
     /// message.
     async fn vote(

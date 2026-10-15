@@ -349,7 +349,7 @@ A video in a chat still downloads on a click and opens in the system's player. A
 | OpenH264 as Cisco's binary (`openh264` crate, BSD) plus a pure-Rust MP4 demuxer | Downloaded at run time | Downloaded at run time | Downloaded at run time | Cisco covers the patent licence only for the binary it distributes, so it must be fetched from Cisco on first use, not bundled (a download the user has to agree to, and no playback offline until it happened); whether its decoder handles everything phones produce (High profile, B-frames) would have to be measured on real files first |
 | A pure-Rust H.264 decoder | | | | None is complete enough to rely on today |
 
-Stories use the libmpv path above, loaded dynamically so the application stays Apache-2.0. Chat GIFs stay tiles. The neutral model is ready for them (`Media::gif`), and the frame-by-frame painting that stickers use (`animation.rs`, `MediaShelf::play`) is what a decoder feeds.
+Stories, chat videos and chat GIFs use the libmpv path above, loaded dynamically so the application stays Apache-2.0. A chat video opens in the in-app player (`ui/video_player.rs`): play and hold, the bar to seek, the arrows for five seconds. A GIF (`Media::gif`) plays in its bubble, silent and looping, while it is painted (`MediaShelf::gif_clip`, at most six at once). Without a decoder a GIF stays a tile and a video offers the system's player.
 
 ## Updates
 

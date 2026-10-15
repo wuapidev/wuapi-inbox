@@ -340,9 +340,9 @@ fn a_gif_that_is_a_video_says_so_and_a_vector_sticker_is_not_fetched(cx: &mut Te
     gif.gif = true;
     push_media(&harness, cx, "gif-video", gif);
     assert!(shows(harness.window, "gif-badge", cx));
-    let tile = bounds(harness.window, "tile-row", cx);
+    let tile = bounds(harness.window, "gif-box", cx);
     assert!(within(bounds(harness.window, "gif-badge", cx), tile));
-    assert!(!waking(&harness, cx), "a tile: nothing plays");
+    assert!(!shows(harness.window, "gif-playing", cx), "no file yet");
     // The chat list calls it what it is.
     cx.update(|cx| {
         let shell = harness.shell.read(cx);
@@ -374,4 +374,43 @@ fn a_gif_that_is_a_video_says_so_and_a_vector_sticker_is_not_fetched(cx: &mut Te
     harness.settle(cx);
     assert!(shows(harness.window, "media-unavailable", cx));
     assert_eq!(harness.mock.media_calls(), calls);
+}
+
+#[gpui_kit::test]
+fn a_gif_that_is_a_video_plays_where_it_is_once_its_file_is_here(cx: &mut TestAppContext) {
+    let _guard = crate::video::install_opener(std::sync::Arc::new(|_| {
+        Ok(crate::video::clock(Duration::from_secs(2)))
+    }));
+    let harness = open_moving(cx);
+    let url = "https://media.example/inline-loop.mp4";
+    harness
+        .mock
+        .set_media(url, b"gif-mp4".to_vec(), "video/mp4");
+    let mut gif = Media::new(MediaKind::Video);
+    gif.mime_type = Some("video/mp4".into());
+    gif.source = Some(MediaRef::new(url));
+    gif.size_bytes = Some(7);
+    gif.gif = true;
+    push_media(&harness, cx, "gif-inline", gif);
+    // Fetched without a click, and then drawn in its box: no tile to open.
+    let mut playing = false;
+    for _ in 0..200 {
+        harness.settle(cx);
+        playing = shows(harness.window, "gif-playing", cx);
+        if playing {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(3));
+    }
+    assert!(playing, "the gif plays in the conversation");
+    assert!(!shows(harness.window, "media-open", cx));
+    assert!(!shows(harness.window, "tile-row", cx));
+    assert!(waking(&harness, cx), "it asks for its next frame");
+    cx.update(|cx| assert_eq!(harness.shell.read(cx).media.loops(), 1));
+
+    // Under reduced motion nothing plays: the tile is back.
+    cx.update(|cx| settings::update(cx, |settings| settings.motion = MotionChoice::Off));
+    cx.run_until_parked();
+    assert!(!shows(harness.window, "gif-playing", cx));
+    assert!(shows(harness.window, "media-open", cx));
 }
