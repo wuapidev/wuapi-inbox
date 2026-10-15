@@ -521,6 +521,28 @@ const MIGRATIONS: &[&str] = &[
     r#"
     ALTER TABLE avatars ADD COLUMN asked_for TEXT;
     "#,
+    // v15: tasks, written here and kept here (`store/tasks.rs`). A task
+    // made from a message names it (`account_id`, `chat_id`,
+    // `message_id`) and keeps it in one line (`quote`); one written on
+    // its own has none of them. `due_at` is the start of the day it is
+    // due; `done_at` is NULL until it is done. A new table: nothing that
+    // exists changes.
+    r#"
+    CREATE TABLE tasks (
+        id          TEXT PRIMARY KEY,
+        title       TEXT NOT NULL,
+        notes       TEXT,
+        due_at      INTEGER,
+        done_at     INTEGER,
+        created_at  INTEGER NOT NULL,
+        updated_at  INTEGER NOT NULL,
+        account_id  TEXT,
+        chat_id     TEXT,
+        message_id  TEXT,
+        quote       TEXT
+    );
+    CREATE INDEX tasks_by_chat ON tasks (account_id, chat_id) WHERE account_id IS NOT NULL;
+    "#,
 ];
 
 /// The schema version this build expects.

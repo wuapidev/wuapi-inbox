@@ -173,6 +173,10 @@ impl Shell {
                 true,
             ),
             Overlay::Video => (self.render_video(palette, cx)?.into_any_element(), true),
+            Overlay::Task => (
+                self.render_task_sheet(palette, cx)?.into_any_element(),
+                true,
+            ),
             Overlay::NewPoll => (self.render_poll_form(palette, cx)?.into_any_element(), true),
             Overlay::ConfirmSignOut => (
                 self.render_confirm_sign_out(palette, cx).into_any_element(),

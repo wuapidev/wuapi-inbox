@@ -451,6 +451,7 @@ fn the_message_menu_lists_what_can_be_done_with_its_keys(cx: &mut TestAppContext
             "message-forward",
             "message-star",
             "message-pin",
+            "message-task",
             "message-edit",
             "message-info",
             "message-select",
@@ -2126,4 +2127,151 @@ fn the_only_message_of_a_chat_is_as_large_as_what_it_says(cx: &mut TestAppContex
         bounds(harness.window, "thread", cx),
     );
     assert!(ring.top() >= thread.top() && ring.bottom() <= thread.bottom());
+}
+
+fn tasks(harness: &Harness, cx: &mut TestAppContext) -> Vec<client_core::Task> {
+    harness
+        .engine
+        .store()
+        .tasks()
+        .unwrap()
+        .into_iter()
+        .inspect(|_| cx.run_until_parked())
+        .collect()
+}
+
+#[gpui_kit::test]
+fn t_makes_a_task_from_a_message_that_shows_beside_the_chat_and_leads_back(
+    cx: &mut TestAppContext,
+) {
+    let harness = open_chat_one(cx);
+    let id = send(&harness, cx, "Send   the contract to Ana by Friday");
+    assert!(shows(harness.window, "nav-tasks", cx), "the rail's way in");
+    assert!(
+        !shows(harness.window, "tasks-pane", cx),
+        "closed to begin with"
+    );
+
+    // T on the message: the sheet, with the message as the title.
+    focus_composer(&harness, cx);
+    press(harness.window, "up", cx);
+    press(harness.window, "t", cx);
+    assert!(shows(harness.window, "task-sheet", cx));
+    assert!(shows(harness.window, "task-sheet-source", cx));
+    click(harness.window, "task-due-tomorrow", cx);
+    click(harness.window, "task-sheet-save", cx);
+    assert!(!shows(harness.window, "task-sheet", cx));
+
+    let made = tasks(&harness, cx);
+    assert_eq!(made.len(), 1);
+    assert_eq!(made[0].title, "Send the contract to Ana by Friday");
+    let source = made[0].source.clone().expect("it names its message");
+    assert_eq!(source.message_id.as_str(), id);
+    assert!(made[0].due_at.is_some());
+    // It shows at once beside the chat, and the bubble says so.
+    assert!(shows(harness.window, "tasks-pane", cx));
+    assert!(shows(harness.window, "conversation", cx) || shows(harness.window, "composer", cx));
+    assert!(shows(harness.window, "task-row", cx));
+    assert!(shows(harness.window, "task-source", cx));
+    assert!(shows(harness.window, "tasked-mark", cx));
+    assert!(
+        !shows(harness.window, "tasks-due-count", cx),
+        "tomorrow is not due yet"
+    );
+
+    // The task leads back to its message: the chat on it, the message lit.
+    click(harness.window, "task-source", cx);
+    let (lit, key) = cx.update(|cx| {
+        let shell = harness.shell.read(cx);
+        (
+            shell.acting.flash.clone(),
+            shell.key_of(&client_provider::MessageId::new(id.clone())),
+        )
+    });
+    assert!(
+        lit.is_some() && lit == key,
+        "the message is lit: {lit:?} {key:?}"
+    );
+
+    // One for today, written in the pane's own field: the rail counts it.
+    click(harness.window, "tasks-add", cx);
+    type_text(harness.window, "Call the bank", cx);
+    press(harness.window, "enter", cx);
+    let made = tasks(&harness, cx);
+    assert_eq!(made.len(), 2);
+    let seen: Vec<_> = made
+        .iter()
+        .map(|task| (task.title.clone(), task.source.is_some()))
+        .collect();
+    assert!(
+        made.iter()
+            .any(|task| task.title == "Call the bank" && task.source.is_none()),
+        "{seen:?}"
+    );
+    // Its day is set from the sheet.
+    let bank = made
+        .iter()
+        .find(|task| task.title == "Call the bank")
+        .unwrap()
+        .id
+        .clone();
+    cx.update_window(harness.window.into(), |_, window, cx| {
+        harness.shell.update(cx, |shell, cx| {
+            shell.begin_edit_task_for_test(&bank, window, cx)
+        })
+    })
+    .unwrap();
+    click(harness.window, "task-due-today", cx);
+    click(harness.window, "task-sheet-save", cx);
+    assert!(shows(harness.window, "tasks-due-count", cx));
+
+    // Done: the bubble's mark goes, and it is under "Done".
+    let first = made
+        .iter()
+        .find(|task| task.source.is_some())
+        .unwrap()
+        .id
+        .clone();
+    cx.update(|cx| {
+        harness
+            .shell
+            .update(cx, |shell, cx| shell.toggle_task_for_test(&first, cx))
+    });
+    cx.run_until_parked();
+    assert!(!shows(harness.window, "tasked-mark", cx));
+    assert!(shows(harness.window, "tasks-done", cx));
+
+    // Alt+T closes the pane and opens it again; it stays as it was left.
+    press(harness.window, "alt-t", cx);
+    assert!(!shows(harness.window, "tasks-pane", cx));
+    press(harness.window, "alt-t", cx);
+    assert!(shows(harness.window, "tasks-pane", cx));
+}
+
+#[gpui_kit::test]
+fn the_tasks_stand_beside_the_chat_without_covering_it(cx: &mut TestAppContext) {
+    let harness = open_chat_one(cx);
+    press(harness.window, "alt-t", cx);
+    let pane = bounds(harness.window, "tasks-pane", cx);
+    let composer = bounds(harness.window, "composer", cx);
+    let window = cx
+        .update_window(harness.window.into(), |_, window, _| window.viewport_size())
+        .unwrap();
+    // Docked: inside the window, right of the conversation, which keeps
+    // room to read and write.
+    assert!(
+        pane.right() <= window.width + px(0.5),
+        "{pane:?} in {window:?}"
+    );
+    assert!(
+        composer.right() <= pane.left() + px(0.5),
+        "{composer:?} | {pane:?}"
+    );
+    assert!(composer.size.width >= px(320.), "{composer:?}");
+    // Its field takes what is typed after a click, and Enter keeps it.
+    click(harness.window, "tasks-add", cx);
+    type_text(harness.window, "Buy stamps", cx);
+    press(harness.window, "enter", cx);
+    assert!(shows(harness.window, "task-row", cx));
+    assert!(!shows(harness.window, "tasks-empty", cx));
 }

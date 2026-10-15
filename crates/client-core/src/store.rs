@@ -23,6 +23,7 @@ pub(crate) mod sends;
 mod social;
 mod stories;
 mod story_posts;
+mod tasks;
 pub use library::{
     IndexState, LibraryItem, LibraryKind, LibraryPack, LibrarySource, LibraryStats, NewLibraryItem,
     SeenSticker, StickerMessage,
@@ -35,6 +36,7 @@ pub use stories::{
     StoryAuthor, StoryFeed, StoryItem, StoryPostState, StoryReceipt, StoryRing, STORIES_KEPT,
 };
 pub use story_posts::{local_story_id, StoryPostEntry};
+pub use tasks::{Task, TaskDraft, TaskSource};
 
 /// Why a store operation failed.
 #[derive(Debug, thiserror::Error)]
@@ -222,6 +224,8 @@ pub enum StoreChange {
     /// The sticker and GIF library changed: an item came, went, was
     /// starred or used.
     Library,
+    /// A task came, changed, was done or went.
+    Tasks,
     /// A story, who saw it, who is muted, the audience, or a story on its
     /// way out, changed. Read from the store by whoever shows them.
     Stories {
@@ -1070,6 +1074,7 @@ impl Store {
                 "group_join_requests",
                 "blocked_contacts",
                 "contact_profiles",
+                "tasks",
             ] {
                 tx.execute(
                     &format!("DELETE FROM {table} WHERE account_id = ?1"),

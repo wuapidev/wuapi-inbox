@@ -164,6 +164,8 @@ pub struct Settings {
     /// The strip of status updates above the chats is open. Off: it is
     /// folded to one line.
     pub story_strip: bool,
+    /// The tasks are open beside the conversation.
+    pub tasks_open: bool,
 }
 
 impl Default for Settings {
@@ -192,6 +194,7 @@ impl Default for Settings {
             sticker_hover_animation: true,
             auto_update: true,
             story_strip: true,
+            tasks_open: false,
         }
     }
 }
@@ -392,6 +395,7 @@ mod tests {
             sticker_hover_animation: false,
             auto_update: false,
             story_strip: false,
+            tasks_open: true,
         };
         chosen.save(&path).unwrap();
         assert_eq!(Settings::load(&path), chosen);

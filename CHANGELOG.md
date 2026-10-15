@@ -2,6 +2,7 @@
 
 ## [Unreleased]
 
+* Tasks: things to do, written in their own pane or made from a message ("Create task" in its menu, or T). The pane stands beside the conversation, so a chat and the tasks are read together, and stays open across chats until it is closed (the button under the rail's top, with how many are due today or late, or Alt+T); in a narrow window it lies over the conversation. Tasks are grouped as late, today, coming up and with no date, with the done ones folded at the end; each has a day (today, tomorrow, next week or any day of a calendar) and notes, and one made from a message shows its chat and goes back to the message. "This chat" shows only the open chat's. A message with a task to do has a mark. Tasks are kept in the encrypted store of this computer and go with the number they came from; WhatsApp has no tasks, so nothing of them is sent.
 * A GIF plays in its bubble, silent and over and over, as soon as it is downloaded (it was a file tile to open). Under reduced motion, or without the video runtime, the tile stays.
 * A video of a conversation plays inside the window: play and hold (Space), the bar to go anywhere in it, five seconds back and forward with the arrows, Save as… and the way to open it with another application.
 * Four or more pictures one person sent together are one album: a grid of four in one bubble, with how many more over the last. A click opens a picture in the viewer, where the arrows go through the rest.

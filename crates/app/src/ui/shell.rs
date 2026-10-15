@@ -337,6 +337,8 @@ pub(super) enum Overlay {
     Reader,
     /// A video, played here.
     Video,
+    /// A task being made or edited.
+    Task,
     /// "New poll": a question and its options, for the open chat.
     NewPoll,
     /// The form that creates a group.
@@ -624,6 +626,8 @@ pub struct Shell {
     pub(super) viewer: super::viewer::Viewer,
     /// The video being played in the window.
     pub(super) video: super::video_player::VideoDeck,
+    /// The tasks: the list, its pane and the sheet.
+    pub(super) tasks: super::tasks::TasksUi,
     /// What had the keyboard when the palette or the shortcuts sheet
     /// opened: it gets it back when they close.
     return_focus: Option<FocusHandle>,
@@ -973,6 +977,7 @@ impl Shell {
             leaving: Default::default(),
             viewer: Default::default(),
             video: Default::default(),
+            tasks: Default::default(),
             voice: super::voice_record::VoiceDeck::new(
                 crate::record::Recorder::new(super::voice_record::system_input()),
                 None,
@@ -1074,6 +1079,7 @@ impl Shell {
         };
         // Whatever is already in the store shows up in the first frame.
         this.reload_accounts(cx);
+        this.reload_tasks();
         // The stories the store holds too: the rings, the strip above the
         // chats and the dot on Status are there before anything is asked
         // of anybody, and asking is what this does next.
@@ -1136,6 +1142,11 @@ impl Shell {
                     self.status_media_arrived(&key, cx);
                 }
                 StoreChange::Library => self.picker_library_changed(cx),
+                // The pane, the rail's count and the marks on the bubbles.
+                StoreChange::Tasks => {
+                    self.reload_tasks();
+                    messages = true;
+                }
             }
         }
         if accounts {
@@ -1446,7 +1457,17 @@ impl Shell {
             .unread
             .as_ref()
             .and_then(|unread| first_unread(&messages, unread));
-        let rows = build_rows(messages, &open.chat, &self.senders, first_unread.as_ref());
+        let tasked = self
+            .store
+            .tasked_messages(&open.chat.account_id, &open.chat.id)
+            .unwrap_or_default();
+        let rows = build_rows(
+            messages,
+            &open.chat,
+            &self.senders,
+            first_unread.as_ref(),
+            &tasked,
+        );
         splice_rows(&open.list, &open.rows, &rows);
         self.audio.follow(&open.rows, &rows);
         open.rows = Rc::new(rows);
@@ -1674,6 +1695,8 @@ impl Shell {
         self.mark_intro = false;
         match overlay {
             Overlay::None => {}
+            // Its title field takes the keyboard itself.
+            Overlay::Task => {}
             Overlay::NewChat => {
                 self.new_chat_cursor = 0;
                 self.new_chat_checking = false;
@@ -1779,6 +1802,9 @@ impl Shell {
         }
         if self.overlay == Overlay::Video {
             self.end_video(cx);
+        }
+        if self.overlay == Overlay::Task {
+            self.tasks.sheet = None;
         }
         if self.overlay == Overlay::Status {
             self.status.sheet = None;
@@ -3267,6 +3293,8 @@ impl Render for Shell {
                 self.render_conversation(&palette, window, cx)
                     .into_any_element()
             })
+            // The tasks, beside the conversation, while they are open.
+            .children(self.render_tasks_pane(&palette, window, cx))
             // The grid's crosshairs, where the pane rules meet the header
             // rule that runs across the window.
             .child(grid_mark(
@@ -3390,6 +3418,7 @@ fn build_rows(
     chat: &ChatSummary,
     senders: &Senders,
     first_unread: Option<&(String, u32)>,
+    tasked: &HashSet<MessageId>,
 ) -> Vec<Row> {
     use client_provider::Direction;
     let now = Timestamp::now();
@@ -3474,6 +3503,7 @@ fn build_rows(
         )
         .hash(&mut hasher);
         let signature = hasher.finish();
+        let is_tasked = tasked.contains(&message.id);
 
         rows.push(Row::Message(Box::new(MessageRow {
             stored,
@@ -3484,6 +3514,7 @@ fn build_rows(
             unread_above,
             album: Vec::new(),
             folded: false,
+            tasked: is_tasked,
             key,
             signature,
         })));
@@ -3509,6 +3540,7 @@ fn build_rows(
             message.last_of_run.hash(&mut hasher);
             message.first_of_run.hash(&mut hasher);
             message.folded.hash(&mut hasher);
+            message.tasked.hash(&mut hasher);
             for piece in &message.album {
                 piece.id.hash(&mut hasher);
             }

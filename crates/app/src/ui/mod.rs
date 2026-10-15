@@ -62,6 +62,7 @@ mod status_strip;
 mod status_view;
 mod story_quote;
 mod story_ring;
+mod tasks;
 mod thread_keys;
 mod tiles;
 mod transfer;

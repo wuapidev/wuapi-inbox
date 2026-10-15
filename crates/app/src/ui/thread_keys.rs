@@ -437,6 +437,14 @@ impl Shell {
         let caps = self.caps_here();
         match command {
             // ----- anywhere
+            C::ToggleTasks => {
+                self.toggle_tasks(window, cx);
+                return true;
+            }
+            C::NewTask => {
+                self.begin_task(window, cx);
+                return true;
+            }
             C::Palette => {
                 if self.overlay == Overlay::Palette {
                     self.close_overlay(window, cx);
@@ -591,6 +599,7 @@ impl Shell {
             C::Copy => return self.copy_focused(window, cx),
             C::Star => return self.star_subjects(cx),
             C::Pin => return self.begin_pin(window, cx),
+            C::CreateTask => return self.begin_task_from_message(window, cx),
             C::Delete => return self.begin_delete(window, cx),
             C::Forward => return self.begin_forward(window, cx),
             C::Reply | C::ReplyPrivately | C::Edit | C::React | C::Info => {

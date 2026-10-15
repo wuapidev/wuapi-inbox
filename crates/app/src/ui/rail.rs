@@ -1497,6 +1497,8 @@ impl Shell {
             .when(self.has_status(), |this| {
                 this.child(self.render_rail_nav(palette, cx))
             })
+            // The tasks, whatever is showing.
+            .child(self.render_tasks_rail_button(palette, cx))
             // The numbers scroll when there are more than fit; what is
             // above and below them stays put.
             .child(
