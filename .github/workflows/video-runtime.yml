@@ -30,7 +30,9 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 120
     strategy:
-      fail-fast: true
+      # Each platform says what it needs: one failing does not stop the
+      # others half way.
+      fail-fast: false
       matrix:
         include:
           # The same machines as the release: a library built on an older

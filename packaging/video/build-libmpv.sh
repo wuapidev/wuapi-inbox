@@ -223,7 +223,9 @@ mpv_args=(
 )
 case "$os" in
     linux) mpv_args+=(-Dalsa=enabled -Diconv=enabled) ;;
-    macos) mpv_args+=(-Dcoreaudio=enabled -Diconv=enabled -Dswift-build=disabled) ;;
+    # macOS has its iconv as a shared library only, and the build looks
+    # for static ones: subtitles' character sets are all it is for.
+    macos) mpv_args+=(-Dcoreaudio=enabled -Diconv=disabled -Dswift-build=disabled) ;;
     windows) mpv_args+=(-Dwasapi=enabled -Dwin32-threads=enabled) ;;
 esac
 case "$os" in
