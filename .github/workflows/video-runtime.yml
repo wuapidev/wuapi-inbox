@@ -1,0 +1,97 @@
+name: Video runtime
+
+# Builds the libmpv each release embeds (packaging/video/build-libmpv.sh):
+# LGPL only, one self-contained library per platform. A build is kept in
+# the cache under the script's checksum, so a release only builds it
+# again when the script changed. Running on main when the script changes
+# fills the cache that the release tags read.
+
+on:
+  workflow_call:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - packaging/video/**
+      - .github/workflows/video-runtime.yml
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: libmpv ${{ matrix.platform }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 120
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          # The same machines as the release: a library built on an older
+          # system runs on the newer ones.
+          - platform: linux-x86_64
+            os: ubuntu-22.04
+          - platform: macos-aarch64
+            os: macos-latest
+          - platform: macos-x86_64
+            os: macos-15-intel
+          - platform: windows-x86_64
+            os: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Look for a build of this script
+        id: cache
+        uses: actions/cache@v4
+        with:
+          path: runtime
+          key: libmpv-${{ matrix.platform }}-${{ hashFiles('packaging/video/build-libmpv.sh') }}
+
+      - name: Install the build tools (Linux)
+        if: runner.os == 'Linux' && steps.cache.outputs.cache-hit != 'true'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y \
+            nasm pkg-config libasound2-dev python3-pip git xz-utils
+          # Ubuntu 22.04's meson is older than mpv asks for.
+          pip3 install --user meson==1.7.0 ninja==1.11.1.4
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Install the build tools (macOS)
+        if: runner.os == 'macOS' && steps.cache.outputs.cache-hit != 'true'
+        run: brew install meson ninja nasm pkgconf
+
+      - name: Install the build tools (Windows)
+        if: runner.os == 'Windows' && steps.cache.outputs.cache-hit != 'true'
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: true
+          install: >-
+            git make tar xz curl diffutils
+            mingw-w64-ucrt-x86_64-gcc
+            mingw-w64-ucrt-x86_64-meson
+            mingw-w64-ucrt-x86_64-ninja
+            mingw-w64-ucrt-x86_64-nasm
+            mingw-w64-ucrt-x86_64-pkgconf
+            mingw-w64-ucrt-x86_64-python
+
+      - name: Build (Linux, macOS)
+        if: runner.os != 'Windows' && steps.cache.outputs.cache-hit != 'true'
+        run: |
+          packaging/video/build-libmpv.sh \
+            --out "runtime/libmpv-${{ matrix.platform }}.tar.gz" --work "$RUNNER_TEMP/libmpv"
+
+      - name: Build (Windows)
+        if: runner.os == 'Windows' && steps.cache.outputs.cache-hit != 'true'
+        shell: msys2 {0}
+        run: |
+          packaging/video/build-libmpv.sh \
+            --out "runtime/libmpv-${{ matrix.platform }}.tar.gz" --work "$(cygpath -u "$RUNNER_TEMP")/libmpv"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: video-runtime-${{ matrix.platform }}
+          path: runtime/libmpv-${{ matrix.platform }}.tar.gz
+          if-no-files-found: error
+          retention-days: 7
