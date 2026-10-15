@@ -4,11 +4,17 @@ name: Video runtime
 # LGPL only, one self-contained library per platform. A build is kept in
 # the cache under the script's checksum, so a release only builds it
 # again when the script changed. Running on main when the script changes
-# fills the cache that the release tags read.
+# fills the cache that the release tags read; a pull request that changes
+# it is built on every platform before it merges.
 
 on:
   workflow_call:
   workflow_dispatch:
+  # A change to the build is tried on the four platforms before it merges.
+  pull_request:
+    paths:
+      - packaging/video/**
+      - .github/workflows/video-runtime.yml
   push:
     branches: [main]
     paths:
