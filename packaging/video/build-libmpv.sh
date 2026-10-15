@@ -233,6 +233,11 @@ case "$os" in
         # Its own symbols only: the static libraries' stay inside.
         export LDFLAGS="$ldflags -Wl,--exclude-libs,ALL"
         ;;
+    windows)
+        # libplacebo has a little C++ (std::from_chars), and mpv is linked
+        # as C: the C++ library goes in, statically like the rest.
+        export LDFLAGS="$ldflags -lstdc++"
+        ;;
 esac
 meson setup "$build/mpv/_build" "$mpv_dir" \
     --prefix="$prefix" --libdir=lib --buildtype=release \
