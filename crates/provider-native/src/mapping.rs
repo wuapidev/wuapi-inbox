@@ -261,11 +261,17 @@ pub fn effect(message: &wa::Message, votes: Option<&PollVotes>) -> Effect {
             Effect::PollVote { poll }
         };
     }
+    // The message that opens an album carries no picture of its own, only
+    // how many are coming: the pictures name it (`MessageExtras::album`).
+    if base.album_message.is_set() {
+        return Effect::Nothing;
+    }
     match content(base, votes) {
         Some(content) => {
             let context = context_of(base);
             let mut extras = extras_of(base, context);
             extras.view_once = extras.view_once || is_view_once(message);
+            extras.album = album_of(message);
             Effect::Content(Box::new(Mapped {
                 reply_to: reply_of(context),
                 content,
@@ -274,6 +280,25 @@ pub fn effect(message: &wa::Message, votes: Option<&PollVotes>) -> Effect {
         }
         None => Effect::Nothing,
     }
+}
+
+/// The album a picture or a video was sent in: the message that opens it,
+/// named by the picture's message context (on the outer message, or on
+/// the one inside a wrapper).
+fn album_of(message: &wa::Message) -> Option<MessageId> {
+    use wa::message_association::AssociationType;
+    [message, unwrap(message)].into_iter().find_map(|outer| {
+        let association = outer
+            .message_context_info
+            .as_option()?
+            .message_association
+            .as_option()?;
+        if association.association_type != Some(AssociationType::MEDIA_ALBUM) {
+            return None;
+        }
+        let parent = association.parent_message_key.as_option()?.id.clone()?;
+        (!parent.is_empty()).then(|| MessageId::new(parent))
+    })
 }
 
 /// What a message shows, `None` for one that shows nothing.
@@ -344,7 +369,7 @@ fn content(base: &wa::Message, votes: Option<&PollVotes>) -> Option<MessageConte
 /// The name of a kind of message this client does not draw. `None` for a
 /// message that is not for a conversation at all.
 fn unsupported(base: &wa::Message) -> Option<&'static str> {
-    let kinds: [(bool, &'static str); 16] = [
+    let kinds: [(bool, &'static str); 15] = [
         (base.template_message.is_set(), "template"),
         (base.buttons_message.is_set(), "buttons"),
         (base.buttons_response_message.is_set(), "button reply"),
@@ -361,7 +386,6 @@ fn unsupported(base: &wa::Message) -> Option<&'static str> {
         (base.request_payment_message.is_set(), "payment request"),
         (base.group_invite_message.is_set(), "group invite"),
         (base.sticker_pack_message.is_set(), "sticker pack"),
-        (base.album_message.is_set(), "album"),
         (
             base.newsletter_admin_invite_message.is_set(),
             "channel admin invite",
@@ -804,6 +828,54 @@ fn extras_of(base: &wa::Message, context: Option<&wa::ContextInfo>) -> MessageEx
 mod tests {
     use super::*;
     use whatsapp_rust::buffa::MessageField;
+
+    #[test]
+    fn a_picture_of_an_album_names_it_and_the_album_itself_shows_nothing() {
+        use wa::message_association::AssociationType;
+        let in_album = |kind: AssociationType| wa::Message {
+            image_message: MessageField::some(image()),
+            message_context_info: MessageField::some(wa::MessageContextInfo {
+                message_association: MessageField::some(wa::MessageAssociation {
+                    association_type: Some(kind),
+                    parent_message_key: MessageField::some(wa::MessageKey {
+                        id: Some("3EB0ALBUM".into()),
+                        ..Default::default()
+                    }),
+                    message_index: Some(1),
+                }),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        assert_eq!(
+            content_of(&in_album(AssociationType::MEDIA_ALBUM))
+                .extras
+                .album,
+            Some(MessageId::new("3EB0ALBUM"))
+        );
+        // Another kind of association is not an album.
+        assert_eq!(
+            content_of(&in_album(AssociationType::MOTION_PHOTO))
+                .extras
+                .album,
+            None
+        );
+        // A picture sent alone has none.
+        let alone = wa::Message {
+            image_message: MessageField::some(image()),
+            ..Default::default()
+        };
+        assert_eq!(content_of(&alone).extras.album, None);
+        // The message that opens the album is not a bubble of its own.
+        let opening = wa::Message {
+            album_message: MessageField::some(wa::message::AlbumMessage {
+                expected_image_count: Some(3),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        assert_eq!(effect(&opening, None), Effect::Nothing);
+    }
 
     fn content_of(message: &wa::Message) -> Mapped {
         match effect(message, None) {

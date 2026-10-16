@@ -354,6 +354,10 @@ pub struct MessageExtras {
     /// It is pinned at the top of its chat until then, for everyone in
     /// it. A time that has passed means it is no longer pinned.
     pub pinned_until: Option<crate::Timestamp>,
+    /// The album it was sent in: the id of the message that opens the
+    /// album, the same for every picture and video of it. `None` when it
+    /// was sent alone, or the provider does not say.
+    pub album: Option<crate::MessageId>,
 }
 
 /// How long a message stays pinned, the three lengths WhatsApp offers.

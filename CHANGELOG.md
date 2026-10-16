@@ -2,16 +2,22 @@
 
 ## [Unreleased]
 
-* Tasks: things to do, written in their own pane or made from a message ("Create task" in its menu, or T). The pane stands beside the conversation, so a chat and the tasks are read together, and stays open across chats until it is closed (the button under the rail's top, with how many are due today or late, or Alt+T); in a narrow window it lies over the conversation. Tasks are grouped as late, today, coming up and with no date, with the done ones folded at the end; each has a day (today, tomorrow, next week or any day of a calendar) and notes, and one made from a message shows its chat and goes back to the message. "This chat" shows only the open chat's. A message with a task to do has a mark. Tasks are kept in the encrypted store of this computer and go with the number they came from; WhatsApp has no tasks, so nothing of them is sent.
-* A GIF plays in its bubble, silent and over and over, as soon as it is downloaded (it was a file tile to open). Under reduced motion, or without the video runtime, the tile stays.
-* A video of a conversation plays inside the window: play and hold (Space), the bar to go anywhere in it, five seconds back and forward with the arrows, Save as… and the way to open it with another application.
-* Four or more pictures one person sent together are one album: a grid of four in one bubble, with how many more over the last. A click opens a picture in the viewer, where the arrows go through the rest.
-* A chat's photos and videos, files and links are listed from its panel ("Media, files and links"): by month, newest first, with who sent each and when, and the way to the message in the conversation.
-* A message is pinned at the top of its chat for everyone in it, for 24 hours, 7 days or 30 days ("Pin" in its menu, or P). A bar under the chat's header shows the pinned message and goes to it; a chat keeps three. With the numbers of this computer; Wuapi Cloud's API has no way to pin yet.
+## [0.5.0]
+
+* Tasks. A task is written in the tasks pane, or made from a message: "Create task" in the message's menu, or T, opens it with the message as its title. Each task has notes and a day (today, tomorrow, next week, or any day on a calendar). They are grouped as late, today, coming up and no date, with the done ones folded at the end, and "This chat" shows only the open chat's. A task made from a message shows its chat and goes back to the message, and that message has a mark while the task is to do.
+* The tasks pane stands beside the conversation, so a chat and the tasks are read together, and stays open from chat to chat until it is closed. It opens from its button on the rail, which counts the tasks due today or late, or with Alt+T; "New task" is in the palette. In a narrow window it lies over the conversation instead of squeezing it. Tasks are kept in the encrypted store of this computer and leave with the number their message came to; WhatsApp has no tasks, so nothing of them is sent.
+* A message is pinned at the top of its chat for everyone in it, for 24 hours, 7 days or 30 days: "Pin" in its menu, or P, and the same to unpin. A bar under the chat's header shows the pinned message and goes to it; a chat keeps three, and one more replaces the one that ends first. Pins made on the phone or by others in the chat show too. With the numbers of this computer; Wuapi Cloud's API cannot pin yet, so the entry is not there.
+* Videos play inside the window, everywhere: a story's video, a chat's video and a GIF. Releases did not include the video player before, so story videos could not be played in any of them (on macOS too).
+* A video of a chat opens in a player in the window: Space plays and holds, the bar goes anywhere in it, the arrows go five seconds back and forward, with Save as… and the way to open it with another application.
+* A GIF plays in its bubble, without sound and over and over, once it is downloaded (it was a file to open). With reduced motion it stays a tile.
+* Albums are one bubble: the pictures and videos sent as an album show as a grid (two side by side, three as two over one, four or more as two rows of two with how many more over the last), however few they are and however long they took to arrive. The message that opens an album no longer shows as a message this version cannot show. A click opens a picture in the viewer, whose arrows go through the rest. With the numbers of this computer, which WhatsApp tells which album a picture is in; with Wuapi Cloud, whose API does not say, four or more pictures the same person sent one after the other, each within a minute of the one before, are taken for an album.
+* A chat's photos and videos, files and links are listed from its panel, for a person and for a group ("Media, files and links"): by month, newest first, with who sent each and when, and the way to the message in the conversation.
+* A video whose sound cannot play (no sound card, or one in use) plays without sound instead of saying it cannot be played.
 * A chat's picture is no longer downloaded again at every start when the chat list names it differently from the picture itself.
-* A story's video that could not open the sound card now plays without sound, instead of saying it cannot be played. A second video, story or GIF no longer brings the application down.
-* The provider trait has `pin_message`, the `pins` capability, `MessageExtras::pinned_until` and `PinFor`.
-* Releases embed the video runtime on every platform: libmpv with FFmpeg, built LGPL-only from pinned sources by `packaging/video/build-libmpv.sh` (`video-runtime.yml`), and required by the release workflow.
+* The chats on this computer move to a newer format when 0.5.0 first opens them. 0.4.0 cannot open them after that, so going back to it is not done by itself.
+* The provider trait has `pin_message`, the `pins` capability, `MessageExtras::pinned_until`, `PinFor`, and `MessageExtras::album` (the album a picture was sent in).
+* Releases build their video player on each platform, from pinned sources: libmpv with FFmpeg, LGPL only (`packaging/video/build-libmpv.sh`, `video-runtime.yml`). A release without it fails. On macOS it is signed with the application's Developer ID.
+* Releases try stapling the notarization ticket on macOS a few times before failing (`packaging/macos/staple.sh`).
 
 ## [0.4.0]
 
