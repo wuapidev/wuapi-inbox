@@ -10,12 +10,12 @@
 * Videos play inside the window, everywhere: a story's video, a chat's video and a GIF. Releases did not include the video player before, so story videos could not be played in any of them (on macOS too).
 * A video of a chat opens in a player in the window: Space plays and holds, the bar goes anywhere in it, the arrows go five seconds back and forward, with Save as… and the way to open it with another application.
 * A GIF plays in its bubble, without sound and over and over, once it is downloaded (it was a file to open). With reduced motion it stays a tile.
-* Pictures sent together are one album: four or more from the same person, each within a minute of the one before, show as a grid of four in one bubble, with how many more over the last. A click opens a picture in the viewer, whose arrows go through the rest.
+* Albums are one bubble: the pictures and videos sent as an album show as a grid (two side by side, three as two over one, four or more as two rows of two with how many more over the last), however few they are and however long they took to arrive. The message that opens an album no longer shows as a message this version cannot show. A click opens a picture in the viewer, whose arrows go through the rest. With the numbers of this computer, which WhatsApp tells which album a picture is in; with Wuapi Cloud, whose API does not say, four or more pictures the same person sent one after the other, each within a minute of the one before, are taken for an album.
 * A chat's photos and videos, files and links are listed from its panel, for a person and for a group ("Media, files and links"): by month, newest first, with who sent each and when, and the way to the message in the conversation.
 * A video whose sound cannot play (no sound card, or one in use) plays without sound instead of saying it cannot be played.
 * A chat's picture is no longer downloaded again at every start when the chat list names it differently from the picture itself.
 * The chats on this computer move to a newer format when 0.5.0 first opens them. 0.4.0 cannot open them after that, so going back to it is not done by itself.
-* The provider trait has `pin_message`, the `pins` capability, `MessageExtras::pinned_until` and `PinFor`.
+* The provider trait has `pin_message`, the `pins` capability, `MessageExtras::pinned_until`, `PinFor`, and `MessageExtras::album` (the album a picture was sent in).
 * Releases build their video player on each platform, from pinned sources: libmpv with FFmpeg, LGPL only (`packaging/video/build-libmpv.sh`, `video-runtime.yml`). A release without it fails. On macOS it is signed with the application's Developer ID.
 * Releases try stapling the notarization ticket on macOS a few times before failing (`packaging/macos/staple.sh`).
 

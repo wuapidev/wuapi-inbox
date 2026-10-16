@@ -1017,7 +1017,8 @@ fn image_block(
 const ALBUM_SHOWN: usize = 4;
 
 /// An album: the pictures one person sent together, in one bubble. Two
-/// rows of two, with the count of the rest over the last. A click on one
+/// side by side, three as two over one, four or more as two rows of two
+/// with the count of the rest over the last. A click on one
 /// opens it in the viewer, where the arrows go through the others.
 fn album_block(row: &MessageRow, side: &Side, context: &RowContext) -> Div {
     let pieces: Vec<&Message> = row
@@ -1037,7 +1038,13 @@ fn album_block(row: &MessageRow, side: &Side, context: &RowContext) -> Div {
             let more = (index + 1 == ALBUM_SHOWN)
                 .then_some(hidden)
                 .filter(|more| *more > 0);
-            album_cell(piece, half, half, more, side, context)
+            // Of three, the last takes the whole width under the others.
+            let width = if pieces.len() == 3 && index == 2 {
+                full
+            } else {
+                half
+            };
+            album_cell(piece, width, half, more, side, context)
         });
     div()
         .debug_selector(|| "album".into())

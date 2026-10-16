@@ -247,6 +247,7 @@ fn what_rides_along_is_kept_and_follows_the_provider() {
         sender_username: None,
         story_reply: None,
         pinned_until: Some(Timestamp::from_millis(1_900_000_000_000)),
+        album: Some(MessageId::new("album-1")),
     };
     assert_eq!(store.upsert_message(&message).unwrap(), Upsert::Inserted);
     assert_eq!(store.upsert_message(&message).unwrap(), Upsert::Unchanged);

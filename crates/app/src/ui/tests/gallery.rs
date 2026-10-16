@@ -22,6 +22,18 @@ fn open_first(cx: &mut TestAppContext) -> Harness {
 /// A message with a file from the other side, `at` milliseconds after
 /// the newest there can be.
 fn push(harness: &Harness, cx: &mut TestAppContext, id: &str, at: i64, media: Media) {
+    push_in(harness, cx, id, at, media, None);
+}
+
+/// [`push`], naming the album it was sent in.
+fn push_in(
+    harness: &Harness,
+    cx: &mut TestAppContext,
+    id: &str,
+    at: i64,
+    media: Media,
+    album: Option<&str>,
+) {
     let chat = cx.update(|cx| harness.shell.read(cx).open.as_ref().unwrap().chat.clone());
     let message = Message {
         id: MessageId::new(id),
@@ -37,7 +49,10 @@ fn push(harness: &Harness, cx: &mut TestAppContext, id: &str, at: i64, media: Me
         status: DeliveryStatus::Delivered,
         edited: false,
         deleted: false,
-        extras: MessageExtras::default(),
+        extras: MessageExtras {
+            album: album.map(MessageId::new),
+            ..MessageExtras::default()
+        },
     };
     harness
         .engine
@@ -134,4 +149,40 @@ fn the_panel_of_a_chat_lists_its_pictures_files_and_links(cx: &mut TestAppContex
     click(harness.window, "info-back", cx);
     assert!(!shows(harness.window, "gallery", cx));
     assert!(shows(harness.window, "profile-gallery", cx));
+}
+
+#[gpui_kit::test]
+fn an_album_the_provider_names_is_one_however_small_and_slow(cx: &mut TestAppContext) {
+    let harness = open_first(cx);
+    // Two pictures of one album, three minutes apart (a slow upload).
+    let first = photo(&harness, "named-1");
+    push_in(&harness, cx, "named-1", 0, first, Some("album-1"));
+    let second = photo(&harness, "named-2");
+    push_in(&harness, cx, "named-2", 180_000, second, Some("album-1"));
+    assert_eq!(folded(&harness, cx, "named-1"), (true, 0));
+    assert_eq!(folded(&harness, cx, "named-2"), (false, 1));
+    assert!(shows(harness.window, "album", cx));
+
+    // Three of another album: one bubble too, and not with the first.
+    for (index, name) in ["other-1", "other-2", "other-3"].into_iter().enumerate() {
+        let media = photo(&harness, name);
+        push_in(
+            &harness,
+            cx,
+            name,
+            181_000 + index as i64 * 1_000,
+            media,
+            Some("album-2"),
+        );
+    }
+    assert_eq!(folded(&harness, cx, "other-3"), (false, 2));
+    assert_eq!(folded(&harness, cx, "named-2"), (false, 1));
+
+    // Two pictures nobody names, sent together: two bubbles, as before.
+    let loose = photo(&harness, "loose-1");
+    push_in(&harness, cx, "loose-1", 200_000, loose, None);
+    let loose = photo(&harness, "loose-2");
+    push_in(&harness, cx, "loose-2", 201_000, loose, None);
+    assert_eq!(folded(&harness, cx, "loose-1"), (false, 0));
+    assert_eq!(folded(&harness, cx, "loose-2"), (false, 0));
 }

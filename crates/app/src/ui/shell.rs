@@ -3585,9 +3585,10 @@ fn album_piece(row: &MessageRow) -> bool {
 }
 
 /// Folds pictures sent together into one album. WhatsApp sends an album
-/// as so many messages; what makes them one is that the same person sent
-/// four or more of them one after the other, each within a minute of the
-/// one before. The last of them carries
+/// as so many messages, each naming the album when the provider says so
+/// (`MessageExtras::album`): those are one, two or more of them. Where
+/// nobody says, four or more that the same person sent one after the
+/// other, each within a minute of the one before, are taken for one. The last of them carries
 /// the album (it is the row that is drawn); the others stay rows, so that
 /// everything that names a message still finds it, and draw nothing.
 fn fold_albums(rows: &mut [Row]) {
@@ -3597,30 +3598,41 @@ fn fold_albums(rows: &mut [Row]) {
             row.stored.message.direction,
             row.stored.message.extras.forwarded,
             row.first_of_run,
+            row.stored.message.extras.album.clone(),
         )),
         _ => None,
     };
     let mut start = 0;
     while start < rows.len() {
-        let Some((mut at, direction, forwarded, _)) = piece(&rows[start]) else {
+        let Some((mut at, direction, forwarded, _, named)) = piece(&rows[start]) else {
             start += 1;
             continue;
         };
         let mut end = start;
-        while let Some((next, next_direction, next_forwarded, first_of_run)) =
+        while let Some((next, next_direction, next_forwarded, first_of_run, album)) =
             rows.get(end + 1).and_then(piece)
         {
-            if first_of_run
-                || next_direction != direction
-                || next_forwarded != forwarded
-                || next - at > ALBUM_WINDOW_MS
-            {
+            let together = match (&named, &album) {
+                // Named by the provider: the same album, however long
+                // its pictures took to arrive.
+                (Some(named), Some(album)) => named == album && next_direction == direction,
+                // Named by nobody: sent close together, one after the other.
+                (None, None) => {
+                    !first_of_run
+                        && next_direction == direction
+                        && next_forwarded == forwarded
+                        && next - at <= ALBUM_WINDOW_MS
+                }
+                _ => false,
+            };
+            if !together {
                 break;
             }
             at = next;
             end += 1;
         }
-        if end + 1 - start >= ALBUM_LEAST {
+        let least = if named.is_some() { 2 } else { ALBUM_LEAST };
+        if end + 1 - start >= least {
             let mut album = Vec::with_capacity(end - start);
             let mut first_of_run = false;
             for (index, row) in rows[start..end].iter_mut().enumerate() {

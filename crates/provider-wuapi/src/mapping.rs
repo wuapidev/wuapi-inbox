@@ -511,6 +511,9 @@ fn extras(wire: &api::Message) -> MessageExtras {
         // TODO(wuapi-api): the API's `Message` does not say whether it is
         // pinned in its chat.
         pinned_until: None,
+        // TODO(wuapi-api): nor which album a picture was sent in; the
+        // client groups pictures sent close together instead.
+        album: None,
         view_once: wire.view_once,
         // TODO(wuapi-api): `mentions` lists the mentioned contacts' ids,
         // with a hidden-number id already turned into the number when
