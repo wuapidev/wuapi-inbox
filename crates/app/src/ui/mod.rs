@@ -26,6 +26,7 @@ mod groups;
 mod hints;
 mod library_ui;
 mod link_qr;
+mod links;
 mod login;
 mod media;
 mod media_out;
@@ -76,6 +77,7 @@ mod welcome;
 mod widgets;
 
 pub use app::AppView;
+pub use links::receive_link;
 pub use media::clear_exports;
 pub use shell::{CloudOffer, SessionKind};
 

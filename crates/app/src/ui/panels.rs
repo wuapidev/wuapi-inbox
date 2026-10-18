@@ -36,7 +36,11 @@ impl Shell {
             SettingsSection::Stickers => self.render_stickers_settings(palette, cx),
             SettingsSection::Keyboard => render_keyboard(palette, cx),
             SettingsSection::Status => self.render_status_settings(palette, cx),
-            SettingsSection::About => self.render_about(palette, cx),
+            SettingsSection::About => div()
+                .flex()
+                .flex_col()
+                .child(self.render_about(palette, cx))
+                .child(self.render_link_setting(palette, cx)),
         };
         let mut nav = div()
             .flex_none()

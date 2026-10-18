@@ -990,6 +990,13 @@ impl Shell {
                 };
                 true
             }
+            C::OpenLinksHere => {
+                // Where what happened is said.
+                self.open_overlay(Overlay::Settings, window, cx);
+                self.settings_section = SettingsSection::About;
+                self.make_link_default(cx);
+                true
+            }
             C::CheckForUpdates => {
                 self.check_for_updates(window, cx);
                 true

@@ -81,6 +81,9 @@ pub struct Options {
     /// wuapi: the root of the event stream, instead of the one derived from
     /// the API (development aid: a local mock, a staging deployment).
     pub stream_url: Option<String>,
+    /// A WhatsApp link to open (`wa.me/…`, `whatsapp://…`): how the
+    /// system starts the application for one.
+    pub link: Option<String>,
 }
 
 /// What `--diagnose` reports on.
@@ -116,7 +119,10 @@ pub fn usage() -> String {
     format!(
         "{PRODUCT_NAME}, a native WhatsApp client
 
-Usage: {bin} [OPTIONS]
+Usage: {bin} [OPTIONS] [LINK]
+
+  LINK                      A WhatsApp link to open (wa.me/…, whatsapp://…); handed to
+                            the window already open, if there is one
 
 Options:
   --provider <mock|wuapi>   Backend to use [default: wuapi]. A build with provider-native,
@@ -161,6 +167,7 @@ pub fn parse(args: impl Iterator<Item = String>) -> Result<Command, String> {
         update_url: None,
         live: None,
         stream_url: None,
+        link: None,
     };
     let mut args = args.peekable();
     while let Some(arg) = args.next() {
@@ -257,6 +264,12 @@ pub fn parse(args: impl Iterator<Item = String>) -> Result<Command, String> {
                     other => return Err(format!("unknown report `{other}`")),
                 })
             }
+            other if is_link(other) => {
+                if options.link.is_some() {
+                    return Err("one link at a time".to_owned());
+                }
+                options.link = Some(other.to_owned());
+            }
             other => return Err(format!("unknown option `{other}`")),
         }
     }
@@ -278,9 +291,36 @@ pub fn parse(args: impl Iterator<Item = String>) -> Result<Command, String> {
     Ok(Command::Run(options))
 }
 
+/// Whether an argument is a link for this application: one of
+/// WhatsApp's it can follow, or any `whatsapp:` one (said to be not
+/// followed, in the window, rather than refused here).
+pub fn is_link(arg: &str) -> bool {
+    arg.get(..9)
+        .is_some_and(|scheme| scheme.eq_ignore_ascii_case("whatsapp:"))
+        || crate::wa_link::parse(arg).is_some() && !arg.starts_with('-')
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_whatsapp_link_is_what_to_open() {
+        let options = run(&["whatsapp://send?phone=584125550100"]);
+        assert_eq!(
+            options.link.as_deref(),
+            Some("whatsapp://send?phone=584125550100")
+        );
+        let options = run(&["--theme", "dark", "https://wa.me/584125550100"]);
+        assert_eq!(options.link.as_deref(), Some("https://wa.me/584125550100"));
+        // Not followed here, but said so in the window.
+        assert!(run(&["whatsapp://unknown"]).link.is_some());
+        assert!(parse(["https://example.com".to_owned()].into_iter()).is_err());
+        assert!(
+            parse(["https://wa.me/1".to_owned(), "https://wa.me/2".to_owned()].into_iter())
+                .is_err()
+        );
+    }
 
     fn run(args: &[&str]) -> Options {
         match parse(args.iter().map(|a| a.to_string())) {

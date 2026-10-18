@@ -65,6 +65,17 @@ cat > "$app/Contents/Info.plist" <<PLIST
     <string>public.app-category.social-networking</string>
     <key>NSHighResolutionCapable</key>
     <true/>
+    <key>CFBundleURLTypes</key>
+    <array>
+        <dict>
+            <key>CFBundleURLName</key>
+            <string>WhatsApp link</string>
+            <key>CFBundleURLSchemes</key>
+            <array>
+                <string>whatsapp</string>
+            </array>
+        </dict>
+    </array>
     <key>NSMicrophoneUsageDescription</key>
     <string>Wuapi uses the microphone to record a voice note when you press the record button.</string>
 </dict>

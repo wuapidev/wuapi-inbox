@@ -4986,6 +4986,7 @@ mod forward;
 mod gallery;
 mod keyboard;
 mod link_dialog;
+mod links;
 mod media_out;
 mod message_types;
 mod onboarding;

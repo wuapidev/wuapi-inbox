@@ -158,6 +158,8 @@ pub enum Command {
     SettingsAccount,
     /// Settings, on its About section.
     SettingsAbout,
+    /// Makes this application the one that opens WhatsApp links.
+    OpenLinksHere,
     /// Asks whether there is a new version, now.
     CheckForUpdates,
     /// Restarts the application so that the downloaded version is installed.
@@ -1861,6 +1863,13 @@ pub const BINDINGS: &[Binding] = &[
         &[],
     ),
     bind(C::SettingsAbout, "About", S::Application, W::Anywhere, &[]),
+    bind(
+        C::OpenLinksHere,
+        "Open WhatsApp links with Wuapi",
+        S::Application,
+        W::Anywhere,
+        &[],
+    ),
     bind(
         C::CheckForUpdates,
         "Check for updates",

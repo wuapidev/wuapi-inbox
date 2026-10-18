@@ -683,6 +683,8 @@ pub struct Shell {
     /// A typed number is being checked.
     pub(super) new_chat_checking: bool,
     _starting_chat: Option<Task<()>>,
+    /// WhatsApp links being followed, and who opens them (`links.rs`).
+    pub(super) links: super::links::Links,
     pub(super) thread_search: Option<ThreadSearch>,
     /// The width the user dragged the chat list to, in design pixels;
     /// `None` while it follows the window.
@@ -1031,6 +1033,7 @@ impl Shell {
             new_chat_cursor: 0,
             new_chat_checking: false,
             _starting_chat: None,
+            links: Default::default(),
             thread_search: None,
             attach: None,
             attach_strip: gpui_kit::ScrollHandle::new(),
@@ -3057,6 +3060,7 @@ impl Shell {
         };
         // A chat is wanted: Status gives the panes back.
         self.status_yields_to_chat(cx);
+        self.links.chats_opened += 1;
         if self
             .open
             .as_ref()
@@ -3190,6 +3194,7 @@ impl Render for Shell {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let palette = palette(cx);
         let chosen = settings::get(cx);
+        self.tend_links(window, cx);
         self.media.set_policy(chosen.media);
         // Frames of animations that were let go leave the window too.
         self.media.release(window);

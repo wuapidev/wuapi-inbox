@@ -27,7 +27,9 @@ mod emoji;
 mod format;
 mod gifs;
 mod icons;
+mod instance;
 mod keys;
+mod link_handler;
 mod linking;
 mod login;
 mod markup;
@@ -51,6 +53,7 @@ mod theme;
 mod ui;
 mod update;
 mod video;
+mod wa_link;
 
 use gpui_kit::{
     px, size, App, AppContext as _, Bounds, TitlebarOptions, WindowBounds, WindowOptions,
@@ -137,6 +140,19 @@ fn main() {
         std::process::exit(code);
     }
 
+    // One instance per data directory: a start that finds one running
+    // hands it the WhatsApp link it was started with (or brings its
+    // window forward) and ends here, before the store is touched.
+    let data_dir = options.data_dir.clone().unwrap_or_else(product::data_dir);
+    let instance = match instance::claim(&data_dir, options.link.as_deref()) {
+        Ok(instance::Claim::Handed) => return,
+        Ok(instance::Claim::First(listener)) => Some(listener),
+        Err(error) => {
+            tracing::warn!(%error, "the next starts will not find this one");
+            None
+        }
+    };
+
     // Files that were opened with other applications last time were
     // written out in clear to be opened; they do not outlive the session.
     ui::clear_exports();
@@ -174,64 +190,90 @@ fn main() {
         .unwrap_or_else(product::data_dir)
         .join(settings::FILE_NAME);
     let open_chat = options.open_chat;
+    let link = options.link.clone();
     let sync = runtime.handle().clone();
-    gpui_kit::application()
-        .with_assets(icons::Assets)
-        .run(move |cx: &mut App| {
-            gpui_kit::init(cx);
-            theme::install_fonts(cx);
-            // The saved preferences; `--theme` has the say for this run.
-            settings::init(Some(settings_file), appearance, cx);
-            if let Some(seconds) = motion_at {
-                cx.set_global(motion::FrozenAt(std::time::Duration::from_secs_f32(
-                    seconds,
-                )));
-            }
-
-            // The menu bar, where the platform has one: before the window,
-            // so that it is never seen empty.
-            menu_bar::install(cx);
-
-            let bounds = Bounds::centered(None, size(px(1240.), px(800.)), cx);
-            let window = WindowOptions {
-                window_bounds: Some(WindowBounds::Windowed(bounds)),
-                window_min_size: Some(size(px(820.), px(520.))),
-                titlebar: Some(TitlebarOptions {
-                    title: Some(product::PRODUCT_NAME.into()),
-                    ..Default::default()
-                }),
-                app_id: Some(app_id),
-                icon: brand::window_icon(),
-                ..Default::default()
-            };
-            let window = gpui_kit::open_window(window, cx, |window, cx| {
-                cx.new(|cx| AppView::new(launch, open_chat, welcome, window, cx))
-            })
-            .expect("the main window opens");
-            // `--features capture`: frames of the window for the
-            // documentation, when a script asks for them.
-            #[cfg(feature = "capture")]
-            capture::start(window.0, window.1, cx);
-            #[cfg(not(feature = "capture"))]
-            let _ = window;
-
-            // The window is up: a version that was just installed has
-            // started, and the one before it is no longer kept. From here
-            // the updater looks for the next one in the background.
-            if boot.confirm_started() {
-                tracing::info!("this is the first start after an update");
-            }
-            boot.start(&sync, cx);
-
-            // Closing the window ends the application on every platform.
-            cx.on_window_closed(|cx, _| {
-                if cx.windows().is_empty() {
-                    cx.quit();
-                }
-            })
-            .detach();
-            cx.activate(true);
+    // WhatsApp links from the next starts, and from macOS, which hands
+    // them to the running application instead of starting another.
+    let (tell, mut heard) = futures::channel::mpsc::unbounded::<Option<String>>();
+    if let Some(listener) = instance {
+        let tell = tell.clone();
+        listener.serve(move |link| {
+            let _ = tell.unbounded_send(link);
         });
+    }
+    let application = gpui_kit::application().with_assets(icons::Assets);
+    application.on_open_urls(move |urls| {
+        for url in urls {
+            let _ = tell.unbounded_send(Some(url));
+        }
+    });
+    application.run(move |cx: &mut App| {
+        gpui_kit::init(cx);
+        theme::install_fonts(cx);
+        // The saved preferences; `--theme` has the say for this run.
+        settings::init(Some(settings_file), appearance, cx);
+        if let Some(seconds) = motion_at {
+            cx.set_global(motion::FrozenAt(std::time::Duration::from_secs_f32(
+                seconds,
+            )));
+        }
+
+        // The menu bar, where the platform has one: before the window,
+        // so that it is never seen empty.
+        menu_bar::install(cx);
+
+        let bounds = Bounds::centered(None, size(px(1240.), px(800.)), cx);
+        let window = WindowOptions {
+            window_bounds: Some(WindowBounds::Windowed(bounds)),
+            window_min_size: Some(size(px(820.), px(520.))),
+            titlebar: Some(TitlebarOptions {
+                title: Some(product::PRODUCT_NAME.into()),
+                ..Default::default()
+            }),
+            app_id: Some(app_id),
+            icon: brand::window_icon(),
+            ..Default::default()
+        };
+        let window = gpui_kit::open_window(window, cx, |window, cx| {
+            cx.new(|cx| AppView::new(launch, open_chat, welcome, window, cx))
+        })
+        .expect("the main window opens");
+        // `--features capture`: frames of the window for the
+        // documentation, when a script asks for them.
+        #[cfg(feature = "capture")]
+        capture::start(window.0, window.1, cx);
+        #[cfg(not(feature = "capture"))]
+        let _ = window;
+
+        // The window is up: a version that was just installed has
+        // started, and the one before it is no longer kept. From here
+        // the updater looks for the next one in the background.
+        if boot.confirm_started() {
+            tracing::info!("this is the first start after an update");
+        }
+        boot.start(&sync, cx);
+
+        // The link this start was given, then the ones that come.
+        if link.is_some() {
+            ui::receive_link(link, cx);
+        }
+        cx.spawn(async move |cx| {
+            use futures::StreamExt;
+            while let Some(link) = heard.next().await {
+                cx.update(|cx| ui::receive_link(link, cx));
+            }
+        })
+        .detach();
+
+        // Closing the window ends the application on every platform.
+        cx.on_window_closed(|cx, _| {
+            if cx.windows().is_empty() {
+                cx.quit();
+            }
+        })
+        .detach();
+        cx.activate(true);
+    });
 
     // Queued messages are already on disk; stopping the engine's tasks with
     // the runtime loses nothing.

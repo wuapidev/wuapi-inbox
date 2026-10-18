@@ -444,7 +444,7 @@ impl Shell {
                 cx.stop_propagation();
                 match &open {
                     Opens::File(media) => this.open_document(media.clone(), window, cx),
-                    Opens::Link(link) => cx.open_url(link),
+                    Opens::Link(link) => this.open_link(link, cx),
                 }
             }))
             .child(icon(glyph, px(20.), palette.icon))

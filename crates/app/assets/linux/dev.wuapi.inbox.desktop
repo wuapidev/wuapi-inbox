@@ -2,8 +2,9 @@
 Type=Application
 Name=Wuapi
 Comment=Native desktop chat client
-Exec=wuapi-inbox
+Exec=wuapi-inbox %u
 Icon=dev.wuapi.inbox
 Terminal=false
 Categories=Network;InstantMessaging;
+MimeType=x-scheme-handler/whatsapp;
 StartupWMClass=dev.wuapi.inbox

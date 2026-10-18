@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+* WhatsApp links open here: `wa.me/<number>`, `whatsapp://send`, and `api.whatsapp.com/send` and `web.whatsapp.com/send`. The chat with that number opens, with the link's text in the composer, ready to send and never sent by itself. A link with a text and no number opens New chat, and the text goes to the person chosen there. A link that comes before there is a number to write from waits until there is one. A group's invite link is said to be not followed: joining from a link cannot be done here yet.
+* Settings > About says what opens WhatsApp links on this computer, and "Open WhatsApp links with Wuapi" makes it this application; the palette has the same. On Linux the desktop entry is put right first, for an entry installed before this version. On Windows a choice made in Windows' settings is changed there, and they are opened for it. On macOS the system may ask to confirm.
+* A WhatsApp link in a message opens here instead of in the browser.
+* One window at a time: a second start, by hand or from a link, brings the window already open to the front and hands it its link, instead of opening a second copy over the same data.
+* `wuapi-inbox <link>` opens a WhatsApp link, and the desktop entry and the macOS bundle declare the `whatsapp:` scheme.
+
 ## [0.5.1]
 
 * A video plays with its sound. The player asked for a sound output that does not exist and fell back to none, so every video (a chat's and a story's) played silent.
