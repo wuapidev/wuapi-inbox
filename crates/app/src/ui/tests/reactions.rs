@@ -393,3 +393,35 @@ fn in_a_group_people_go_by_their_names_and_strangers_by_their_number(cx: &mut Te
         )
     );
 }
+
+#[gpui_kit::test]
+fn a_sticker_that_answers_a_message_shows_what_it_answers(cx: &mut TestAppContext) {
+    let harness = open_chat_one(cx);
+    put(&harness, cx, "q1", false, "who is the handsome one?", 1);
+    let (account, chat) = open_ids(&harness, cx);
+    let mut answer = text_message(&account, &chat, "s1", true, "", 2);
+    let mut sticker = client_provider::Media::new(client_provider::MediaKind::Sticker);
+    sticker.source = Some(client_provider::MediaRef::new("https://media.example/cat"));
+    sticker.mime_type = Some("image/webp".into());
+    answer.content = MessageContent::Media(sticker);
+    answer.reply_to = Some(ReplyRef {
+        message_id: MessageId::new("q1"),
+        sender_name: Some("Stibenson".into()),
+        preview: Some("who is the handsome one?".into()),
+    });
+    harness
+        .engine
+        .apply_event(ProviderEvent::MessageUpserted(answer))
+        .unwrap();
+    cx.run_until_parked();
+
+    // No bubble, as for any sticker, and the quote above it all the same.
+    assert!(shows(harness.window, "sticker", cx));
+    assert!(shows(harness.window, "sticker-quote", cx));
+    let quote = bounds(harness.window, "sticker-quote", cx);
+    let sticker = bounds(harness.window, "media-box", cx);
+    assert!(
+        quote.bottom() <= sticker.top(),
+        "{quote:?} over {sticker:?}"
+    );
+}

@@ -627,6 +627,11 @@ pub fn media_of(base: &wa::Message) -> Option<Media> {
             height: video.height,
             duration_secs: video.seconds,
             gif: video.gif_playback.unwrap_or(false),
+            thumbnail: video
+                .jpeg_thumbnail
+                .as_deref()
+                .filter(|bytes| !bytes.is_empty())
+                .map(inline_ref),
             ..Media::new(MediaKind::Video)
         });
     }
@@ -942,6 +947,26 @@ mod tests {
         assert_eq!(
             inline_bytes(&link.thumbnail.unwrap()).unwrap(),
             vec![9, 9, 9]
+        );
+    }
+
+    #[test]
+    fn a_video_carries_its_first_frame() {
+        let message = wa::Message {
+            video_message: MessageField::some(wa::message::VideoMessage {
+                seconds: Some(40),
+                jpeg_thumbnail: Some(vec![7, 7, 7]),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        let MessageContent::Media(media) = content_of(&message).content else {
+            panic!("a video");
+        };
+        assert_eq!(media.kind, MediaKind::Video);
+        assert_eq!(
+            inline_bytes(&media.thumbnail.unwrap()).unwrap(),
+            vec![7, 7, 7]
         );
     }
 
