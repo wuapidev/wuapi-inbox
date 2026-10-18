@@ -2,6 +2,7 @@
 
 ## [Unreleased]
 
+* A message is reacted to from beside its bubble: a face shows next to it while the pointer is on the row (on the right of what others write, on the left of one's own), and a click opens the six reactions and the rest right there, over it.
 * WhatsApp links open here: `wa.me/<number>`, `whatsapp://send`, and `api.whatsapp.com/send` and `web.whatsapp.com/send`. The chat with that number opens, with the link's text in the composer, ready to send and never sent by itself. A link with a text and no number opens New chat, and the text goes to the person chosen there. A link that comes before there is a number to write from waits until there is one. A group's invite link is said to be not followed: joining from a link cannot be done here yet.
 * Settings > About says what opens WhatsApp links on this computer, and "Open WhatsApp links with Wuapi" makes it this application; the palette has the same. On Linux the desktop entry is put right first, for an entry installed before this version. On Windows a choice made in Windows' settings is changed there, and they are opened for it. On macOS the system may ask to confirm.
 * A WhatsApp link in a message opens here instead of in the browser.

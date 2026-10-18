@@ -89,9 +89,24 @@ impl Shell {
                 )
             }
             Overlay::React => {
-                let at = self.focused_anchor();
                 // With every emoji showing it is a good deal larger.
                 let size = self.react_sheet_size();
+                // From the button beside a bubble: right there, above it,
+                // or under it when there is no room above.
+                let at = match self.react_at {
+                    Some(at) => {
+                        let above = at.y - size.height - px(6.);
+                        gpui_kit::point(
+                            at.x - size.width / 2.,
+                            if above >= px(8.) {
+                                above
+                            } else {
+                                at.y + px(20.)
+                            },
+                        )
+                    }
+                    None => self.focused_anchor(),
+                };
                 (
                     self.render_react_sheet(palette, cx)
                         .left(at.x.min(self.viewport.width - size.width).max(px(8.)))

@@ -396,6 +396,7 @@ impl Shell {
             view: cx.entity().downgrade(),
             audio: self.audio.view(),
             tiles: self.tile_context(),
+            can_react: self.caps_here().reactions,
         };
         let zone = palette.accent;
         let patterned = settings::get(cx).wallpaper == WallpaperChoice::Pattern;

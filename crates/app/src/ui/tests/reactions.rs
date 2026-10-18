@@ -425,3 +425,47 @@ fn a_sticker_that_answers_a_message_shows_what_it_answers(cx: &mut TestAppContex
         "{quote:?} over {sticker:?}"
     );
 }
+
+#[gpui_kit::test]
+fn the_button_beside_a_bubble_opens_the_reactions_right_there(cx: &mut TestAppContext) {
+    let harness = open_chat_one(cx);
+    put(&harness, cx, "in1", false, "is the place nice?", 1);
+    put(&harness, cx, "out1", true, "it is split in two", 2);
+
+    for (id, bubble, button, outgoing) in [
+        ("in1", "bubble-in1", "react-button-in1", false),
+        ("out1", "bubble-out1", "react-button-out1", true),
+    ] {
+        let bubble = bounds(harness.window, bubble, cx);
+        let mut visual = VisualTestContext::from_window(harness.window.into(), cx);
+        visual.simulate_mouse_move(bubble.center(), None, Modifiers::none());
+        visual.run_until_parked();
+        // Beside the bubble, on the side of the pane's middle.
+        let button = bounds(harness.window, button, cx);
+        if outgoing {
+            assert!(
+                button.right() <= bubble.left(),
+                "{button:?} left of {bubble:?}"
+            );
+        } else {
+            assert!(
+                button.left() >= bubble.right(),
+                "{button:?} right of {bubble:?}"
+            );
+        }
+
+        let mut visual = VisualTestContext::from_window(harness.window.into(), cx);
+        visual.simulate_click(button.center(), Modifiers::none());
+        visual.run_until_parked();
+        assert_eq!(overlay(&harness, cx), Overlay::React);
+        assert_eq!(focused(&harness, cx).as_deref(), Some(id));
+        // Right there: over the button, not in the middle of the row.
+        let sheet = bounds(harness.window, "react-sheet", cx);
+        assert!(
+            sheet.left() <= button.right() && sheet.right() >= button.left(),
+            "{sheet:?} over {button:?}"
+        );
+        assert!(sheet.bottom() <= button.top() || sheet.top() >= button.bottom());
+        press(harness.window, "escape", cx);
+    }
+}

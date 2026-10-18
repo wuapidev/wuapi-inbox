@@ -634,6 +634,9 @@ pub struct Shell {
     /// Where the message menu opens: at the pointer, or (`None`) beside
     /// the message in focus.
     pub(super) message_menu_at: Option<gpui_kit::Point<gpui_kit::Pixels>>,
+    /// Where the reaction sheet opens: at the button beside a bubble, or
+    /// (`None`) over the message in focus.
+    pub(super) react_at: Option<gpui_kit::Point<gpui_kit::Pixels>>,
     /// The window's size as of the last frame, for what must stay inside.
     pub(super) viewport: gpui_kit::Size<gpui_kit::Pixels>,
 
@@ -989,6 +992,7 @@ impl Shell {
             rail_handles: Default::default(),
             return_focus: None,
             message_menu_at: None,
+            react_at: None,
             viewport: window.viewport_size(),
             tiles: Default::default(),
             poll_form: None,
