@@ -2,6 +2,15 @@
 
 ## [Unreleased]
 
+## [0.5.1]
+
+* A video plays with its sound. The player asked for a sound output that does not exist and fell back to none, so every video (a chat's and a story's) played silent.
+* The player has a button for the sound, and M: a video muted stays so for the next one, until it is turned on again.
+* A video of a chat shows as a video: its first frame, the play button and how long it is, and a click plays it in the window (it was a card of a file, with "Download and open"). Save as… is on its corner. The first frame comes in the message, so videos received before this version show the play button on black.
+* A sticker sent as an answer shows the message it answers above it, as a bubble does.
+* A chat's gallery shows its pictures: a page of it asked for more at once than the downloads waiting could hold, so they pushed each other out and stayed "Loading…". A page is 60 now.
+* `Media` has `thumbnail`: a small picture of a video, as the message carries it.
+
 ## [0.5.0]
 
 * Tasks. A task is written in the tasks pane, or made from a message: "Create task" in the message's menu, or T, opens it with the message as its title. Each task has notes and a day (today, tomorrow, next week, or any day on a calendar). They are grouped as late, today, coming up and no date, with the done ones folded at the end, and "This chat" shows only the open chat's. A task made from a message shows its chat and goes back to the message, and that message has a mark while the task is to do.

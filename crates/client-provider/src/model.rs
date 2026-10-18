@@ -528,6 +528,10 @@ pub struct Media {
     /// `false` when the provider cannot tell.
     #[serde(default)]
     pub gif: bool,
+    /// A small picture of it, as the message carries it: a video's first
+    /// frame, drawn before its file is here.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub thumbnail: Option<MediaRef>,
 }
 
 impl Media {
@@ -544,6 +548,7 @@ impl Media {
             height: None,
             duration_secs: None,
             gif: false,
+            thumbnail: None,
         }
     }
 }

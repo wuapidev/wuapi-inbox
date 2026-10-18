@@ -57,6 +57,7 @@ struct Shared {
 pub(crate) struct Clip {
     shared: Arc<Mutex<Shared>>,
     paused: Arc<AtomicBool>,
+    muted: Arc<AtomicBool>,
     stop: Arc<AtomicBool>,
     join: Option<std::thread::JoinHandle<()>>,
 }
@@ -104,6 +105,17 @@ impl Clip {
     /// Holds or continues. A clock clip stops advancing; libmpv pauses.
     pub(crate) fn set_paused(&self, paused: bool) {
         self.paused.store(paused, Ordering::Relaxed);
+    }
+
+    /// Silences its sound, or gives it back.
+    pub(crate) fn set_muted(&self, muted: bool) {
+        self.muted.store(muted, Ordering::Relaxed);
+    }
+
+    /// Whether its sound is silenced.
+    #[cfg(test)]
+    pub(crate) fn muted(&self) -> bool {
+        self.muted.load(Ordering::Relaxed)
     }
 
     /// Moves a clock clip forward by `by`. A libmpv clip keeps its own time.
@@ -168,6 +180,7 @@ pub(crate) fn clock(duration: Duration) -> Clip {
             seek: None,
         })),
         paused: Arc::new(AtomicBool::new(false)),
+        muted: Arc::new(AtomicBool::new(false)),
         stop: Arc::new(AtomicBool::new(false)),
         join: None,
     }
@@ -529,9 +542,11 @@ mod native {
             seek: None,
         }));
         let paused = Arc::new(AtomicBool::new(false));
+        let muted = Arc::new(AtomicBool::new(false));
         let stop = Arc::new(AtomicBool::new(false));
         let (shared_worker, paused_worker, stop_worker) =
             (Arc::clone(&shared), Arc::clone(&paused), Arc::clone(&stop));
+        let muted_worker = Arc::clone(&muted);
         let join = std::thread::Builder::new()
             .name("story-video".into())
             .spawn(move || {
@@ -540,6 +555,7 @@ mod native {
                     bytes,
                     shared_worker,
                     paused_worker,
+                    muted_worker,
                     stop_worker,
                     looping,
                 )
@@ -548,6 +564,7 @@ mod native {
         Ok(Clip {
             shared,
             paused,
+            muted,
             stop,
             join: Some(join),
         })
@@ -558,10 +575,11 @@ mod native {
         bytes: Arc<[u8]>,
         shared: Arc<Mutex<Shared>>,
         paused: Arc<AtomicBool>,
+        muted: Arc<AtomicBool>,
         stop: Arc<AtomicBool>,
         looping: bool,
     ) {
-        let result = session(&api, &bytes, &shared, &paused, &stop, looping);
+        let result = session(&api, &bytes, &shared, &paused, &muted, &stop, looping);
         if let Err(error) = result {
             tracing::warn!(%error, "story video stopped");
             lock(&shared).failure = Some(error);
@@ -573,6 +591,7 @@ mod native {
         bytes: &Arc<[u8]>,
         shared: &Mutex<Shared>,
         paused: &AtomicBool,
+        muted: &AtomicBool,
         stop: &AtomicBool,
         looping: bool,
     ) -> Result<(), String> {
@@ -580,7 +599,7 @@ mod native {
         let (ctx, render) = if looping {
             core(api, "null", true)
         } else {
-            core(api, "auto", false).or_else(|error| {
+            core(api, "", false).or_else(|error| {
                 if error.contains("audio output") {
                     core(api, "null", false)
                 } else {
@@ -612,6 +631,7 @@ mod native {
             return Err(format!("the video could not be opened ({loaded})"));
         }
         let mut applied_pause = false;
+        let mut applied_mute = false;
         let mut size: Option<(i32, i32)> = None;
         let mut last_frame = std::time::Instant::now()
             .checked_sub(Duration::from_millis(40))
@@ -627,6 +647,11 @@ mod native {
                     if want_pause { "yes" } else { "no" },
                 );
                 applied_pause = want_pause;
+            }
+            let want_mute = muted.load(Ordering::Relaxed);
+            if want_mute != applied_mute {
+                let _ = set_string(api, ctx, true, "mute", if want_mute { "yes" } else { "no" });
+                applied_mute = want_mute;
             }
             let event = unsafe { (api.wait_event)(ctx, 0.03) };
             if !event.is_null() {
@@ -700,6 +725,8 @@ mod native {
             ("vo", "libmpv"),
             ("hwdec", "no"),
             ("idle", "yes"),
+            // libmpv chooses the sound output when none is named;
+            // "auto" is not the name of one, and naming it gave no sound.
             ("ao", audio),
             ("keep-open", "no"),
             ("force-window", "no"),
@@ -717,6 +744,9 @@ mod native {
             ("audio-fallback-to-null", "yes"),
             ("audio", if looping { "no" } else { "auto" }),
         ] {
+            if name == "ao" && audio.is_empty() {
+                continue;
+            }
             let required = name == "vo" || name == "idle" || name == "config";
             if let Err(error) = set_string(api, ctx, false, name, value) {
                 if required || name == "ao" {

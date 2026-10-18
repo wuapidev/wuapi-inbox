@@ -75,6 +75,8 @@ icon_assets!(
         UserPlus,
         Users,
         Video,
+        Volume2,
+        VolumeX,
         WifiOff,
         X,
         ZoomIn,

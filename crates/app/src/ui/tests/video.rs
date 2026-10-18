@@ -66,3 +66,28 @@ fn a_video_that_cannot_be_played_here_offers_the_system_player(cx: &mut TestAppC
     assert!(shows(harness.window, "video-system", cx));
     assert!(!cx.update(|cx| harness.shell.read(cx).video.playing()));
 }
+
+#[gpui_kit::test]
+fn a_video_is_muted_with_its_button_or_m_and_stays_so_for_the_next(cx: &mut TestAppContext) {
+    let _guard = crate::video::install_opener(Arc::new(|_| {
+        Ok(crate::video::clock(Duration::from_secs(12)))
+    }));
+    let harness = open_chat_with_policy(cx, crate::settings::MediaChoice::Images);
+    push_video(&harness, cx, "m-video", "https://media.example/holiday.mp4");
+    click(harness.window, "media-open", cx);
+    until_shown(&harness, cx, "video-frame");
+    let silenced =
+        |cx: &mut TestAppContext| cx.update(|cx| harness.shell.read(cx).video.silenced());
+    assert_eq!(silenced(cx), Some(false), "a video plays with its sound");
+
+    click(harness.window, "video-mute", cx);
+    assert_eq!(silenced(cx), Some(true));
+    press(harness.window, "m", cx);
+    assert_eq!(silenced(cx), Some(false));
+    press(harness.window, "m", cx);
+
+    press(harness.window, "escape", cx);
+    click(harness.window, "media-open", cx);
+    until_shown(&harness, cx, "video-frame");
+    assert_eq!(silenced(cx), Some(true), "the next one starts silenced too");
+}

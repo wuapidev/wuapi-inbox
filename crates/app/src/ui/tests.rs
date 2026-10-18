@@ -2894,10 +2894,7 @@ fn file_tiles_keep_their_icon_and_label_centred_inside_the_bubble(cx: &mut TestA
             ..Default::default()
         },
     );
-    for (id, kind) in [
-        ("m-doc", MediaKind::Document),
-        ("m-video", MediaKind::Video),
-    ] {
+    for (id, kind) in [("m-doc", MediaKind::Document)] {
         let url = format!("https://media.example/{id}");
         push_media(&harness, cx, id, kind, Some(&url), false);
         let bubble = bounds(harness.window, "bubble", cx);
@@ -2915,6 +2912,22 @@ fn file_tiles_keep_their_icon_and_label_centred_inside_the_bubble(cx: &mut TestA
             );
         }
         assert!(label.left() > icon.right() && action.top() >= label.bottom());
+    }
+    // A video is not a file: its picture, with the play button and its
+    // length on it, all of it the way to the player.
+    push_media(
+        &harness,
+        cx,
+        "m-video",
+        MediaKind::Video,
+        Some("https://media.example/m-video"),
+        false,
+    );
+    let bubble = bounds(harness.window, "bubble", cx);
+    let tile = bounds(harness.window, "media-open", cx);
+    assert!(within(tile, bubble), "{tile:?} outside {bubble:?}");
+    for part in ["video-play-badge", "video-length"] {
+        assert!(within(bounds(harness.window, part, cx), tile), "{part}");
     }
 }
 

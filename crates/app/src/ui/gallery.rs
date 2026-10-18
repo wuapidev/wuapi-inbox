@@ -22,8 +22,9 @@ use client_provider::{
 use gpui_kit::prelude::*;
 use gpui_kit::{div, img, Context, Div, ObjectFit, SharedString, StyledImage, Window};
 
-/// How many more entries each "Show more" brings.
-const PAGE: usize = 120;
+/// How many more entries each "Show more" brings. Their pictures are
+/// asked for at once: no more than the downloads that may wait.
+const PAGE: usize = 60;
 /// The side of a picture in the grid.
 const CELL: f32 = 116.;
 

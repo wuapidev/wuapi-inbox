@@ -819,6 +819,16 @@ fn sticker_row(
                 this.items_start()
             }
         })
+        // The message it answers, above it, as on a bubble.
+        .when_some(message.reply_to.as_ref(), |this, reply| {
+            this.child(match &message.extras.story_reply {
+                Some(story) => super::story_quote::story_quote(story, message, &side, context)
+                    .into_any_element(),
+                None => quote(reply, row.quoted, message, &side, context)
+                    .debug_selector(|| "sticker-quote".into())
+                    .into_any_element(),
+            })
+        })
         .child(image_block(media, message, &side, context, false))
         .child(meta_line(row, &side, palette))
         .when(!row.stored.reactions.is_empty(), |this| {
@@ -1664,6 +1674,152 @@ fn file_action(media: &Media, message: &Message, side: &Side, context: &RowConte
     })
 }
 
+/// A video of the chat, as WhatsApp shows it: its first frame when the
+/// message carries one, the play button over it, and how long it is. A
+/// click plays it in the window, fetching it first. `None` for a GIF and
+/// for a video that will not come: the tile says why.
+fn video_block(media: &Media, message: &Message, side: &Side, context: &RowContext) -> Option<Div> {
+    if media.gif {
+        return None;
+    }
+    let url = media.source.as_ref()?.to_string();
+    let state = context.shelf.file_state(&url);
+    if matches!(state, FileState::Unavailable(_)) && context.shelf.file_expired(&url) {
+        return None;
+    }
+    // The first frame travels in the message, a picture like any other.
+    let poster = media.thumbnail.as_ref().and_then(|source| {
+        let mut picture = Media::new(MediaKind::Image);
+        picture.source = Some(source.clone());
+        match context.shelf.visual(&message.account_id, &picture) {
+            MediaVisual::Image(image) => Some(image),
+            _ => None,
+        }
+    });
+    let size = context.shelf.image_box(media);
+    let palette = &context.palette;
+    // While it comes, the button shows how far it is and stops it; else
+    // the play button, which fetches it too.
+    let middle = if state == FileState::Loading {
+        tile_glyph(IconName::Video, media, message, side, context)
+    } else {
+        div()
+            .debug_selector(|| "video-play-badge".into())
+            .size(px(48.))
+            .rounded_full()
+            .bg(palette.media_button)
+            .flex()
+            .items_center()
+            .justify_center()
+            .child(icon(IconName::Play, px(22.), palette.on_media_button))
+            .into_any_element()
+    };
+    let mut label = match media.duration_secs {
+        Some(secs) => duration(secs),
+        None => "VIDEO".to_owned(),
+    };
+    if state != FileState::Ready {
+        if let Some(bytes) = media.size_bytes {
+            label = format!("{label} · {}", file_size(bytes));
+        }
+    }
+    let (view, opened) = (context.view.clone(), media.clone());
+    let (save_view, saved) = (context.view.clone(), media.clone());
+    let group = SharedString::from(format!("video-{}", message.id));
+    Some(
+        div().child(
+            div()
+                .id(SharedString::from(format!("open-{}", message.id)))
+                .debug_selector(|| "media-open".into())
+                .group(group.clone())
+                .relative()
+                .flex_none()
+                .w(size.width)
+                .h(size.height)
+                .max_w_full()
+                .rounded(px(4.))
+                .overflow_hidden()
+                .bg(gpui_kit::black())
+                .cursor_pointer()
+                .on_click(move |_, window, cx| {
+                    view.update(cx, |shell, cx| {
+                        shell.open_document(opened.clone(), window, cx)
+                    })
+                    .ok();
+                })
+                .when_some(poster, |this, image| {
+                    this.child(
+                        div()
+                            .debug_selector(|| "video-poster".into())
+                            .absolute()
+                            .inset_0()
+                            .child(img(image).size_full().object_fit(ObjectFit::Cover)),
+                    )
+                })
+                .child(
+                    div()
+                        .absolute()
+                        .inset_0()
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .child(middle),
+                )
+                .child(
+                    div()
+                        .debug_selector(|| "video-length".into())
+                        .absolute()
+                        .left(px(6.))
+                        .bottom(px(6.))
+                        .px(px(6.))
+                        .py(px(2.))
+                        .rounded(px(4.))
+                        .bg(palette.media_button)
+                        .flex()
+                        .items_center()
+                        .gap(px(4.))
+                        .text_color(palette.on_media_button)
+                        .child(icon(IconName::Video, px(12.), palette.on_media_button))
+                        .child(mono(label)),
+                )
+                .child(
+                    div()
+                        .id(SharedString::from(format!("save-{}", message.id)))
+                        .debug_selector(|| "media-save".into())
+                        .absolute()
+                        .top(px(6.))
+                        .right(px(6.))
+                        .size(px(26.))
+                        .rounded_full()
+                        .bg(palette.media_button)
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .cursor_pointer()
+                        .invisible()
+                        .group_hover(group, |style| style.visible())
+                        .tooltip(|window, cx| {
+                            gpui_kit::component::tooltip::Tooltip::new("Save as…").build(window, cx)
+                        })
+                        .on_mouse_down(gpui_kit::MouseButton::Left, |_, _, cx| {
+                            cx.stop_propagation()
+                        })
+                        .on_click(move |_, _, cx| {
+                            cx.stop_propagation();
+                            save_view
+                                .update(cx, |shell, cx| shell.save_as(Some(saved.clone()), cx))
+                                .ok();
+                        })
+                        .child(icon(
+                            IconName::ArrowDownToLine,
+                            px(14.),
+                            palette.on_media_button,
+                        )),
+                ),
+        ),
+    )
+}
+
 fn media_block(media: &Media, message: &Message, side: &Side, context: &RowContext) -> Div {
     match media.kind {
         MediaKind::Image | MediaKind::Sticker => image_block(media, message, side, context, true),
@@ -1672,6 +1828,9 @@ fn media_block(media: &Media, message: &Message, side: &Side, context: &RowConte
             // fetched with the pictures and plays where it is. The tile
             // below is what is left when it cannot.
             if let Some(block) = gif_block(media, message, side, context) {
+                return block;
+            }
+            if let Some(block) = video_block(media, message, side, context) {
                 return block;
             }
             let (kind, title) = if media.gif {

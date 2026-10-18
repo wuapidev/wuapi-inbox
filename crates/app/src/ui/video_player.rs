@@ -34,6 +34,8 @@ pub(super) struct VideoDeck {
     /// Why it cannot be played here.
     pub(super) failure: Option<SharedString>,
     paused: bool,
+    /// Its sound is silenced. Kept from one video to the next.
+    pub(super) muted: bool,
     /// Where the bar was drawn last, for a click on it.
     bar: std::rc::Rc<std::cell::Cell<Option<gpui_kit::Bounds<gpui_kit::Pixels>>>>,
     _tick: Option<Task<()>>,
@@ -44,6 +46,12 @@ impl VideoDeck {
     #[cfg(test)]
     pub(super) fn paused(&self) -> bool {
         self.paused
+    }
+
+    /// Whether its sound is silenced, here and in the decoder.
+    #[cfg(test)]
+    pub(super) fn silenced(&self) -> Option<bool> {
+        self.clip.as_ref().map(|clip| clip.muted())
     }
 
     /// Whether a decoder plays it.
@@ -113,6 +121,7 @@ impl Shell {
         };
         match Clip::open(Arc::<[u8]>::from(bytes)) {
             Ok(clip) => {
+                clip.set_muted(self.video.muted);
                 self.video.clip = Some(Arc::new(clip));
                 self.video.paused = false;
             }
@@ -144,6 +153,7 @@ impl Shell {
     /// window.
     pub(super) fn end_video(&mut self, cx: &mut Context<Self>) {
         let deck = std::mem::take(&mut self.video);
+        self.video.muted = deck.muted;
         let Some(clip) = deck.clip else {
             return;
         };
@@ -184,6 +194,15 @@ impl Shell {
         cx.notify();
     }
 
+    /// Silences the sound, or gives it back.
+    pub(super) fn video_mute(&mut self, cx: &mut Context<Self>) {
+        self.video.muted = !self.video.muted;
+        if let Some(clip) = &self.video.clip {
+            clip.set_muted(self.video.muted);
+        }
+        cx.notify();
+    }
+
     /// Moves `by` forward, or back.
     pub(super) fn video_step(&mut self, forward: bool, cx: &mut Context<Self>) {
         let Some(clip) = &self.video.clip else {
@@ -205,6 +224,7 @@ impl Shell {
             "space" | "k" => self.video_toggle(cx),
             "right" | "l" => self.video_step(true, cx),
             "left" | "j" => self.video_step(false, cx),
+            "m" => self.video_mute(cx),
             _ => return false,
         }
         true
@@ -411,6 +431,31 @@ impl Shell {
             .child(
                 mono(length.map(clock_of).unwrap_or_else(|| "–:––".to_owned()))
                     .text_color(palette.text_muted),
+            )
+            .child(
+                icon_button(
+                    "video-mute",
+                    if self.video.muted {
+                        IconName::VolumeX
+                    } else {
+                        IconName::Volume2
+                    },
+                    palette,
+                )
+                .tooltip({
+                    let hint = if self.video.muted {
+                        "Sound on (M)"
+                    } else {
+                        "Mute (M)"
+                    };
+                    move |window, cx| {
+                        gpui_kit::component::tooltip::Tooltip::new(hint).build(window, cx)
+                    }
+                })
+                .on_click(cx.listener(|this, _, _, cx| {
+                    cx.stop_propagation();
+                    this.video_mute(cx);
+                })),
             )
             .child(
                 icon_button("video-save", IconName::ArrowDownToLine, palette).on_click({

@@ -2370,8 +2370,10 @@ pub const MANUAL_MEDIA_LIMIT: u64 = 200 * 1024 * 1024;
 /// How many media downloads run at once.
 const MEDIA_WORKERS: usize = 3;
 /// How many media downloads may be waiting. Beyond it the oldest request
-/// is forgotten: it was for rows that have scrolled away.
-const MEDIA_QUEUE: usize = 24;
+/// is forgotten: it was for rows that have scrolled away. Room for a page
+/// of a chat's gallery, which asks for all of its pictures at once: with
+/// less, they pushed each other out at every draw and never came.
+const MEDIA_QUEUE: usize = 64;
 /// How long one media download may take.
 const MEDIA_TIMEOUT: Duration = Duration::from_secs(120);
 /// How long to wait before trying again a download that failed for a
