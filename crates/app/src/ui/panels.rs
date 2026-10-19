@@ -198,11 +198,12 @@ impl Shell {
             )
             .child(choice_row(
                 "Download media automatically",
-                "Images, stickers and GIFs load as they come into view (up to 25 MB each). \
-                 Videos, audio and documents wait for a click unless you choose Everything.",
+                "Automatic: everything for numbers on this computer, images through \
+                 Wuapi Cloud. Up to 25 MB each.",
                 segmented(
                     "media",
                     &[
+                        (MediaChoice::Automatic, "Automatic"),
                         (MediaChoice::Images, "Images"),
                         (MediaChoice::Never, "Never"),
                         (MediaChoice::Everything, "Everything"),

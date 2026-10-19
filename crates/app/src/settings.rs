@@ -64,14 +64,30 @@ pub enum HistoryChoice {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum MediaChoice {
+    /// [`Everything`](Self::Everything) with the numbers of this
+    /// computer, which fetch straight from WhatsApp;
+    /// [`Images`](Self::Images) through Wuapi Cloud.
+    #[default]
+    Automatic,
     /// Images, stickers and GIFs, as they scroll into view. Other files
     /// wait for a click.
-    #[default]
     Images,
     /// Nothing: every image and file waits for a click.
     Never,
     /// Images, and the files of videos, audio and documents too.
     Everything,
+}
+
+impl MediaChoice {
+    /// What is fetched in a session that talks to WhatsApp `direct`ly or
+    /// not: never [`Automatic`](Self::Automatic).
+    pub fn resolved(self, direct: bool) -> Self {
+        match self {
+            Self::Automatic if direct => Self::Everything,
+            Self::Automatic => Self::Images,
+            chosen => chosen,
+        }
+    }
 }
 
 /// What is drawn behind the messages of a conversation.
@@ -115,7 +131,10 @@ pub struct Settings {
     pub history: HistoryChoice,
     /// With [`HistoryChoice::Recent`]: how many chats of each number.
     pub recent_chats: u32,
-    /// Which media is downloaded without being asked.
+    /// Which media is downloaded without being asked. Kept under a key of
+    /// its own since [`MediaChoice::Automatic`]: the old one held "images"
+    /// for everybody who never chose, see [`Settings::load`].
+    #[serde(rename = "media_download")]
     pub media: MediaChoice,
     /// The welcome screen has been seen through once: later starts go
     /// straight to the sign-in or the chats.
@@ -212,13 +231,17 @@ impl Settings {
     /// Reads the file, falling back to the defaults for whatever is
     /// missing or unreadable.
     pub fn load(path: &Path) -> Self {
-        match std::fs::read(path) {
-            Ok(bytes) => serde_json::from_slice(&bytes).unwrap_or_else(|error| {
-                tracing::warn!(%error, "the settings file is unreadable; using the defaults");
-                Self::default()
-            }),
-            Err(_) => Self::default(),
-        }
+        let Ok(bytes) = std::fs::read(path) else {
+            return Self::default();
+        };
+        let read = serde_json::from_slice::<serde_json::Value>(&bytes).and_then(|mut value| {
+            upgrade(&mut value);
+            serde_json::from_value(value)
+        });
+        read.unwrap_or_else(|error| {
+            tracing::warn!(%error, "the settings file is unreadable; using the defaults");
+            Self::default()
+        })
     }
 
     /// Writes the file whole, through a temporary one, so a crash midway
@@ -230,6 +253,22 @@ impl Settings {
         let draft = path.with_extension("json.tmp");
         std::fs::write(&draft, serde_json::to_vec_pretty(self)?)?;
         std::fs::rename(&draft, path)
+    }
+}
+
+/// Carries what a file written by an earlier version chose over to the
+/// keys of this one. "media" was "images" for whoever never chose, so only
+/// a choice of nothing or everything is kept; the rest is automatic.
+fn upgrade(value: &mut serde_json::Value) {
+    let Some(object) = value.as_object_mut() else {
+        return;
+    };
+    if let Some(legacy) = object.remove("media") {
+        if !object.contains_key("media_download")
+            && matches!(legacy.as_str(), Some("never" | "everything"))
+        {
+            object.insert("media_download".into(), legacy);
+        }
     }
 }
 
@@ -364,6 +403,31 @@ pub fn reduce_motion(cx: &App) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_choice_of_media_from_an_earlier_version_is_kept_and_the_default_is_automatic() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join(FILE_NAME);
+        let load = |media: &str| {
+            std::fs::write(
+                &path,
+                format!(r#"{{"media": "{media}", "recent_chats": 7}}"#),
+            )
+            .unwrap();
+            Settings::load(&path)
+        };
+        assert_eq!(load("images").media, MediaChoice::Automatic, "nobody chose");
+        assert_eq!(load("never").media, MediaChoice::Never);
+        assert_eq!(load("everything").media, MediaChoice::Everything);
+        assert_eq!(load("images").recent_chats, 7, "the rest is read as it was");
+
+        assert_eq!(
+            MediaChoice::Automatic.resolved(true),
+            MediaChoice::Everything
+        );
+        assert_eq!(MediaChoice::Automatic.resolved(false), MediaChoice::Images);
+        assert_eq!(MediaChoice::Never.resolved(true), MediaChoice::Never);
+    }
 
     #[test]
     fn settings_survive_a_restart() {

@@ -5889,6 +5889,31 @@ fn what_loads_by_itself_shows_a_ring_and_a_file_tile_shows_the_button(cx: &mut T
 }
 
 #[gpui_kit::test]
+fn media_downloads_by_itself_with_the_numbers_of_this_computer(cx: &mut TestAppContext) {
+    let everything = |session: SessionKind, cx: &mut TestAppContext| {
+        cx.update(|cx| prepare(cx, None));
+        let harness = open_prepared(
+            cx,
+            ShellOptions {
+                open_chat: Some(1),
+                session,
+                ..Default::default()
+            },
+        );
+        harness.settle(cx);
+        cx.update(|cx| harness.shell.read(cx).media.fetches_everything())
+    };
+    assert!(
+        everything(SessionKind::Local, cx),
+        "straight from WhatsApp: videos, audio and documents too"
+    );
+    assert!(
+        !everything(SessionKind::Keychain, cx),
+        "through the cloud: pictures only"
+    );
+}
+
+#[gpui_kit::test]
 fn a_gif_downloads_by_itself_like_a_sticker_and_a_video_waits(cx: &mut TestAppContext) {
     use client_provider::MediaKind;
     let harness = open_chat_with_policy(cx, crate::settings::MediaChoice::Images);

@@ -191,6 +191,18 @@ pub enum SessionKind {
     Local,
 }
 
+impl SessionKind {
+    /// The numbers are linked to this computer, which fetches their
+    /// media straight from WhatsApp.
+    pub fn is_direct(self) -> bool {
+        #[cfg(feature = "provider-native")]
+        if self == Self::Local {
+            return true;
+        }
+        false
+    }
+}
+
 /// Where a number is connected from, when the cloud runs beside the
 /// numbers of this computer.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -3199,7 +3211,8 @@ impl Render for Shell {
         let palette = palette(cx);
         let chosen = settings::get(cx);
         self.tend_links(window, cx);
-        self.media.set_policy(chosen.media);
+        self.media
+            .set_policy(chosen.media.resolved(self.session.is_direct()));
         // Frames of animations that were let go leave the window too.
         self.media.release(window);
         self.media.tend_loops(cx.weak_entity(), cx);

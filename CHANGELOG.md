@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+* Media downloads by itself as it comes into view, videos, audio and documents included, with the numbers of this computer: "Automatic", the new default of Settings > Download media automatically, is everything for them and images, stickers and GIFs through Wuapi Cloud. Images, Never and Everything are still there; a choice of Never or Everything made before this version is kept.
+* Link a number outlines only the place chosen: Wuapi Cloud, the recommended one, was outlined too and read as chosen beside This computer.
 * A quote names who the quoted message mentions ("@Ana"), as the message itself does, instead of the digits of their id. The text that comes with an answer is the one typed on the phone; the quote takes the local copy of the message, or names the people it lists when there is none.
 * `ReplyRef` has `mentions`: who the quoted text mentions.
 * A message is reacted to from beside its bubble: a face shows next to it while the pointer is on the row (on the right of what others write, on the left of one's own), and a click opens the six reactions and the rest right there, over it.
