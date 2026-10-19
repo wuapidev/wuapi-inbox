@@ -41,10 +41,11 @@ pub use event::{EventStream, ProviderEvent};
 pub use ids::{AccountId, ChatId, ClientMessageId, ContactId, Cursor, MediaRef, MessageId};
 pub use model::{
     Account, AccountChange, AccountSettings, Avatar, AvatarAnswer, Chat, ChatChange, ChatKind,
-    ChatUnknown, ConnectionState, Contact, DeliveryStatus, Direction, ForwardItem, HistoryImport,
-    LinkPlace, LinkStatus, LinkStep, Media, MediaData, MediaKind, MediaLimit, MediaUpload, Message,
-    MessageContent, NewAccount, NumberCheck, OutgoingContent, OutgoingMessage, Page, PresenceState,
-    ReplyRef, SendReceipt, ServerMedia, Timestamp, UploadProgress,
+    ChatUnknown, ConnectionState, Contact, DeliveryStatus, Direction, FilePreview, ForwardItem,
+    HistoryImport, LinkPlace, LinkStatus, LinkStep, Media, MediaData, MediaKind, MediaLimit,
+    MediaUpload, Message, MessageContent, NewAccount, NumberCheck, OutgoingContent,
+    OutgoingMessage, Page, PresenceState, ReplyRef, SendReceipt, ServerMedia, Timestamp,
+    UploadProgress,
 };
 pub use provider::{LiveUpdates, PollingReason, Provider, IDEMPOTENCY_WINDOW};
 pub use social::{

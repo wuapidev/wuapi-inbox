@@ -6,8 +6,8 @@ use crate::ids::{self, is_group, phone_of, STATUS_CHAT};
 use crate::mapping::{self, Effect, MediaPointer, PollVotes};
 use client_provider::{
     AccountId, Chat, ChatId, ChatKind, ChatUnknown, ClientMessageId, Contact, ContactId,
-    DeliveryStatus, Direction, MediaKind, Message, MessageContent, MessageId, Story, StoryBody,
-    StoryFont, StoryStyle, SystemEvent, Timestamp,
+    DeliveryStatus, Direction, FilePreview, MediaKind, Message, MessageContent, MessageId, Story,
+    StoryBody, StoryFont, StoryStyle, SystemEvent, Timestamp,
 };
 use sha2::{Digest, Sha256};
 use whatsapp_rust::buffa::{Message as _, MessageField};
@@ -409,6 +409,22 @@ pub fn media_message(
     }
 }
 
+/// Puts on a document the picture the other side shows before they
+/// download it, and how many pages it has. Nothing for other kinds.
+pub fn with_preview(mut message: wa::Message, preview: Option<&FilePreview>) -> wa::Message {
+    let (Some(preview), Some(document)) = (preview, message.document_message.as_option_mut())
+    else {
+        return message;
+    };
+    if !preview.jpeg.is_empty() {
+        document.jpeg_thumbnail = Some(preview.jpeg.clone());
+        document.thumbnail_width = preview.width;
+        document.thumbnail_height = preview.height;
+    }
+    document.page_count = preview.pages;
+    message
+}
+
 /// What WhatsApp stores a kind of file as.
 pub fn class_of(kind: MediaKind) -> &'static str {
     match kind {
@@ -525,6 +541,51 @@ mod tests {
 
     fn account() -> AccountId {
         AccountId::new("native:1")
+    }
+
+    #[test]
+    fn a_document_goes_with_its_preview_and_a_picture_without() {
+        let pointer = MediaPointer {
+            url: Some("https://mmg.whatsapp.net/d".into()),
+            direct_path: "/v/t62/doc".into(),
+            media_key: vec![1; 32],
+            file_sha256: vec![2; 32],
+            file_enc_sha256: vec![3; 32],
+            file_length: 1234,
+            class: "document".into(),
+            mime_type: Some("application/pdf".into()),
+            key_timestamp: None,
+        };
+        let preview = FilePreview {
+            jpeg: vec![0xff, 0xd8, 9],
+            width: Some(480),
+            height: Some(250),
+            pages: Some(3),
+        };
+        let document = media_message(
+            &pointer,
+            MediaKind::Document,
+            None,
+            None,
+            Some("menu.pdf"),
+            false,
+            None,
+        );
+        let sent = with_preview(document, Some(&preview));
+        let document = sent.document_message.as_option().unwrap();
+        assert_eq!(
+            document.jpeg_thumbnail.as_deref(),
+            Some(&[0xff, 0xd8, 9][..])
+        );
+        assert_eq!(document.thumbnail_width, Some(480));
+        assert_eq!(document.page_count, Some(3));
+        // And it reads back as it went.
+        let read = mapping::media_of(&sent).unwrap();
+        assert_eq!(read.pages, Some(3));
+        assert!(read.thumbnail.is_some());
+
+        let image = media_message(&pointer, MediaKind::Image, None, None, None, false, None);
+        assert_eq!(with_preview(image.clone(), Some(&preview)), image);
     }
 
     #[test]

@@ -612,7 +612,11 @@ impl SyncEngine {
         let thumbnail = (file.kind == MediaKind::Image)
             .then(|| crate::thumbnail(&file.bytes, THUMBNAIL_SIDE).ok())
             .flatten();
-        Ok(PreparedMedia { file, thumbnail })
+        Ok(PreparedMedia {
+            file,
+            thumbnail,
+            preview: None,
+        })
     }
 
     /// Queues a prepared picture or video as a story.
@@ -622,7 +626,9 @@ impl SyncEngine {
         prepared: PreparedMedia,
     ) -> Result<ClientMessageId, StoryPostError> {
         let inner = &self.inner;
-        let PreparedMedia { file, thumbnail } = prepared;
+        let PreparedMedia {
+            file, thumbnail, ..
+        } = prepared;
         let client_id = new_client_id();
         let local = crate::outbox::local_media_ref(&client_id);
         if let Some(small) = thumbnail {

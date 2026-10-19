@@ -627,6 +627,23 @@ pub struct ReplyRef {
     pub mentions: Vec<crate::Mention>,
 }
 
+/// A small picture of a file being sent, shown before the file is
+/// downloaded: the top of a PDF's first page.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FilePreview {
+    /// The picture, as a JPEG.
+    pub jpeg: Vec<u8>,
+    /// Its width in pixels, when known.
+    #[serde(default)]
+    pub width: Option<u32>,
+    /// Its height in pixels, when known.
+    #[serde(default)]
+    pub height: Option<u32>,
+    /// How many pages the file has, when it has pages.
+    #[serde(default)]
+    pub pages: Option<u32>,
+}
+
 /// One message in a chat.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Message {
@@ -703,6 +720,11 @@ pub enum OutgoingContent {
         /// video as it is.
         #[serde(default)]
         gif: bool,
+        /// What the other side shows before they download it: the top
+        /// of a PDF's first page. A provider that cannot carry it leaves
+        /// it out.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        preview: Option<FilePreview>,
     },
     /// A reaction. Only offered when
     /// [`Capabilities::reactions`](crate::Capabilities) is set.

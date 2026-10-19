@@ -597,7 +597,12 @@ impl Shell {
                 let name = file.file_name.clone().unwrap_or_default();
                 let preparing = engine.clone();
                 let prepared = blocking
-                    .spawn_blocking(move || preparing.prepare_media(file))
+                    .spawn_blocking(move || {
+                        let preview = super::media::sent_preview(&file);
+                        preparing
+                            .prepare_media(file)
+                            .map(|prepared| prepared.with_preview(preview))
+                    })
                     .await;
                 let queued = match prepared {
                     Ok(Ok(prepared)) => engine.send_prepared(&account, &chat, prepared).err(),

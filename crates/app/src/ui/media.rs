@@ -152,6 +152,9 @@ type ChatKey = (AccountId, ChatId);
 /// How wide the first page of a PDF is drawn for its bubble, in pixels:
 /// sharp at twice the bubble's width.
 const COVER_WIDTH: u32 = 640;
+/// How wide it is drawn for the other side, which the message carries: a
+/// small picture, as WhatsApp sends one.
+const SENT_COVER_WIDTH: u32 = 480;
 /// The part of the first page its bubble shows: from the top, this tall
 /// for its width.
 pub const COVER_RATIO: f32 = 0.52;
@@ -175,6 +178,24 @@ enum Covering {
     Here(Option<Cover>),
 }
 
+/// What a file being sent shows on the other side before it is
+/// downloaded: for a PDF, the top of its first page and how many pages it
+/// has. Blocking, and slow: called off the interface's thread.
+pub fn sent_preview(file: &client_core::NewMedia) -> Option<client_provider::FilePreview> {
+    if file.kind != MediaKind::Document
+        || !crate::pdf::is_pdf(Some(&file.mime_type), file.file_name.as_deref())
+    {
+        return None;
+    }
+    let (jpeg, (width, height), pages) = draw_cover(file.bytes.clone(), SENT_COVER_WIDTH)?;
+    Some(client_provider::FilePreview {
+        jpeg,
+        width: Some(width),
+        height: Some(height),
+        pages: Some(pages),
+    })
+}
+
 /// Where the drawn first page of the PDF at `url` is kept.
 fn cover_key(url: &str) -> String {
     format!("pdfcover:{url}")
@@ -182,9 +203,9 @@ fn cover_key(url: &str) -> String {
 
 /// The top of the first page of a PDF, `COVER_WIDTH` wide, as a JPEG, and
 /// how many pages it has. `None`: not a PDF that can be read here.
-fn draw_cover(bytes: Vec<u8>) -> Option<(Vec<u8>, (u32, u32), u32)> {
+fn draw_cover(bytes: Vec<u8>, width: u32) -> Option<(Vec<u8>, (u32, u32), u32)> {
     let document = crate::pdf::open(bytes).ok()?;
-    let drawn = document.draw(0, COVER_WIDTH)?;
+    let drawn = document.draw(0, width)?;
     let pixels = image::RgbaImage::from_raw(drawn.width, drawn.height, drawn.bgra)?;
     let tall = ((drawn.width as f32 * COVER_RATIO).round() as u32).clamp(1, drawn.height);
     // BGRA, drawn on white: only the order of the colours changes.
@@ -957,7 +978,7 @@ impl MediaShelf {
             .borrow_mut()
             .insert(url.to_owned(), Covering::Drawing);
         let (store, runtime) = (self.store.clone(), self.engine.runtime().clone());
-        let work = runtime.spawn_blocking(move || draw_cover(bytes));
+        let work = runtime.spawn_blocking(move || draw_cover(bytes, COVER_WIDTH));
         // Kept and announced from the runtime: the store's change is what
         // brings it to the views (`forget_media`).
         runtime.spawn(async move {

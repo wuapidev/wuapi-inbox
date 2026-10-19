@@ -1189,3 +1189,37 @@ fn a_picture_is_turned_drawn_on_and_put_back_before_it_goes(cx: &mut TestAppCont
     assert_eq!(edits, 0);
     assert!(Arc::ptr_eq(&now, &came) || *now == *came);
 }
+
+#[gpui_kit::test]
+fn a_pdf_goes_with_the_top_of_its_first_page_for_the_other_side(cx: &mut TestAppContext) {
+    let dir = tempfile::tempdir().unwrap();
+    let mut files = pictures(dir.path(), 1);
+    let pdf = dir.path().join("menu.pdf");
+    std::fs::write(&pdf, crate::pdf::tests::sample(3, (300, 400))).unwrap();
+    files.push(pdf);
+    let harness = group_for_attaching(cx, files);
+    open_sheet(&harness, cx, 2);
+    click(harness.window, "attach-send", cx);
+    until(&harness, cx, |shell| own_media(shell) == 2);
+    let previews: Vec<_> = harness
+        .engine
+        .store()
+        .outbox_pending()
+        .unwrap()
+        .into_iter()
+        .map(|entry| {
+            let OutgoingContent::Media { preview, .. } = entry.message.content else {
+                panic!("a file");
+            };
+            preview
+        })
+        .collect();
+    assert_eq!(previews[0], None, "a picture is its own preview");
+    let preview = previews[1].as_ref().expect("the PDF's first page");
+    assert!(preview.jpeg.starts_with(&[0xff, 0xd8]), "a JPEG");
+    assert_eq!(preview.pages, Some(3));
+    assert!(
+        preview.width.unwrap() > preview.height.unwrap(),
+        "the top of the page"
+    );
+}
