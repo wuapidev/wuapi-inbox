@@ -278,3 +278,69 @@ fn far_up_a_conversation_a_button_goes_back_to_the_newest_message(cx: &mut TestA
     assert_eq!(away(cx), 0.);
     assert!(!shows(harness.window, "jump-to-newest", cx));
 }
+
+#[gpui_kit::test]
+fn a_pdf_shows_its_first_page_in_the_chat_and_opens_from_it(cx: &mut TestAppContext) {
+    let (harness, _outside) = open_with_outside(cx);
+    // Before the file is here: the small picture the message carries.
+    let small = "https://media.example/report-thumb.png";
+    harness.mock.set_media(small, png(64, 32), "image/png");
+    let url = "https://media.example/report";
+    harness.mock.set_media(
+        url,
+        crate::pdf::tests::sample(12, (300, 400)),
+        "application/pdf",
+    );
+    push_described_media(&harness, cx, "report", MediaKind::Document, url, |media| {
+        media.file_name = Some("Report 2026.pdf".into());
+        media.mime_type = Some("application/pdf".into());
+        media.thumbnail = Some(client_provider::MediaRef::new(small));
+        media.pages = Some(12);
+    });
+    until(&harness, cx, "the small picture is shown", |cx| {
+        shows(harness.window, "pdf-cover", cx)
+    });
+    let cover = bounds(harness.window, "pdf-cover", cx);
+    let tile = bounds(harness.window, "tile-row", cx);
+    assert!(
+        cover.bottom() <= tile.top(),
+        "over the name: {cover:?} {tile:?}"
+    );
+
+    // A click reads it; once the file is here, its own first page is
+    // drawn for the bubble, and says how many pages there are.
+    click(harness.window, "pdf-cover", cx);
+    assert_eq!(overlay(&harness, cx), Overlay::Reader);
+    press(harness.window, "escape", cx);
+    let drawn = |cx: &mut TestAppContext| {
+        cx.update(|cx| {
+            harness
+                .shell
+                .read(cx)
+                .media
+                .pdf_cover(url)
+                .map(|cover| cover.pages)
+        })
+    };
+    until(&harness, cx, "the first page is drawn", |cx| {
+        drawn(cx) == Some(12)
+    });
+    assert!(shows(harness.window, "pdf-cover", cx));
+}
+
+#[gpui_kit::test]
+fn a_document_that_is_not_a_pdf_keeps_its_tile(cx: &mut TestAppContext) {
+    let (harness, _outside) = open_with_outside(cx);
+    let small = "https://media.example/sheet-thumb.png";
+    harness.mock.set_media(small, png(64, 32), "image/png");
+    let url = "https://media.example/sheet";
+    harness.mock.set_media(url, b"a,b".to_vec(), "text/csv");
+    push_described_media(&harness, cx, "sheet", MediaKind::Document, url, |media| {
+        media.file_name = Some("sheet.csv".into());
+        media.mime_type = Some("text/csv".into());
+        media.thumbnail = Some(client_provider::MediaRef::new(small));
+    });
+    harness.settle(cx);
+    assert!(shows(harness.window, "tile-row", cx));
+    assert!(!shows(harness.window, "pdf-cover", cx));
+}

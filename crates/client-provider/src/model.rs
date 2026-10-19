@@ -529,9 +529,13 @@ pub struct Media {
     #[serde(default)]
     pub gif: bool,
     /// A small picture of it, as the message carries it: a video's first
-    /// frame, drawn before its file is here.
+    /// frame, or the top of a document's first page, drawn before its
+    /// file is here.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub thumbnail: Option<MediaRef>,
+    /// How many pages a document has, when the message says.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pages: Option<u32>,
 }
 
 impl Media {
@@ -549,6 +553,7 @@ impl Media {
             duration_secs: None,
             gif: false,
             thumbnail: None,
+            pages: None,
         }
     }
 }

@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+* A PDF in a chat shows the top of its first page over its name, and how many pages it has. Before its file is here it is the small picture the message brings; once it is here (with the numbers of this computer it downloads by itself), its own first page is drawn sharp and kept. A click on it reads it in the window.
+* `Media` has `pages`: how many pages a document has, when the message says.
+
 ## [0.5.2]
 
 * A picture, a video or a document whose caption was edited keeps its file. The edit carries the new caption and not the file again, and it replaced the whole message, so the picture showed as "Not available · From before this number was linked". Ones edited before this version stay so.
