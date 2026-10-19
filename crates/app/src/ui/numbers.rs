@@ -2478,8 +2478,6 @@ fn home_card(
     palette: &Palette,
 ) -> Stateful<Div> {
     let (hover, ring) = (palette.hover, palette.text);
-    // The preferred one stands out before it is chosen.
-    let featured = tag.is_some();
     div()
         .id(id)
         .debug_selector(move || id.into())
@@ -2487,7 +2485,9 @@ fn home_card(
         .p_3()
         .rounded(metrics::RADIUS())
         .border_1()
-        .border_color(if chosen || featured {
+        // Only the chosen one is outlined: the tag says which is preferred,
+        // and a second outline read as both being chosen.
+        .border_color(if chosen {
             palette.accent
         } else {
             palette.border
