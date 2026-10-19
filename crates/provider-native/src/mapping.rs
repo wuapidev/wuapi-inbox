@@ -173,6 +173,74 @@ pub fn unwrap(message: &wa::Message) -> &wa::Message {
     current
 }
 
+/// [`unwrap`], to change the message inside in place.
+fn unwrap_mut(message: &mut wa::Message, depth: u8) -> &mut wa::Message {
+    if depth == 8 {
+        return message;
+    }
+    if message
+        .device_sent_message
+        .as_option()
+        .is_some_and(|sent| sent.message.is_set())
+    {
+        let sent = message.device_sent_message.as_option_mut().unwrap();
+        return unwrap_mut(sent.message.as_option_mut().unwrap(), depth + 1);
+    }
+    macro_rules! into {
+        ($($field:ident),+ $(,)?) => {$(
+            if future_proof(&message.$field).is_some() {
+                let wrapper = message.$field.as_option_mut().unwrap();
+                return unwrap_mut(wrapper.message.as_option_mut().unwrap(), depth + 1);
+            }
+        )+};
+    }
+    into!(
+        ephemeral_message,
+        view_once_message,
+        view_once_message_v2,
+        view_once_message_v2_extension,
+        document_with_caption_message,
+        edited_message,
+        group_mentioned_message,
+        lottie_sticker_message,
+    );
+    message
+}
+
+/// What an edit leaves of `original`. The edit of a picture's, a video's
+/// or a document's caption carries the new caption and not the file
+/// again, so the file is the original's; anything else is the edit.
+pub fn edited(original: &wa::Message, replacement: &wa::Message) -> wa::Message {
+    let new = unwrap(replacement);
+    let carries_file = media_of(new).is_some_and(|media| media.source.is_some());
+    if carries_file || media_of(unwrap(original)).is_none() {
+        return replacement.clone();
+    }
+    let caption = media_of(new)
+        .and_then(|media| media.caption)
+        .or_else(|| new.conversation.clone())
+        .or_else(|| {
+            new.extended_text_message
+                .as_option()
+                .and_then(|text| text.text.clone())
+        });
+    let mentions = context_of(new).map(|context| context.mentioned_jid.clone());
+    let mut merged = original.clone();
+    let base = unwrap_mut(&mut merged, 0);
+    macro_rules! recaption {
+        ($($field:ident),+ $(,)?) => {$(
+            if let Some(part) = base.$field.as_option_mut() {
+                part.caption = caption.clone();
+                if let Some(mentions) = &mentions {
+                    part.context_info.get_or_insert_default().mentioned_jid = mentions.clone();
+                }
+            }
+        )+};
+    }
+    recaption!(image_message, video_message, ptv_message, document_message);
+    merged
+}
+
 fn future_proof(
     field: &whatsapp_rust::buffa::MessageField<wa::message::FutureProofMessage>,
 ) -> Option<&wa::Message> {
@@ -1181,6 +1249,35 @@ mod tests {
         };
         assert_eq!(target, "3EB0CCCC");
         assert_eq!(replacement.conversation.as_deref(), Some("fixed"));
+    }
+
+    #[test]
+    fn an_edited_caption_keeps_its_picture() {
+        let original = wa::Message {
+            image_message: MessageField::some(image()),
+            ..Default::default()
+        };
+        // What the phone sends: the new caption, and no file.
+        let replacement = wa::Message {
+            image_message: MessageField::some(wa::message::ImageMessage {
+                caption: Some("cheese or avocado".into()),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        let merged = content_of(&edited(&original, &replacement));
+        let MessageContent::Media(media) = merged.content else {
+            panic!("still a picture");
+        };
+        assert!(media.source.is_some(), "the file is the original's");
+        assert_eq!(media.caption.as_deref(), Some("cheese or avocado"));
+
+        // A text is the edit, whole.
+        let text = wa::Message {
+            conversation: Some("fixed".into()),
+            ..Default::default()
+        };
+        assert_eq!(edited(&text, &text), text);
     }
 
     #[test]

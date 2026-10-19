@@ -2,6 +2,7 @@
 
 ## [Unreleased]
 
+* A picture, a video or a document whose caption was edited keeps its file. The edit carries the new caption and not the file again, and it replaced the whole message, so the picture showed as "Not available · From before this number was linked". Ones edited before this version stay so.
 * Media downloads by itself as it comes into view, videos, audio and documents included, with the numbers of this computer: "Automatic", the new default of Settings > Download media automatically, is everything for them and images, stickers and GIFs through Wuapi Cloud. Images, Never and Everything are still there; a choice of Never or Everything made before this version is kept.
 * Link a number outlines only the place chosen: Wuapi Cloud, the recommended one, was outlined too and read as chosen beside This computer.
 * A quote names who the quoted message mentions ("@Ana"), as the message itself does, instead of the digits of their id. The text that comes with an answer is the one typed on the phone; the quote takes the local copy of the message, or names the people it lists when there is none.
