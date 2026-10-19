@@ -671,7 +671,7 @@ fn forwardable(stored: &StoredMessage) -> Result<wa::Message, &'static str> {
                 .as_ref()
                 .and_then(MediaPointer::parse)
                 .ok_or(refusal::FORWARD_NO_FILE)?;
-            Ok(convert::media_message(
+            let built = convert::media_message(
                 &pointer,
                 media.kind,
                 media.mime_type.as_deref(),
@@ -679,7 +679,19 @@ fn forwardable(stored: &StoredMessage) -> Result<wa::Message, &'static str> {
                 media.file_name.as_deref(),
                 media.gif,
                 Some(context),
-            ))
+            );
+            // A document passed on keeps the picture it came with.
+            let preview = client_provider::FilePreview {
+                jpeg: media
+                    .thumbnail
+                    .as_ref()
+                    .and_then(mapping::inline_bytes)
+                    .unwrap_or_default(),
+                width: None,
+                height: None,
+                pages: media.pages,
+            };
+            Ok(convert::with_preview(built, Some(&preview)))
         }
         Content::Location(_) | Content::Contacts { .. } => {
             let mut passed = mapping::unwrap(&message).clone();
@@ -980,11 +992,12 @@ impl Provider for NativeProvider {
                 caption,
                 file_name,
                 gif,
+                preview,
             } => {
                 let pointer = MediaPointer::parse(media).ok_or_else(|| {
                     rejected("not_uploaded", "The file was not uploaded to WhatsApp.")
                 })?;
-                convert::media_message(
+                let built = convert::media_message(
                     &pointer,
                     *kind,
                     mime_type.as_deref(),
@@ -992,7 +1005,8 @@ impl Provider for NativeProvider {
                     file_name.as_deref(),
                     *gif,
                     context,
-                )
+                );
+                convert::with_preview(built, preview.as_ref())
             }
             OutgoingContent::Reaction { target, emoji } => {
                 let (_, target) = inner.target(account, Some(&message.chat_id), target)?;

@@ -744,6 +744,12 @@ pub fn media_of(base: &wa::Message) -> Option<Media> {
                 .filter(|text| !text.is_empty()),
             caption: document.caption.clone().filter(|text| !text.is_empty()),
             size_bytes: document.file_length,
+            thumbnail: document
+                .jpeg_thumbnail
+                .as_deref()
+                .filter(|bytes| !bytes.is_empty())
+                .map(inline_ref),
+            pages: document.page_count.filter(|pages| *pages > 0),
             ..Media::new(MediaKind::Document)
         });
     }
@@ -1057,6 +1063,27 @@ mod tests {
         let reply = content_of(&answer).reply_to.expect("it quotes");
         assert_eq!(reply.mentions.len(), 1);
         assert_eq!(reply.mentions[0].handle, "200055501000001");
+    }
+
+    #[test]
+    fn a_document_carries_its_first_page_and_how_many_pages() {
+        let message = wa::Message {
+            document_message: MessageField::some(wa::message::DocumentMessage {
+                mimetype: Some("application/pdf".into()),
+                file_name: Some("menu.pdf".into()),
+                direct_path: Some("/v/t62/doc".into()),
+                media_key: Some(vec![7; 32]),
+                jpeg_thumbnail: Some(vec![4, 2]),
+                page_count: Some(3),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        let MessageContent::Media(media) = content_of(&message).content else {
+            panic!("a document");
+        };
+        assert_eq!(inline_bytes(&media.thumbnail.unwrap()).unwrap(), vec![4, 2]);
+        assert_eq!(media.pages, Some(3));
     }
 
     #[test]

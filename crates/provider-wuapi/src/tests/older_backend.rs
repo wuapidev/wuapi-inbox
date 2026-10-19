@@ -356,6 +356,7 @@ async fn everything_that_worked_before_still_works_against_an_older_backend() {
             caption: None,
             file_name: None,
             gif: false,
+            preview: None,
         },
         ..text
     };

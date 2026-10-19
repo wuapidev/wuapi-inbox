@@ -973,6 +973,7 @@ async fn a_file_is_uploaded_once_and_sent_by_its_pointer() {
         caption: Some("look".into()),
         file_name: None,
         gif: false,
+        preview: None,
     };
     world.provider.send(message).await.unwrap();
     let sent = world.sent();

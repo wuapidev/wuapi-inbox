@@ -509,6 +509,8 @@ impl Provider for WuapiProvider {
                 caption,
                 file_name,
                 gif,
+                // The API takes no picture for a file.
+                preview: _,
             } => {
                 let upload_id = media
                     .as_str()

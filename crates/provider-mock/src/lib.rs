@@ -1418,6 +1418,7 @@ impl Provider for MockProvider {
                     caption,
                     file_name,
                     gif,
+                    ..
                 } => {
                     if let Some(at) = state
                         .expired_uploads

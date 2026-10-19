@@ -529,9 +529,13 @@ pub struct Media {
     #[serde(default)]
     pub gif: bool,
     /// A small picture of it, as the message carries it: a video's first
-    /// frame, drawn before its file is here.
+    /// frame, or the top of a document's first page, drawn before its
+    /// file is here.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub thumbnail: Option<MediaRef>,
+    /// How many pages a document has, when the message says.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pages: Option<u32>,
 }
 
 impl Media {
@@ -549,6 +553,7 @@ impl Media {
             duration_secs: None,
             gif: false,
             thumbnail: None,
+            pages: None,
         }
     }
 }
@@ -620,6 +625,23 @@ pub struct ReplyRef {
     /// the digits of their ids.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub mentions: Vec<crate::Mention>,
+}
+
+/// A small picture of a file being sent, shown before the file is
+/// downloaded: the top of a PDF's first page.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FilePreview {
+    /// The picture, as a JPEG.
+    pub jpeg: Vec<u8>,
+    /// Its width in pixels, when known.
+    #[serde(default)]
+    pub width: Option<u32>,
+    /// Its height in pixels, when known.
+    #[serde(default)]
+    pub height: Option<u32>,
+    /// How many pages the file has, when it has pages.
+    #[serde(default)]
+    pub pages: Option<u32>,
 }
 
 /// One message in a chat.
@@ -698,6 +720,11 @@ pub enum OutgoingContent {
         /// video as it is.
         #[serde(default)]
         gif: bool,
+        /// What the other side shows before they download it: the top
+        /// of a PDF's first page. A provider that cannot carry it leaves
+        /// it out.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        preview: Option<FilePreview>,
     },
     /// A reaction. Only offered when
     /// [`Capabilities::reactions`](crate::Capabilities) is set.

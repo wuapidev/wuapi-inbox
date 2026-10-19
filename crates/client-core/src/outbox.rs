@@ -358,6 +358,7 @@ impl Store {
                     caption,
                     file_name,
                     gif,
+                    preview,
                 } => {
                     // The bubble shows the copy kept here, at once.
                     let mut media = client_provider::Media::new(*kind);
@@ -366,6 +367,7 @@ impl Store {
                     media.caption = caption.clone();
                     media.file_name = file_name.clone();
                     media.gif = *gif;
+                    media.pages = preview.as_ref().and_then(|preview| preview.pages);
                     media.size_bytes = file.map(|file| file.bytes.len() as u64);
                     (media.width, media.height) = match pixels {
                         Some((width, height)) => (Some(width), Some(height)),

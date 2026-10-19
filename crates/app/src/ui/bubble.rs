@@ -1981,48 +1981,104 @@ fn media_block(media: &Media, message: &Message, side: &Side, context: &RowConte
                 .and_then(|name| name.rsplit_once('.'))
                 .map(|(_, extension)| extension.to_uppercase())
                 .unwrap_or_else(|| "FILE".to_owned());
-            let detail: SharedString = match media.size_bytes {
-                Some(bytes) => format!("{kind} · {}", file_size(bytes)).into(),
-                None => kind.into(),
-            };
-            div()
+            let cover = pdf_cover(media, message, context);
+            let pages = cover.as_ref().and_then(|(_, pages)| *pages).or(media.pages);
+            let mut detail = kind;
+            if let Some(pages) = pages {
+                let noun = if pages == 1 { "page" } else { "pages" };
+                detail = format!("{detail} · {pages} {noun}");
+            }
+            if let Some(bytes) = media.size_bytes {
+                detail = format!("{detail} · {}", file_size(bytes));
+            }
+            let detail = SharedString::from(detail);
+            let tile = div()
                 .w(px(300.))
-                .p(px(10.))
                 .rounded(px(4.))
+                .overflow_hidden()
                 .bg(side.quote)
                 .flex()
                 .flex_col()
-                .child(
-                    div()
-                        .debug_selector(|| "tile-row".into())
-                        .flex()
-                        .items_center()
-                        .gap_3()
-                        .child(
-                            div()
-                                .debug_selector(|| "tile-icon".into())
-                                .flex_none()
-                                .child(tile_glyph(
-                                    IconName::FileText,
-                                    media,
-                                    message,
-                                    side,
-                                    context,
-                                )),
-                        )
-                        .child(
-                            div()
-                                .debug_selector(|| "tile-label".into())
-                                .min_w_0()
-                                .flex()
-                                .flex_col()
-                                .child(div().truncate().child(name))
-                                .child(mono(detail).line_height(px(16.)).text_color(side.meta)),
-                        ),
-                )
-                .child(file_action(media, message, side, context))
+                .when_some(cover, |this, (preview, _)| this.child(preview));
+            tile.child(
+                div()
+                    .p(px(10.))
+                    .flex()
+                    .flex_col()
+                    .child(
+                        div()
+                            .debug_selector(|| "tile-row".into())
+                            .flex()
+                            .items_center()
+                            .gap_3()
+                            .child(
+                                div()
+                                    .debug_selector(|| "tile-icon".into())
+                                    .flex_none()
+                                    .child(tile_glyph(
+                                        IconName::FileText,
+                                        media,
+                                        message,
+                                        side,
+                                        context,
+                                    )),
+                            )
+                            .child(
+                                div()
+                                    .debug_selector(|| "tile-label".into())
+                                    .min_w_0()
+                                    .flex()
+                                    .flex_col()
+                                    .child(div().truncate().child(name))
+                                    .child(mono(detail).line_height(px(16.)).text_color(side.meta)),
+                            ),
+                    )
+                    .child(file_action(media, message, side, context)),
+            )
         }
     }
+}
+
+/// The top of a PDF's first page, over its tile: drawn here once the file
+/// is here, else the small one the message carries. A click reads it.
+/// With how many pages it has, when the drawing says.
+fn pdf_cover(
+    media: &Media,
+    message: &Message,
+    context: &RowContext,
+) -> Option<(gpui_kit::Stateful<Div>, Option<u32>)> {
+    if !crate::pdf::is_pdf(media.mime_type.as_deref(), media.file_name.as_deref()) {
+        return None;
+    }
+    let url = media.source.as_ref()?.as_str();
+    let (image, pages) = match context.shelf.pdf_cover(url) {
+        Some(cover) => (cover.image, Some(cover.pages)),
+        None => {
+            let mut small = Media::new(MediaKind::Image);
+            small.source = Some(media.thumbnail.clone()?);
+            match context.shelf.visual(&message.account_id, &small) {
+                MediaVisual::Image(image) => (image, None),
+                _ => return None,
+            }
+        }
+    };
+    let (view, opened) = (context.view.clone(), media.clone());
+    let preview = div()
+        .id(SharedString::from(format!("pdf-{}", message.id)))
+        .debug_selector(|| "pdf-cover".into())
+        .w_full()
+        .h(px(300. * super::media::COVER_RATIO))
+        .overflow_hidden()
+        .bg(gpui_kit::white())
+        .cursor_pointer()
+        .on_click(move |_, window, cx| {
+            view.update(cx, |shell, cx| {
+                shell.open_document(opened.clone(), window, cx)
+            })
+            .ok();
+        })
+        .child(img(image).size_full().object_fit(ObjectFit::Cover));
+    Some((preview, pages))
 }
 
 /// The reactions under a bubble. The account's own stands out. The

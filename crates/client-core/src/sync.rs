@@ -1831,7 +1831,11 @@ impl SyncEngine {
         let thumbnail = matches!(file.kind, MediaKind::Image | MediaKind::Sticker)
             .then(|| crate::thumbnail(&file.bytes, THUMBNAIL_SIDE).ok())
             .flatten();
-        Ok(PreparedMedia { file, thumbnail })
+        Ok(PreparedMedia {
+            file,
+            thumbnail,
+            preview: None,
+        })
     }
 
     /// Queues a prepared file: its copy, its thumbnail and its pending
@@ -1855,7 +1859,11 @@ impl SyncEngine {
         gif: bool,
     ) -> Result<ClientMessageId, SendMediaError> {
         let inner = &self.inner;
-        let PreparedMedia { file, thumbnail } = prepared;
+        let PreparedMedia {
+            file,
+            thumbnail,
+            preview,
+        } = prepared;
         let client_id = new_client_id();
         let local = crate::outbox::local_media_ref(&client_id);
         // An image shows from the copy in hand: the bubble never waits
@@ -1886,6 +1894,7 @@ impl SyncEngine {
                 caption: file.caption.filter(|caption| !caption.trim().is_empty()),
                 file_name: file.file_name.clone(),
                 gif: gif && file.kind == MediaKind::Video,
+                preview,
             },
             reply_to: file.reply_to,
             mentions: self.mentions_of(file.mentions),
@@ -2457,6 +2466,16 @@ pub struct NewMedia {
 pub struct PreparedMedia {
     file: NewMedia,
     thumbnail: Option<crate::imaging::Thumbnail>,
+    preview: Option<client_provider::FilePreview>,
+}
+
+impl PreparedMedia {
+    /// What the other side shows of it before they download it, made by
+    /// whoever can draw that kind of file (the top of a PDF's first page).
+    pub fn with_preview(mut self, preview: Option<client_provider::FilePreview>) -> Self {
+        self.preview = preview;
+        self
+    }
 }
 
 /// Why a file was not queued.

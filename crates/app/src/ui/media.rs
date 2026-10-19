@@ -149,6 +149,79 @@ pub enum MediaVisual {
 /// An account and one of its chats.
 type ChatKey = (AccountId, ChatId);
 
+/// How wide the first page of a PDF is drawn for its bubble, in pixels:
+/// sharp at twice the bubble's width.
+const COVER_WIDTH: u32 = 640;
+/// How wide it is drawn for the other side, which the message carries: a
+/// small picture, as WhatsApp sends one.
+const SENT_COVER_WIDTH: u32 = 480;
+/// The part of the first page its bubble shows: from the top, this tall
+/// for its width.
+pub const COVER_RATIO: f32 = 0.52;
+
+/// The first page of a PDF, as its bubble shows it.
+#[derive(Clone)]
+pub struct Cover {
+    /// The top of the page.
+    pub image: Arc<Image>,
+    /// How many pages the file has.
+    pub pages: u32,
+}
+
+/// Where the first page of a PDF stands.
+#[derive(Clone)]
+enum Covering {
+    /// Being drawn off the interface's thread.
+    Drawing,
+    /// Drawn, or not drawable (`None`: a file that is not a PDF that can
+    /// be read here).
+    Here(Option<Cover>),
+}
+
+/// What a file being sent shows on the other side before it is
+/// downloaded: for a PDF, the top of its first page and how many pages it
+/// has. Blocking, and slow: called off the interface's thread.
+pub fn sent_preview(file: &client_core::NewMedia) -> Option<client_provider::FilePreview> {
+    if file.kind != MediaKind::Document
+        || !crate::pdf::is_pdf(Some(&file.mime_type), file.file_name.as_deref())
+    {
+        return None;
+    }
+    let (jpeg, (width, height), pages) = draw_cover(file.bytes.clone(), SENT_COVER_WIDTH)?;
+    Some(client_provider::FilePreview {
+        jpeg,
+        width: Some(width),
+        height: Some(height),
+        pages: Some(pages),
+    })
+}
+
+/// Where the drawn first page of the PDF at `url` is kept.
+fn cover_key(url: &str) -> String {
+    format!("pdfcover:{url}")
+}
+
+/// The top of the first page of a PDF, `COVER_WIDTH` wide, as a JPEG, and
+/// how many pages it has. `None`: not a PDF that can be read here.
+fn draw_cover(bytes: Vec<u8>, width: u32) -> Option<(Vec<u8>, (u32, u32), u32)> {
+    let document = crate::pdf::open(bytes).ok()?;
+    let drawn = document.draw(0, width)?;
+    let pixels = image::RgbaImage::from_raw(drawn.width, drawn.height, drawn.bgra)?;
+    let tall = ((drawn.width as f32 * COVER_RATIO).round() as u32).clamp(1, drawn.height);
+    // BGRA, drawn on white: only the order of the colours changes.
+    let top = image::RgbImage::from_fn(drawn.width, tall, |x, y| {
+        let [b, g, r, _] = pixels.get_pixel(x, y).0;
+        image::Rgb([r, g, b])
+    });
+    let mut jpeg = Vec::new();
+    top.write_to(
+        &mut std::io::Cursor::new(&mut jpeg),
+        image::ImageFormat::Jpeg,
+    )
+    .ok()?;
+    Some((jpeg, (drawn.width, tall), document.pages.len() as u32))
+}
+
 /// The images the views show, and the engine that fetches them.
 pub struct MediaShelf {
     engine: SyncEngine,
@@ -164,6 +237,8 @@ pub struct MediaShelf {
     declined: RefCell<HashSet<String>>,
     /// The length and waveform of audio that has been decoded once.
     shapes: RefCell<HashMap<String, Option<Shape>>>,
+    /// The first pages of the PDFs drawn, by url.
+    covers: RefCell<HashMap<String, Covering>>,
     policy: Cell<MediaChoice>,
     /// The stickers and GIFs of the open chat that move, by url.
     moving: RefCell<HashMap<String, Moving>>,
@@ -223,6 +298,7 @@ impl MediaShelf {
             asked: RefCell::default(),
             declined: RefCell::default(),
             shapes: RefCell::default(),
+            covers: RefCell::default(),
             policy: Cell::new(MediaChoice::default()),
             moving: RefCell::default(),
             decoded: Arc::default(),
@@ -288,6 +364,9 @@ impl MediaShelf {
         if let Some(url) = key.strip_prefix("thumb:") {
             self.thumbnails.borrow_mut().remove(url);
         }
+        if let Some(url) = key.strip_prefix("pdfcover:") {
+            self.covers.borrow_mut().remove(url);
+        }
         if let Some(url) = key.strip_prefix("anim:") {
             // The engine answered whether it moves: look again.
             let mut moving = self.moving.borrow_mut();
@@ -302,6 +381,7 @@ impl MediaShelf {
     /// The chat on screen changed: its images' boxes and thumbnails are
     /// let go, and downloads that have not started are dropped.
     pub fn leave_chat(&self) {
+        self.covers.borrow_mut().clear();
         self.thumbnails.borrow_mut().clear();
         self.boxes.borrow_mut().clear();
         self.asked.borrow_mut().clear();
@@ -860,6 +940,68 @@ impl MediaShelf {
             tracing::warn!(%error, "could not keep an audio's waveform");
         }
         self.shapes.borrow_mut().insert(url.to_owned(), Some(shape));
+    }
+
+    /// The first page of the PDF at `url`, once its file is here: drawn
+    /// the first time it is asked for, off the interface's thread, and
+    /// kept with the media. Until then, and for a file that cannot be
+    /// read, `None`.
+    pub fn pdf_cover(&self, url: &str) -> Option<Cover> {
+        match self.covers.borrow().get(url) {
+            Some(Covering::Here(cover)) => return cover.clone(),
+            Some(Covering::Drawing) => return None,
+            None => {}
+        }
+        let key = cover_key(url);
+        if let Ok(Some(kept)) = self.store.media(&key, Timestamp::now()) {
+            let pages = kept
+                .mime
+                .as_deref()
+                .and_then(|mime| mime.split_once("pages="))
+                .and_then(|(_, pages)| pages.trim().parse().ok());
+            let cover = (!kept.bytes.is_empty()).then(|| Cover {
+                image: Arc::new(Image::from_bytes(ImageFormat::Jpeg, kept.bytes)),
+                pages: pages.unwrap_or(1),
+            });
+            self.covers
+                .borrow_mut()
+                .insert(url.to_owned(), Covering::Here(cover.clone()));
+            return cover;
+        }
+        if self.file_state(url) != FileState::Ready {
+            return None;
+        }
+        let Some((bytes, _)) = self.file(url) else {
+            return None;
+        };
+        self.covers
+            .borrow_mut()
+            .insert(url.to_owned(), Covering::Drawing);
+        let (store, runtime) = (self.store.clone(), self.engine.runtime().clone());
+        let work = runtime.spawn_blocking(move || draw_cover(bytes, COVER_WIDTH));
+        // Kept and announced from the runtime: the store's change is what
+        // brings it to the views (`forget_media`).
+        runtime.spawn(async move {
+            let drawn = work.await.ok().flatten();
+            let kept = match drawn {
+                Some((jpeg, size, pages)) => client_core::CachedMedia {
+                    bytes: jpeg,
+                    mime: Some(format!("image/jpeg; pages={pages}")),
+                    size: Some(size),
+                },
+                // Not readable here: said once, not tried again.
+                None => client_core::CachedMedia {
+                    bytes: Vec::new(),
+                    mime: None,
+                    size: None,
+                },
+            };
+            if let Err(error) = store.put_media(&key, &kept, Timestamp::now(), u64::MAX) {
+                tracing::warn!(%error, "could not keep the first page of a PDF");
+            }
+            store.notify(StoreChange::Media { key });
+        });
+        None
     }
 
     /// The bytes of a downloaded file, to decode.
