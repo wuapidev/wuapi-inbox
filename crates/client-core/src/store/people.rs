@@ -289,13 +289,29 @@ impl<'c> People<'c> {
 
     /// Ties the mentions of a message to its text and names them.
     pub(crate) fn name_mentions(&mut self, message: &mut Message) -> StoreResult<()> {
-        if message.extras.mentions.is_empty() {
+        let (account, chat) = (message.account_id.to_string(), message.chat_id.to_string());
+        let text = match &message.content {
+            MessageContent::Text { body } => body.as_str(),
+            MessageContent::Media(media) => media.caption.as_deref().unwrap_or(""),
+            _ => "",
+        };
+        self.name_mentions_in(&account, &chat, text, &mut message.extras.mentions)
+    }
+
+    /// Ties `mentions` to `text`, said in `chat`, and names them.
+    pub(crate) fn name_mentions_in(
+        &mut self,
+        account: &str,
+        chat: &str,
+        text: &str,
+        mentions: &mut [client_provider::Mention],
+    ) -> StoreResult<()> {
+        if mentions.is_empty() {
             return Ok(());
         }
-        let (account, chat) = (message.account_id.to_string(), message.chat_id.to_string());
-        let mut candidates = Vec::with_capacity(message.extras.mentions.len());
-        for mention in &mut message.extras.mentions {
-            let person = self.person(&account, &chat, mention.id.as_str())?;
+        let mut candidates = Vec::with_capacity(mentions.len());
+        for mention in mentions.iter_mut() {
+            let person = self.person(account, chat, mention.id.as_str())?;
             candidates.push(
                 person
                     .ids
@@ -314,12 +330,7 @@ impl<'c> People<'c> {
                 None => came_with,
             };
         }
-        let text = match &message.content {
-            MessageContent::Text { body } => body.as_str(),
-            MessageContent::Media(media) => media.caption.as_deref().unwrap_or(""),
-            _ => "",
-        };
-        crate::mentions::bind(text, &mut message.extras.mentions, &candidates);
+        crate::mentions::bind(text, mentions, &candidates);
         Ok(())
     }
 

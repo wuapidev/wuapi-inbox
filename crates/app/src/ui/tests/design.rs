@@ -341,6 +341,7 @@ fn a_quote_is_in_the_colour_of_whoever_wrote_it(cx: &mut TestAppContext) {
             message_id: MessageId::new(quoted),
             sender_name: name.map(str::to_owned),
             preview: Some("…".into()),
+            mentions: Vec::new(),
         });
         message
     };

@@ -169,6 +169,7 @@ fn every_kind_of_message_survives_the_store_and_reads_in_one_line() {
             message_id: message.id.clone(),
             sender_name: None,
             preview: None,
+            mentions: Vec::new(),
         });
         store.upsert_messages(&[message, reply]).unwrap();
     }

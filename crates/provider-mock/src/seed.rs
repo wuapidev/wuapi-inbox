@@ -544,6 +544,7 @@ fn build_thread(
                         Direction::Incoming => quoted.sender_name.clone(),
                     },
                     preview: Some(preview_of(&quoted.content)),
+                    mentions: Vec::new(),
                 })
         } else {
             None

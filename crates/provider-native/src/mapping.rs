@@ -737,6 +737,12 @@ fn reply_of(context: Option<&wa::ContextInfo>) -> Option<ReplyRef> {
         message_id: MessageId::new(id),
         sender_name: None,
         preview: context.quoted_message.as_option().and_then(preview_of),
+        mentions: context
+            .quoted_message
+            .as_option()
+            .and_then(|quoted| context_of(unwrap(quoted)))
+            .map(mentions_of)
+            .unwrap_or_default(),
     })
 }
 
@@ -765,6 +771,23 @@ fn story_kind(message: &wa::Message) -> StoryReplyKind {
     }
 }
 
+/// Who a message mentions.
+fn mentions_of(context: &wa::ContextInfo) -> Vec<Mention> {
+    context
+        .mentioned_jid
+        .iter()
+        .map(|address| {
+            let id = ContactId::new(id_of_wire(address));
+            Mention {
+                handle: client_provider::mention_handle(&id),
+                id,
+                name: None,
+                me: false,
+            }
+        })
+        .collect()
+}
+
 fn extras_of(base: &wa::Message, context: Option<&wa::ContextInfo>) -> MessageExtras {
     let mut extras = MessageExtras::default();
     if let Some(context) = context {
@@ -772,19 +795,7 @@ fn extras_of(base: &wa::Message, context: Option<&wa::ContextInfo>) -> MessageEx
         // WhatsApp says "Forwarded many times" from the fifth forward on.
         extras.forwarded_many = context.forwarding_score.unwrap_or(0) >= 5;
         extras.forwarded = extras.forwarded || extras.forwarded_many;
-        extras.mentions = context
-            .mentioned_jid
-            .iter()
-            .map(|address| {
-                let id = ContactId::new(id_of_wire(address));
-                Mention {
-                    handle: client_provider::mention_handle(&id),
-                    id,
-                    name: None,
-                    me: false,
-                }
-            })
-            .collect();
+        extras.mentions = mentions_of(context);
         if context.remote_jid.as_deref() == Some(STATUS_CHAT) {
             if let Some(story) = context.stanza_id.clone().filter(|id| !id.is_empty()) {
                 let quoted = context.quoted_message.as_option();
@@ -948,6 +959,36 @@ mod tests {
             inline_bytes(&link.thumbnail.unwrap()).unwrap(),
             vec![9, 9, 9]
         );
+    }
+
+    #[test]
+    fn a_quote_carries_who_the_quoted_text_mentions() {
+        let quoted = wa::Message {
+            extended_text_message: MessageField::some(wa::message::ExtendedTextMessage {
+                text: Some("@200055501000001 the version for the event".into()),
+                context_info: MessageField::some(wa::ContextInfo {
+                    mentioned_jid: vec!["200055501000001@lid".into()],
+                    ..Default::default()
+                }),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        let answer = wa::Message {
+            extended_text_message: MessageField::some(wa::message::ExtendedTextMessage {
+                text: Some("easier".into()),
+                context_info: MessageField::some(wa::ContextInfo {
+                    stanza_id: Some("3EB0BBBB".into()),
+                    quoted_message: MessageField::some(quoted),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        let reply = content_of(&answer).reply_to.expect("it quotes");
+        assert_eq!(reply.mentions.len(), 1);
+        assert_eq!(reply.mentions[0].handle, "200055501000001");
     }
 
     #[test]

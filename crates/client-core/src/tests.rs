@@ -414,6 +414,7 @@ fn replies_are_resolved_from_the_local_copy() {
         message_id: MessageId::new("m1"),
         sender_name: None,
         preview: None,
+        mentions: Vec::new(),
     });
     store.upsert_messages(&[quoted, reply]).unwrap();
 

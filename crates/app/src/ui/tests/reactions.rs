@@ -104,6 +104,7 @@ fn the_arrow_of_a_message_is_over_its_quote(cx: &mut TestAppContext) {
         message_id: MessageId::new("q1"),
         sender_name: None,
         preview: Some("shall we meet at noon?".into()),
+        mentions: Vec::new(),
     });
     harness
         .engine
@@ -408,6 +409,7 @@ fn a_sticker_that_answers_a_message_shows_what_it_answers(cx: &mut TestAppContex
         message_id: MessageId::new("q1"),
         sender_name: Some("Stibenson".into()),
         preview: Some("who is the handsome one?".into()),
+        mentions: Vec::new(),
     });
     harness
         .engine
