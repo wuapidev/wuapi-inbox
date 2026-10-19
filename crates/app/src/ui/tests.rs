@@ -4986,6 +4986,7 @@ mod forward;
 mod gallery;
 mod keyboard;
 mod link_dialog;
+mod links;
 mod media_out;
 mod message_types;
 mod onboarding;
@@ -5885,6 +5886,31 @@ fn what_loads_by_itself_shows_a_ring_and_a_file_tile_shows_the_button(cx: &mut T
     }
     assert!(cx.opened_url().is_none(), "nothing was opened");
     assert!(shows(harness.window, "media-open", cx));
+}
+
+#[gpui_kit::test]
+fn media_downloads_by_itself_with_the_numbers_of_this_computer(cx: &mut TestAppContext) {
+    let everything = |session: SessionKind, cx: &mut TestAppContext| {
+        cx.update(|cx| prepare(cx, None));
+        let harness = open_prepared(
+            cx,
+            ShellOptions {
+                open_chat: Some(1),
+                session,
+                ..Default::default()
+            },
+        );
+        harness.settle(cx);
+        cx.update(|cx| harness.shell.read(cx).media.fetches_everything())
+    };
+    assert!(
+        everything(SessionKind::Local, cx),
+        "straight from WhatsApp: videos, audio and documents too"
+    );
+    assert!(
+        !everything(SessionKind::Keychain, cx),
+        "through the cloud: pictures only"
+    );
 }
 
 #[gpui_kit::test]

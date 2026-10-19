@@ -507,6 +507,13 @@ impl Inner {
                 target,
                 replacement,
             } => {
+                // A caption's edit does not carry the file again.
+                let replacement = match self.archive.message(me, &chat, &target) {
+                    Ok(Some(stored)) => convert::decode(&stored.proto)
+                        .map(|original| mapping::edited(&original, &replacement))
+                        .unwrap_or(*replacement),
+                    _ => *replacement,
+                };
                 let replaced =
                     self.archive
                         .replace(me, &chat, &target, &convert::encode(&replacement));

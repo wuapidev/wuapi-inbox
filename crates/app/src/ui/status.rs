@@ -402,7 +402,9 @@ impl Shell {
         if !self.status_active() {
             return;
         }
-        self.media.set_policy(crate::settings::get(cx).media);
+        let chosen = crate::settings::get(cx).media;
+        self.media
+            .set_policy(chosen.resolved(self.session.is_direct()));
         for author in self.status.feed.recent.iter().take(PREFETCH_AUTHORS) {
             let Some(item) = author.stories.iter().find(|item| !item.viewed) else {
                 continue;

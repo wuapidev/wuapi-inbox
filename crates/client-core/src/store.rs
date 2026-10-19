@@ -2248,12 +2248,18 @@ fn resolve_quote(people: &mut People<'_>, message: &mut Message) -> StoreResult<
         )
         .optional()?;
     let Some(mut quoted) = quoted.transpose()? else {
+        // Only the snapshot is known: its mentions are named all the same.
+        let (account, chat) = (message.account_id.to_string(), message.chat_id.to_string());
+        if let Some(preview) = reply.preview.as_mut() {
+            people.name_mentions_in(&account, &chat, preview, &mut reply.mentions)?;
+            *preview = crate::mentions::with_mention_names(preview, &reply.mentions);
+        }
         return Ok(());
     };
     people.name_message(&mut quoted)?;
-    if reply.preview.is_none() {
-        reply.preview = Some(message_preview(&quoted));
-    }
+    // The local copy says it with names, where the snapshot has the digits
+    // of whoever it mentions.
+    reply.preview = Some(message_preview(&quoted));
     if quoted.direction == Direction::Incoming {
         // The quoted person by the name they go by now, not the one the
         // provider's snapshot had.

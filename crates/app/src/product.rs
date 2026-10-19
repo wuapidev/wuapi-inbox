@@ -134,7 +134,8 @@ mod tests {
         let entry = include_str!("../assets/linux/dev.wuapi.inbox.desktop");
         for line in [
             format!("Name={PRODUCT_NAME}"),
-            format!("Exec={SLUG}"),
+            format!("Exec={SLUG} %u"),
+            "MimeType=x-scheme-handler/whatsapp;".to_owned(),
             format!("Icon={APP_ID}"),
             format!("StartupWMClass={APP_ID}"),
         ] {

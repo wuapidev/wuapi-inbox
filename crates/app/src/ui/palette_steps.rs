@@ -198,6 +198,7 @@ fn wallpaper_name(wallpaper: WallpaperChoice) -> &'static str {
 
 fn media_name(media: MediaChoice) -> &'static str {
     match media {
+        MediaChoice::Automatic => "Automatic",
         MediaChoice::Images => "Images, stickers and GIFs",
         MediaChoice::Never => "Nothing",
         MediaChoice::Everything => "Everything",
@@ -556,6 +557,7 @@ impl Shell {
             C::SetMediaDownload => choices(
                 "Download automatically",
                 [
+                    MediaChoice::Automatic,
                     MediaChoice::Images,
                     MediaChoice::Never,
                     MediaChoice::Everything,
@@ -988,6 +990,13 @@ impl Shell {
                 } else {
                     SettingsSection::Account
                 };
+                true
+            }
+            C::OpenLinksHere => {
+                // Where what happened is said.
+                self.open_overlay(Overlay::Settings, window, cx);
+                self.settings_section = SettingsSection::About;
+                self.make_link_default(cx);
                 true
             }
             C::CheckForUpdates => {

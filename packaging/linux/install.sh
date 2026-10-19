@@ -202,8 +202,9 @@ cp "$source_bin" "$binary"
 chmod 755 "$binary"
 cp "$source_icon" "$icon_file"
 cp "$source_license" "$license_file"
-# The menu's PATH does not always have ~/.local/bin: point the entry at the file.
-sed "s|^Exec=.*|Exec=\"$binary\"|" "$source_desktop" >"$desktop_file"
+# The menu's PATH does not always have ~/.local/bin: point the entry at the
+# file. `%u` is the WhatsApp link the entry is opened with, if any.
+sed "s|^Exec=.*|Exec=\"$binary\" %u|" "$source_desktop" >"$desktop_file"
 
 if command -v update-desktop-database >/dev/null 2>&1; then
   update-desktop-database "$(dirname "$desktop_file")" >/dev/null 2>&1 || true

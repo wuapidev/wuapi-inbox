@@ -173,6 +173,74 @@ pub fn unwrap(message: &wa::Message) -> &wa::Message {
     current
 }
 
+/// [`unwrap`], to change the message inside in place.
+fn unwrap_mut(message: &mut wa::Message, depth: u8) -> &mut wa::Message {
+    if depth == 8 {
+        return message;
+    }
+    if message
+        .device_sent_message
+        .as_option()
+        .is_some_and(|sent| sent.message.is_set())
+    {
+        let sent = message.device_sent_message.as_option_mut().unwrap();
+        return unwrap_mut(sent.message.as_option_mut().unwrap(), depth + 1);
+    }
+    macro_rules! into {
+        ($($field:ident),+ $(,)?) => {$(
+            if future_proof(&message.$field).is_some() {
+                let wrapper = message.$field.as_option_mut().unwrap();
+                return unwrap_mut(wrapper.message.as_option_mut().unwrap(), depth + 1);
+            }
+        )+};
+    }
+    into!(
+        ephemeral_message,
+        view_once_message,
+        view_once_message_v2,
+        view_once_message_v2_extension,
+        document_with_caption_message,
+        edited_message,
+        group_mentioned_message,
+        lottie_sticker_message,
+    );
+    message
+}
+
+/// What an edit leaves of `original`. The edit of a picture's, a video's
+/// or a document's caption carries the new caption and not the file
+/// again, so the file is the original's; anything else is the edit.
+pub fn edited(original: &wa::Message, replacement: &wa::Message) -> wa::Message {
+    let new = unwrap(replacement);
+    let carries_file = media_of(new).is_some_and(|media| media.source.is_some());
+    if carries_file || media_of(unwrap(original)).is_none() {
+        return replacement.clone();
+    }
+    let caption = media_of(new)
+        .and_then(|media| media.caption)
+        .or_else(|| new.conversation.clone())
+        .or_else(|| {
+            new.extended_text_message
+                .as_option()
+                .and_then(|text| text.text.clone())
+        });
+    let mentions = context_of(new).map(|context| context.mentioned_jid.clone());
+    let mut merged = original.clone();
+    let base = unwrap_mut(&mut merged, 0);
+    macro_rules! recaption {
+        ($($field:ident),+ $(,)?) => {$(
+            if let Some(part) = base.$field.as_option_mut() {
+                part.caption = caption.clone();
+                if let Some(mentions) = &mentions {
+                    part.context_info.get_or_insert_default().mentioned_jid = mentions.clone();
+                }
+            }
+        )+};
+    }
+    recaption!(image_message, video_message, ptv_message, document_message);
+    merged
+}
+
 fn future_proof(
     field: &whatsapp_rust::buffa::MessageField<wa::message::FutureProofMessage>,
 ) -> Option<&wa::Message> {
@@ -737,6 +805,12 @@ fn reply_of(context: Option<&wa::ContextInfo>) -> Option<ReplyRef> {
         message_id: MessageId::new(id),
         sender_name: None,
         preview: context.quoted_message.as_option().and_then(preview_of),
+        mentions: context
+            .quoted_message
+            .as_option()
+            .and_then(|quoted| context_of(unwrap(quoted)))
+            .map(mentions_of)
+            .unwrap_or_default(),
     })
 }
 
@@ -765,6 +839,23 @@ fn story_kind(message: &wa::Message) -> StoryReplyKind {
     }
 }
 
+/// Who a message mentions.
+fn mentions_of(context: &wa::ContextInfo) -> Vec<Mention> {
+    context
+        .mentioned_jid
+        .iter()
+        .map(|address| {
+            let id = ContactId::new(id_of_wire(address));
+            Mention {
+                handle: client_provider::mention_handle(&id),
+                id,
+                name: None,
+                me: false,
+            }
+        })
+        .collect()
+}
+
 fn extras_of(base: &wa::Message, context: Option<&wa::ContextInfo>) -> MessageExtras {
     let mut extras = MessageExtras::default();
     if let Some(context) = context {
@@ -772,19 +863,7 @@ fn extras_of(base: &wa::Message, context: Option<&wa::ContextInfo>) -> MessageEx
         // WhatsApp says "Forwarded many times" from the fifth forward on.
         extras.forwarded_many = context.forwarding_score.unwrap_or(0) >= 5;
         extras.forwarded = extras.forwarded || extras.forwarded_many;
-        extras.mentions = context
-            .mentioned_jid
-            .iter()
-            .map(|address| {
-                let id = ContactId::new(id_of_wire(address));
-                Mention {
-                    handle: client_provider::mention_handle(&id),
-                    id,
-                    name: None,
-                    me: false,
-                }
-            })
-            .collect();
+        extras.mentions = mentions_of(context);
         if context.remote_jid.as_deref() == Some(STATUS_CHAT) {
             if let Some(story) = context.stanza_id.clone().filter(|id| !id.is_empty()) {
                 let quoted = context.quoted_message.as_option();
@@ -948,6 +1027,36 @@ mod tests {
             inline_bytes(&link.thumbnail.unwrap()).unwrap(),
             vec![9, 9, 9]
         );
+    }
+
+    #[test]
+    fn a_quote_carries_who_the_quoted_text_mentions() {
+        let quoted = wa::Message {
+            extended_text_message: MessageField::some(wa::message::ExtendedTextMessage {
+                text: Some("@200055501000001 the version for the event".into()),
+                context_info: MessageField::some(wa::ContextInfo {
+                    mentioned_jid: vec!["200055501000001@lid".into()],
+                    ..Default::default()
+                }),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        let answer = wa::Message {
+            extended_text_message: MessageField::some(wa::message::ExtendedTextMessage {
+                text: Some("easier".into()),
+                context_info: MessageField::some(wa::ContextInfo {
+                    stanza_id: Some("3EB0BBBB".into()),
+                    quoted_message: MessageField::some(quoted),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        let reply = content_of(&answer).reply_to.expect("it quotes");
+        assert_eq!(reply.mentions.len(), 1);
+        assert_eq!(reply.mentions[0].handle, "200055501000001");
     }
 
     #[test]
@@ -1140,6 +1249,35 @@ mod tests {
         };
         assert_eq!(target, "3EB0CCCC");
         assert_eq!(replacement.conversation.as_deref(), Some("fixed"));
+    }
+
+    #[test]
+    fn an_edited_caption_keeps_its_picture() {
+        let original = wa::Message {
+            image_message: MessageField::some(image()),
+            ..Default::default()
+        };
+        // What the phone sends: the new caption, and no file.
+        let replacement = wa::Message {
+            image_message: MessageField::some(wa::message::ImageMessage {
+                caption: Some("cheese or avocado".into()),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        let merged = content_of(&edited(&original, &replacement));
+        let MessageContent::Media(media) = merged.content else {
+            panic!("still a picture");
+        };
+        assert!(media.source.is_some(), "the file is the original's");
+        assert_eq!(media.caption.as_deref(), Some("cheese or avocado"));
+
+        // A text is the edit, whole.
+        let text = wa::Message {
+            conversation: Some("fixed".into()),
+            ..Default::default()
+        };
+        assert_eq!(edited(&text, &text), text);
     }
 
     #[test]

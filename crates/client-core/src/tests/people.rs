@@ -92,6 +92,43 @@ fn a_mention_by_hidden_number_id_shows_the_saved_name() {
 }
 
 #[test]
+fn a_quote_names_who_the_quoted_message_mentions() {
+    let store = store();
+    store.upsert_contact(&ana()).unwrap();
+    let said = "@200055501000001 the version for the event";
+    let quoted = group_text("q1", 1, "+5842", said, &[ANA_LID]);
+    let answer = |id: &str, quotes: &str, ts: i64| {
+        let mut answer = group_text(id, ts, "+5843", "easier", &[]);
+        answer.reply_to = Some(ReplyRef {
+            message_id: MessageId::new(quotes),
+            sender_name: None,
+            // What the phone sends: the quoted text as typed.
+            preview: Some(said.into()),
+            mentions: vec![mention(ANA_LID)],
+        });
+        answer
+    };
+    store
+        .upsert_messages(&[quoted, answer("a1", "q1", 2), answer("a2", "gone", 3)])
+        .unwrap();
+    let quote = |id: &str| read_listed(&store, id).reply_to.unwrap().preview.unwrap();
+    assert_eq!(quote("a1"), "@Ana Rojas the version for the event");
+    // Only the snapshot is known: named all the same.
+    assert_eq!(quote("a2"), "@Ana Rojas the version for the event");
+}
+
+/// A message as the conversation lists it, with its quote filled in.
+fn read_listed(store: &Store, id: &str) -> Message {
+    store
+        .messages(&account(), &ChatId::new(GROUP), 50)
+        .unwrap()
+        .into_iter()
+        .map(|stored| stored.message)
+        .find(|message| message.id.as_str() == id)
+        .unwrap()
+}
+
+#[test]
 fn a_name_is_taken_in_one_order_everywhere() {
     let store = store();
     let who = |store: &Store| {
@@ -289,6 +326,7 @@ fn the_chat_list_and_a_quote_name_people_the_same_way() {
         message_id: MessageId::new("m1"),
         sender_name: None,
         preview: None,
+        mentions: Vec::new(),
     });
     store.upsert_message(&reply).unwrap();
     let stored = store.messages(&account(), &ChatId::new(GROUP), 10).unwrap();

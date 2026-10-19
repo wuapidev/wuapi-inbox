@@ -191,6 +191,18 @@ pub enum SessionKind {
     Local,
 }
 
+impl SessionKind {
+    /// The numbers are linked to this computer, which fetches their
+    /// media straight from WhatsApp.
+    pub fn is_direct(self) -> bool {
+        #[cfg(feature = "provider-native")]
+        if self == Self::Local {
+            return true;
+        }
+        false
+    }
+}
+
 /// Where a number is connected from, when the cloud runs beside the
 /// numbers of this computer.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -634,6 +646,9 @@ pub struct Shell {
     /// Where the message menu opens: at the pointer, or (`None`) beside
     /// the message in focus.
     pub(super) message_menu_at: Option<gpui_kit::Point<gpui_kit::Pixels>>,
+    /// Where the reaction sheet opens: at the button beside a bubble, or
+    /// (`None`) over the message in focus.
+    pub(super) react_at: Option<gpui_kit::Point<gpui_kit::Pixels>>,
     /// The window's size as of the last frame, for what must stay inside.
     pub(super) viewport: gpui_kit::Size<gpui_kit::Pixels>,
 
@@ -683,6 +698,8 @@ pub struct Shell {
     /// A typed number is being checked.
     pub(super) new_chat_checking: bool,
     _starting_chat: Option<Task<()>>,
+    /// WhatsApp links being followed, and who opens them (`links.rs`).
+    pub(super) links: super::links::Links,
     pub(super) thread_search: Option<ThreadSearch>,
     /// The width the user dragged the chat list to, in design pixels;
     /// `None` while it follows the window.
@@ -987,6 +1004,7 @@ impl Shell {
             rail_handles: Default::default(),
             return_focus: None,
             message_menu_at: None,
+            react_at: None,
             viewport: window.viewport_size(),
             tiles: Default::default(),
             poll_form: None,
@@ -1031,6 +1049,7 @@ impl Shell {
             new_chat_cursor: 0,
             new_chat_checking: false,
             _starting_chat: None,
+            links: Default::default(),
             thread_search: None,
             attach: None,
             attach_strip: gpui_kit::ScrollHandle::new(),
@@ -3057,6 +3076,7 @@ impl Shell {
         };
         // A chat is wanted: Status gives the panes back.
         self.status_yields_to_chat(cx);
+        self.links.chats_opened += 1;
         if self
             .open
             .as_ref()
@@ -3190,7 +3210,9 @@ impl Render for Shell {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let palette = palette(cx);
         let chosen = settings::get(cx);
-        self.media.set_policy(chosen.media);
+        self.tend_links(window, cx);
+        self.media
+            .set_policy(chosen.media.resolved(self.session.is_direct()));
         // Frames of animations that were let go leave the window too.
         self.media.release(window);
         self.media.tend_loops(cx.weak_entity(), cx);

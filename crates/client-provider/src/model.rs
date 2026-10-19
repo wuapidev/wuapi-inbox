@@ -616,6 +616,10 @@ pub struct ReplyRef {
     pub sender_name: Option<String>,
     /// A short excerpt of the quoted message, if known.
     pub preview: Option<String>,
+    /// Who the excerpt mentions, so it can name them instead of showing
+    /// the digits of their ids.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub mentions: Vec<crate::Mention>,
 }
 
 /// One message in a chat.

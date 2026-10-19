@@ -81,9 +81,12 @@ impl Shell {
         });
     }
 
-    /// Hands a link to the system's browser. Only http(s) ever is.
+    /// Hands a link to the system's browser. Only http(s) ever is, and
+    /// not WhatsApp's: those are followed here.
     pub(super) fn open_link(&mut self, address: &str, cx: &mut Context<Self>) {
-        if markup::opens_in_browser(address) {
+        if crate::wa_link::parse(address).is_some() {
+            super::links::receive_link(Some(address.to_owned()), cx);
+        } else if markup::opens_in_browser(address) {
             cx.open_url(address);
         }
     }

@@ -1493,6 +1493,7 @@ impl Provider for MockProvider {
                         MessageContent::Text { body } => Some(body.chars().take(80).collect()),
                         _ => None,
                     }),
+                    mentions: Vec::new(),
                 }
             });
             let n = state.world.next_message;

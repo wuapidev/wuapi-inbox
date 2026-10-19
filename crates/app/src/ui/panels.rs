@@ -36,7 +36,11 @@ impl Shell {
             SettingsSection::Stickers => self.render_stickers_settings(palette, cx),
             SettingsSection::Keyboard => render_keyboard(palette, cx),
             SettingsSection::Status => self.render_status_settings(palette, cx),
-            SettingsSection::About => self.render_about(palette, cx),
+            SettingsSection::About => div()
+                .flex()
+                .flex_col()
+                .child(self.render_about(palette, cx))
+                .child(self.render_link_setting(palette, cx)),
         };
         let mut nav = div()
             .flex_none()
@@ -194,11 +198,12 @@ impl Shell {
             )
             .child(choice_row(
                 "Download media automatically",
-                "Images, stickers and GIFs load as they come into view (up to 25 MB each). \
-                 Videos, audio and documents wait for a click unless you choose Everything.",
+                "Automatic: everything for numbers on this computer, images through \
+                 Wuapi Cloud. Up to 25 MB each.",
                 segmented(
                     "media",
                     &[
+                        (MediaChoice::Automatic, "Automatic"),
                         (MediaChoice::Images, "Images"),
                         (MediaChoice::Never, "Never"),
                         (MediaChoice::Everything, "Everything"),

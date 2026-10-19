@@ -413,6 +413,7 @@ impl Store {
                         message_id: id,
                         sender_name: None,
                         preview: None,
+                        mentions: Vec::new(),
                     }),
                 status: DeliveryStatus::Pending,
                 edited: false,

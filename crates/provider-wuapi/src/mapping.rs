@@ -573,6 +573,7 @@ pub(crate) fn message(wire: &api::Message) -> Option<Message> {
             // its own copy of the message.
             sender_name: None,
             preview: None,
+            mentions: Vec::new(),
         }),
     };
     let sent_at = wire.sent_at.as_deref().and_then(timestamp);

@@ -761,11 +761,29 @@ impl Shell {
         };
         self.acting.subjects = vec![message];
         self.acting.reaction_cursor = 0;
+        self.react_at = None;
         self.open_overlay(Overlay::React, window, cx);
         // The sheet's search field takes the keyboard: typing looks
         // through every emoji.
         self.emoji_begin_reaction(window, cx);
         true
+    }
+
+    /// Opens the reaction sheet on the message of row `key`, where its
+    /// button beside the bubble is: `at`.
+    pub(super) fn react_from_button(
+        &mut self,
+        key: String,
+        at: gpui_kit::Point<gpui_kit::Pixels>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.focus_message(key, window, cx);
+        if self.keys.focused.is_none() || !self.begin_react(window, cx) {
+            return;
+        }
+        self.react_at = Some(at);
+        cx.notify();
     }
 
     /// Reacts to the sheet's message with `emoji`; the reaction the

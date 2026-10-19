@@ -2,6 +2,20 @@
 
 ## [Unreleased]
 
+## [0.5.2]
+
+* A picture, a video or a document whose caption was edited keeps its file. The edit carries the new caption and not the file again, and it replaced the whole message, so the picture showed as "Not available · From before this number was linked". Ones edited before this version stay so.
+* Media downloads by itself as it comes into view, videos, audio and documents included, with the numbers of this computer: "Automatic", the new default of Settings > Download media automatically, is everything for them and images, stickers and GIFs through Wuapi Cloud. Images, Never and Everything are still there; a choice of Never or Everything made before this version is kept.
+* Link a number outlines only the place chosen: Wuapi Cloud, the recommended one, was outlined too and read as chosen beside This computer.
+* A quote names who the quoted message mentions ("@Ana"), as the message itself does, instead of the digits of their id. The text that comes with an answer is the one typed on the phone; the quote takes the local copy of the message, or names the people it lists when there is none.
+* `ReplyRef` has `mentions`: who the quoted text mentions.
+* A message is reacted to from beside its bubble: a face shows next to it while the pointer is on the row (on the right of what others write, on the left of one's own), and a click opens the six reactions and the rest right there, over it.
+* WhatsApp links open here: `wa.me/<number>`, `whatsapp://send`, and `api.whatsapp.com/send` and `web.whatsapp.com/send`. The chat with that number opens, with the link's text in the composer, ready to send and never sent by itself. A link with a text and no number opens New chat, and the text goes to the person chosen there. A link that comes before there is a number to write from waits until there is one. A group's invite link is said to be not followed: joining from a link cannot be done here yet.
+* Settings > About says what opens WhatsApp links on this computer, and "Open WhatsApp links with Wuapi" makes it this application; the palette has the same. On Linux the desktop entry is put right first, for an entry installed before this version. On Windows a choice made in Windows' settings is changed there, and they are opened for it. On macOS the system may ask to confirm.
+* A WhatsApp link in a message opens here instead of in the browser.
+* One window at a time: a second start, by hand or from a link, brings the window already open to the front and hands it its link, instead of opening a second copy over the same data.
+* `wuapi-inbox <link>` opens a WhatsApp link, and the desktop entry and the macOS bundle declare the `whatsapp:` scheme.
+
 ## [0.5.1]
 
 * A video plays with its sound. The player asked for a sound output that does not exist and fell back to none, so every video (a chat's and a story's) played silent.

@@ -109,7 +109,9 @@ pub fn download_page() -> String {
 /// ones this instance got, less those that ask for something once
 /// (`--login` would sign the user out again at every restart).
 fn carried_over(args: impl Iterator<Item = OsString>) -> Vec<OsString> {
+    // A link was opened already: the new version does not open it again.
     args.filter(|arg| !matches!(arg.to_str(), Some("--login" | "--welcome")))
+        .filter(|arg| !arg.to_str().is_some_and(crate::cli::is_link))
         .collect()
 }
 

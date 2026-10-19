@@ -160,6 +160,8 @@ pub struct RowContext {
     pub audio: AudioView,
     /// What the tiles of places, cards, polls and events are drawn with.
     pub tiles: TileContext,
+    /// Messages here can be reacted to.
+    pub can_react: bool,
 }
 
 /// Renders a row.
@@ -413,8 +415,32 @@ fn message_row(row: &MessageRow, palette: &Palette, in_group: bool, context: &Ro
             )
         });
 
+    // Beside the bubble, on the side away from the edge, while the
+    // pointer is on the row: the way to react, which opens right there.
+    let hover = SharedString::from(format!("row-hover-{}", row.key));
+    // Out of the bubble's layout, so that it takes none of its width: in
+    // the gutter beside it, the height of what the column holds.
+    let react = (context.can_react && !message.deleted && !failed).then(|| {
+        div()
+            .absolute()
+            .top_0()
+            .bottom_0()
+            .map(|this| {
+                if outgoing {
+                    this.left(px(-32.))
+                } else {
+                    this.right(px(-32.))
+                }
+            })
+            .flex()
+            .items_center()
+            .child(react_button(row, hover.clone(), context))
+    });
+    let beside = column.relative().children(react);
+
     row_marks(row, context)
         .debug_selector(|| format!("row-{}", message.id))
+        .group(hover)
         .w_full()
         .flex()
         .pl(leading_gutter(in_group))
@@ -438,7 +464,46 @@ fn message_row(row: &MessageRow, palette: &Palette, in_group: bool, context: &Ro
                 ))
             },
         )
-        .child(column)
+        .child(beside)
+}
+
+/// The button beside a bubble that opens the reactions over it.
+fn react_button(
+    row: &MessageRow,
+    hover: SharedString,
+    context: &RowContext,
+) -> gpui_kit::Stateful<Div> {
+    let (view, key) = (context.view.clone(), row.key.clone());
+    let palette = &context.palette;
+    div()
+        .id(SharedString::from(format!("react-{}", row.key)))
+        .debug_selector({
+            let id = row.stored.message.id.clone();
+            move || format!("react-button-{id}")
+        })
+        .flex_none()
+        .size(px(26.))
+        .rounded_full()
+        .flex()
+        .items_center()
+        .justify_center()
+        .cursor_pointer()
+        .invisible()
+        .group_hover(hover, |style| style.visible())
+        .hover(|style| style.bg(palette.muted))
+        .tooltip(|window, cx| gpui_kit::component::tooltip::Tooltip::new("React").build(window, cx))
+        .on_mouse_down(gpui_kit::MouseButton::Left, |_, _, cx| {
+            cx.stop_propagation()
+        })
+        .on_click(move |event, window, cx| {
+            cx.stop_propagation();
+            let at = event.position();
+            view.update(cx, |shell, cx| {
+                shell.react_from_button(key.to_string(), at, window, cx)
+            })
+            .ok();
+        })
+        .child(icon(IconName::FaceSlightlySmiling, px(16.), palette.icon))
 }
 
 /// The row of a message, with what marks it as a whole: the wash of a
