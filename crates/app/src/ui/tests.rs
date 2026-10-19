@@ -2730,8 +2730,10 @@ fn with_one_voice_note(
     let mut media = Media::new(MediaKind::Voice);
     media.source = Some(MediaRef::new(source));
     harness.settle(cx);
+    // Not here yet: it plays from its button, or is only downloaded from
+    // the one beside the waveform.
     assert!(shows(harness.window, "audio-download", cx));
-    assert!(!shows(harness.window, "audio-play", cx));
+    assert!(shows(harness.window, "audio-play", cx));
     (harness, tape, media)
 }
 
@@ -2746,6 +2748,36 @@ fn play_out(
     cx.run_until_parked();
     harness.settle(cx);
     cx.update(|cx| assert_eq!(harness.shell.read(cx).audio.player.current(), None));
+}
+
+#[gpui_kit::test]
+fn downloading_a_voice_note_does_not_stop_the_one_being_heard(cx: &mut TestAppContext) {
+    let (harness, _tape, notes) = with_voice_notes(cx);
+    harness.settle(cx);
+    let first = url_of(&notes[0]);
+    harness
+        .shell
+        .update(cx, |shell, cx| shell.toggle_audio(notes[0].clone(), cx));
+    until(&harness, cx, |shell| {
+        matches!(shell.audio.player.playback(&first), Playback::Playing(_))
+    });
+
+    // The download beside another note's waveform: that file comes, and
+    // the note being heard goes on.
+    click(harness.window, "audio-download", cx);
+    until(&harness, cx, |shell| {
+        notes[1..]
+            .iter()
+            .any(|note| shell.media.file_state(&url_of(note)) == crate::ui::media::FileState::Ready)
+    });
+    cx.update(|cx| {
+        let shell = harness.shell.read(cx);
+        assert!(matches!(
+            shell.audio.player.playback(&first),
+            Playback::Playing(_)
+        ));
+        assert_eq!(shell.audio.waiting, None, "nothing else waits to be played");
+    });
 }
 
 #[gpui_kit::test]

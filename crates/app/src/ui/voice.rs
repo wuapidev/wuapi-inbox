@@ -49,9 +49,9 @@ enum Button {
     Loading(Option<f32>),
     /// Playing: a click pauses.
     Pause,
-    /// Not here yet: a click fetches it and plays.
-    Download,
-    /// Ready: a click plays.
+    /// Ready, or not here yet: a click plays it, fetching it first if
+    /// need be. Fetching without playing is the button beside the
+    /// waveform's.
     Play,
 }
 
@@ -60,7 +60,7 @@ impl Button {
         match self {
             Self::Missing => IconName::Ban,
             Self::Retry => IconName::RotateCw,
-            Self::Loading(_) | Self::Download => IconName::ArrowDownToLine,
+            Self::Loading(_) => IconName::ArrowDownToLine,
             Self::Pause => IconName::Pause,
             Self::Play => IconName::Play,
         }
@@ -73,7 +73,6 @@ impl Button {
             Self::Retry => "audio-retry",
             Self::Loading(_) => "audio-loading",
             Self::Pause => "audio-pause",
-            Self::Download => "audio-download",
             Self::Play => "audio-play",
         }
     }
@@ -133,7 +132,6 @@ pub(super) fn audio_block(
         Some(_) if failure.is_some() || no_output.is_some() => Button::Retry,
         Some(url) if waiting => Button::Loading(context.shelf.file_fraction(url, media)),
         Some(_) if matches!(playback, Playback::Playing(_)) => Button::Pause,
-        Some(_) if not_here && !active => Button::Download,
         Some(_) => Button::Play,
     };
     let (fill, ink) = match state {
@@ -272,11 +270,72 @@ pub(super) fn audio_block(
 
     // The speed: only on the clip in the player, in a slot that is always
     // there so the waveform has the same width in every bubble.
+    // Not here yet, the same slot downloads it without playing it, so
+    // the clip being heard goes on; while it comes, a ring that stops it.
+    let fetching = !waiting && file == Some(FileState::Loading);
+    let fetch = url
+        .clone()
+        .filter(|_| !active && !waiting && (not_here || fetching) && failure.is_none());
     let speed = div()
         .flex_none()
         .w(px(36.))
         .flex()
         .justify_end()
+        .when_some(fetch, |this, url| {
+            let (view, account) = (context.view.clone(), message.account_id.clone());
+            let fraction = context.shelf.file_fraction(&url, media);
+            this.child(
+                div()
+                    .id(SharedString::from(format!("fetch-{}", message.id)))
+                    .debug_selector(move || {
+                        if fetching {
+                            "audio-fetching".into()
+                        } else {
+                            "audio-download".into()
+                        }
+                    })
+                    .relative()
+                    .size(px(26.))
+                    .rounded_full()
+                    .bg(side.quote)
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .cursor_pointer()
+                    .hover(|style| style.opacity(0.8))
+                    .tooltip(move |window, cx| {
+                        let words = if fetching { "Stop" } else { "Download" };
+                        gpui_kit::component::tooltip::Tooltip::new(words).build(window, cx)
+                    })
+                    .on_click(move |_, _, cx| {
+                        view.update(cx, |shell, _| {
+                            if fetching {
+                                shell.media.cancel_file(&url);
+                            } else {
+                                shell.media.prefetch(&account, &url);
+                            }
+                        })
+                        .ok();
+                    })
+                    .child(icon(
+                        if fetching {
+                            IconName::X
+                        } else {
+                            IconName::ArrowDownToLine
+                        },
+                        px(13.),
+                        side.text,
+                    ))
+                    .when(fetching, |this| {
+                        this.child(ring(
+                            fraction,
+                            side.meta.opacity(0.25),
+                            side.signal,
+                            context.still,
+                        ))
+                    }),
+            )
+        })
         .when(active, |this| {
             let view = context.view.clone();
             this.child(
@@ -315,7 +374,7 @@ pub(super) fn audio_block(
     } else {
         // The length when it is known; never a made-up 0:00. A file that
         // is not here yet says how large it is, when the message does.
-        let size = media.size_bytes.filter(|_| state == Button::Download);
+        let size = media.size_bytes.filter(|_| not_here && !active);
         (
             match (position, total, size) {
                 (Some(at), Some(total), _) => {

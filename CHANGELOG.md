@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+* A voice note that is not here yet has two buttons: its own plays it (downloading it first), and the one beside the waveform only downloads it, with a ring that stops it while it comes. The one button did both, so downloading the next note while one was heard stopped that one and played the next.
+
 * A PDF in a chat shows the top of its first page over its name, and how many pages it has. Before its file is here it is the small picture the message brings; once it is here (with the numbers of this computer it downloads by itself), its own first page is drawn sharp and kept. A click on it reads it in the window.
 * `Media` has `pages`: how many pages a document has, when the message says.
 
