@@ -46,6 +46,13 @@ enum HookDone {
     Deleted(String),
 }
 
+/// A hook's name being changed, in a field of its own.
+struct Renaming {
+    id: String,
+    field: Entity<InputState>,
+    _subscription: Subscription,
+}
+
 /// The sheet of a chat's incoming webhooks.
 pub(in crate::ui) struct HooksSheet {
     account: AccountId,
@@ -57,6 +64,8 @@ pub(in crate::ui) struct HooksSheet {
     name: Entity<InputState>,
     /// The hook a question is open on, and the question.
     ask: Option<(String, HookAsk)>,
+    /// The hook whose name is being changed.
+    renaming: Option<Renaming>,
     busy: bool,
     error: Option<SharedString>,
     /// What was just done ("URL copied.").
@@ -94,6 +103,7 @@ impl Shell {
             hooks: None,
             name: name.clone(),
             ask: None,
+            renaming: None,
             busy: false,
             error: None,
             note: None,
@@ -134,6 +144,77 @@ impl Shell {
         cx: &mut Context<Self>,
     ) {
         self.hook_work(HookJob::Change(id, change), window, cx);
+    }
+
+    /// "Rename": the hook's name turns into a field, Enter saves it.
+    fn rename_hook(&mut self, id: String, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(sheet) = self.hooks.as_mut() else {
+            return;
+        };
+        let current = sheet
+            .hooks
+            .iter()
+            .flatten()
+            .find(|hook| hook.id == id)
+            .map(|hook| hook.name.clone())
+            .unwrap_or_default();
+        let field = cx.new(|cx| InputState::new(window, cx).placeholder("A name for the webhook"));
+        field.update(cx, |field, cx| {
+            field.set_value(current, window, cx);
+            field.focus(window, cx);
+        });
+        let subscription =
+            cx.subscribe_in(&field, window, |this, _, event: &InputEvent, window, cx| {
+                if matches!(event, InputEvent::PressEnter { .. }) {
+                    this.save_rename(window, cx);
+                }
+            });
+        sheet.ask = None;
+        sheet.error = None;
+        sheet.note = None;
+        sheet.renaming = Some(Renaming {
+            id,
+            field,
+            _subscription: subscription,
+        });
+        cx.notify();
+    }
+
+    fn save_rename(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(sheet) = self.hooks.as_mut() else {
+            return;
+        };
+        let Some(renaming) = sheet.renaming.as_ref() else {
+            return;
+        };
+        let typed = renaming.field.read(cx).value().trim().to_owned();
+        let id = renaming.id.clone();
+        if typed.is_empty() {
+            sheet.error = Some("Type a name for the webhook.".into());
+            return cx.notify();
+        }
+        if typed.chars().count() > 60 {
+            sheet.error = Some("The name can be up to 60 characters.".into());
+            return cx.notify();
+        }
+        let unchanged = sheet
+            .hooks
+            .iter()
+            .flatten()
+            .any(|hook| hook.id == id && hook.name == typed);
+        if unchanged {
+            sheet.renaming = None;
+            return cx.notify();
+        }
+        self.change_hook(id, IncomingWebhookChange::Rename(typed), window, cx);
+    }
+
+    fn cancel_rename(&mut self, cx: &mut Context<Self>) {
+        if let Some(sheet) = self.hooks.as_mut() {
+            sheet.renaming = None;
+            sheet.error = None;
+            cx.notify();
+        }
     }
 
     fn ask_hook(&mut self, id: String, ask: HookAsk, cx: &mut Context<Self>) {
@@ -229,6 +310,14 @@ impl Shell {
                                     .update(cx, |field, cx| field.set_value("", window, cx));
                             }
                             HookDone::Changed(hook) => {
+                                // A name that was saved closes its field.
+                                if sheet
+                                    .renaming
+                                    .as_ref()
+                                    .is_some_and(|renaming| renaming.id == hook.id)
+                                {
+                                    sheet.renaming = None;
+                                }
                                 if let Some(known) =
                                     hooks.iter_mut().find(|known| known.id == hook.id)
                                 {
@@ -375,6 +464,54 @@ impl Shell {
     ) -> Div {
         let (id, url, enabled) = (hook.id.clone(), hook.url.clone(), hook.enabled);
         let (pause_id, rotate_id, delete_id) = (id.clone(), id.clone(), id.clone());
+        let rename_id = id.clone();
+        let renaming = sheet.renaming.as_ref().filter(|renaming| renaming.id == id);
+        let name: Div = match renaming {
+            // The name in a field, with what saves it and what leaves it.
+            Some(renaming) => div()
+                .flex_1()
+                .min_w_0()
+                .flex()
+                .items_center()
+                .gap_2()
+                .child(div().flex_1().min_w_0().child(input_box(
+                    "hook-rename-field",
+                    &renaming.field,
+                    false,
+                    palette,
+                )))
+                .child(
+                    small_button(
+                        ("hook-rename-save", index),
+                        format!("hook-{index}-rename-save"),
+                        "Save",
+                        palette,
+                    )
+                    .on_click(cx.listener(|this, _, window, cx| {
+                        cx.stop_propagation();
+                        this.save_rename(window, cx);
+                    })),
+                )
+                .child(
+                    small_button(
+                        ("hook-rename-cancel", index),
+                        format!("hook-{index}-rename-cancel"),
+                        "Cancel",
+                        palette,
+                    )
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        cx.stop_propagation();
+                        this.cancel_rename(cx);
+                    })),
+                ),
+            None => div()
+                .debug_selector(move || format!("hook-{index}-name"))
+                .flex_1()
+                .min_w_0()
+                .font_weight(FontWeight::MEDIUM)
+                .text_size(metrics::TEXT_BODY())
+                .child(hook.name.clone()),
+        };
         let mut row = div()
             .debug_selector(move || format!("hook-{index}"))
             .px_3()
@@ -386,27 +523,15 @@ impl Shell {
                 this.border_t_1().border_color(palette.border)
             })
             .child(
-                div()
-                    .flex()
-                    .items_center()
-                    .gap_2()
-                    .child(
-                        div()
-                            .flex_1()
-                            .min_w_0()
-                            .font_weight(FontWeight::MEDIUM)
-                            .text_size(metrics::TEXT_BODY())
-                            .child(hook.name.clone()),
-                    )
-                    .child(
-                        mono(if enabled { "ACTIVE" } else { "PAUSED" })
-                            .debug_selector(move || format!("hook-{index}-state"))
-                            .text_color(if enabled {
-                                palette.text_muted
-                            } else {
-                                palette.danger
-                            }),
-                    ),
+                div().flex().items_center().gap_2().child(name).child(
+                    mono(if enabled { "ACTIVE" } else { "PAUSED" })
+                        .debug_selector(move || format!("hook-{index}-state"))
+                        .text_color(if enabled {
+                            palette.text_muted
+                        } else {
+                            palette.danger
+                        }),
+                ),
             )
             .child(
                 // The URL in a well of its own, Copy at its end.
@@ -446,6 +571,20 @@ impl Shell {
                     .flex()
                     .justify_end()
                     .gap_2()
+                    .child(
+                        small_button(
+                            ("hook-rename", index),
+                            format!("hook-{index}-rename"),
+                            "Rename",
+                            palette,
+                        )
+                        .on_click(cx.listener(
+                            move |this, _, window, cx| {
+                                cx.stop_propagation();
+                                this.rename_hook(rename_id.clone(), window, cx);
+                            },
+                        )),
+                    )
                     .child(
                         small_button(
                             ("hook-pause", index),

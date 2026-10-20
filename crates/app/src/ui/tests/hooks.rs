@@ -1,6 +1,6 @@
 //! A chat's incoming webhooks in the real window: offered in the chat's
-//! menu only where the number's provider has them, then made, copied,
-//! paused, given a new URL and deleted from their sheet.
+//! menu only where the number's provider has them, then made, renamed,
+//! copied, paused, given a new URL and deleted from their sheet.
 
 use super::*;
 use crate::ui::shell::Overlay;
@@ -44,6 +44,25 @@ fn a_chats_menu_makes_and_manages_its_incoming_webhooks(cx: &mut TestAppContext)
         shows(harness.window, "hooks-note", cx),
         "says to keep it private"
     );
+
+    // Renamed in place: the field starts with the name, Enter saves it.
+    click(harness.window, "hook-0-rename", cx);
+    assert!(shows(harness.window, "hook-rename-field", cx));
+    press(harness.window, "ctrl-a", cx);
+    type_text(harness.window, "New signups", cx);
+    press(harness.window, "enter", cx);
+    harness.settle(cx);
+    assert_eq!(harness.mock.incoming_webhooks_held()[0].name, "New signups");
+    assert!(!shows(harness.window, "hook-rename-field", cx));
+    assert!(shows(harness.window, "hook-0-name", cx));
+
+    // Cancel leaves it as it was.
+    click(harness.window, "hook-0-rename", cx);
+    type_text(harness.window, " and more", cx);
+    click(harness.window, "hook-0-rename-cancel", cx);
+    harness.settle(cx);
+    assert_eq!(harness.mock.incoming_webhooks_held()[0].name, "New signups");
+    assert!(!shows(harness.window, "hook-rename-field", cx));
 
     click(harness.window, "hook-copy", cx);
     assert_eq!(clipboard(cx), held[0].url);

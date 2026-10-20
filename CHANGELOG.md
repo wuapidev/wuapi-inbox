@@ -2,7 +2,7 @@
 
 ## [Unreleased]
 
-* Incoming webhooks, as the Wuapi dashboard makes them under Integrations: "Incoming webhooks" in a chat's menu (right click on it in the list, or the conversation's menu) opens the chat's webhooks. Each is a URL that sends a WhatsApp message to that chat when something posts JSON `{"text": "…"}` or plain text to it, with no key. The sheet makes a new one by name, copies a URL, pauses and resumes one, gives one a new URL (the old one stops working at once) and deletes one. Only for numbers of Wuapi Cloud; a number of this computer has nowhere to receive the URL. The URLs are read when the sheet opens and kept nowhere here.
+* Incoming webhooks, as the Wuapi dashboard makes them under Integrations: "Incoming webhooks" in a chat's menu (right click on it in the list, or the conversation's menu) opens the chat's webhooks. Each is a URL that sends a WhatsApp message to that chat when something posts JSON `{"text": "…"}` or plain text to it, with no key. The sheet makes a new one by name, renames one, copies a URL, pauses and resumes one, gives one a new URL (the old one stops working at once) and deletes one. Only for numbers of Wuapi Cloud; a number of this computer has nowhere to receive the URL. The URLs are read when the sheet opens and kept nowhere here.
 * `Capabilities` has `incoming_webhooks`, and `Provider` has `list_incoming_webhooks`, `create_incoming_webhook`, `update_incoming_webhook` and `delete_incoming_webhook` (`IncomingWebhook`, `IncomingWebhookChange`). They answer `Unsupported` unless a provider has them.
 * The wuapi SDK is 0.15, the first with incoming webhooks.
 
