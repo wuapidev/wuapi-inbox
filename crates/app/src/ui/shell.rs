@@ -1828,6 +1828,12 @@ impl Shell {
             // The picture's pixels are let go with the viewer.
             self.viewer.reset();
         }
+        if self.overlay == Overlay::Hooks {
+            // The URLs are credentials: let go with the sheet, however it
+            // is left.
+            self.hooks = None;
+            self._hooks_work = None;
+        }
         if self.overlay == Overlay::Reader {
             self.end_reading();
         }

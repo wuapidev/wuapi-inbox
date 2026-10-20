@@ -105,8 +105,7 @@ impl Shell {
     }
 
     pub(in crate::ui) fn close_hooks(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.hooks = None;
-        self._hooks_work = None;
+        // `close_overlay` lets the URLs go.
         self.close_overlay(window, cx);
     }
 
