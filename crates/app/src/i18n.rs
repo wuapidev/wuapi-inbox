@@ -90,7 +90,7 @@ type Catalog = HashMap<String, String>;
 /// The files a language is written in, one per area of the interface; the
 /// keys of `<area>.json` all start with `<area>.`. Areas are files so that
 /// the people translating one do not meet in the same file.
-const AREAS: [&str; 5] = ["common", "commands", "chat", "accounts", "status"];
+const AREAS: [&str; 6] = ["common", "commands", "chat", "accounts", "status", "groups"];
 
 /// The files of a language, in the order of [`AREAS`].
 macro_rules! files {
@@ -101,6 +101,7 @@ macro_rules! files {
             include_str!(concat!("../assets/locales/", $code, "/chat.json")),
             include_str!(concat!("../assets/locales/", $code, "/accounts.json")),
             include_str!(concat!("../assets/locales/", $code, "/status.json")),
+            include_str!(concat!("../assets/locales/", $code, "/groups.json")),
         ]
     };
 }
