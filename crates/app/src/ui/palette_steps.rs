@@ -72,6 +72,7 @@ pub(super) enum Value {
     Wallpaper(WallpaperChoice),
     Motion(MotionChoice),
     Language(LanguageChoice),
+    UiLanguage(crate::i18n::LanguageChoice),
     Media(MediaChoice),
     History(HistoryChoice),
     /// Seconds, or until it is unmuted.
@@ -210,6 +211,13 @@ fn history_name(history: HistoryChoice) -> &'static str {
         HistoryChoice::OnOpen => "When a chat is opened",
         HistoryChoice::Recent => "The recent chats",
         HistoryChoice::Everything => "Everything",
+    }
+}
+
+fn ui_language_name(language: crate::i18n::LanguageChoice) -> String {
+    match language {
+        crate::i18n::LanguageChoice::System => crate::i18n::t("language.system").to_owned(),
+        crate::i18n::LanguageChoice::Lang(lang) => lang.native_name().to_owned(),
     }
 }
 
@@ -438,6 +446,7 @@ impl Shell {
             C::SetBubbles => bubbles_name(chosen.bubbles).into(),
             C::SetWallpaper => wallpaper_name(chosen.wallpaper).into(),
             C::SetMotion => motion_name(chosen.motion).into(),
+            C::SetLanguage => ui_language_name(chosen.language).into(),
             C::SetEmojiLanguage => language_name(prefs::language(cx)).into(),
             C::SetMediaDownload => media_name(chosen.media).into(),
             C::SetHistory => history_name(chosen.history).into(),
@@ -547,6 +556,23 @@ impl Shell {
                             motion_name(motion),
                             chosen.motion == motion,
                             Value::Motion(motion),
+                        )
+                    })
+                    .collect(),
+            ),
+            C::SetLanguage => choices(
+                "Interface language",
+                std::iter::once(crate::i18n::LanguageChoice::System)
+                    .chain(
+                        crate::i18n::Language::ALL
+                            .into_iter()
+                            .map(crate::i18n::LanguageChoice::Lang),
+                    )
+                    .map(|language| {
+                        choice(
+                            ui_language_name(language),
+                            chosen.language == language,
+                            Value::UiLanguage(language),
                         )
                     })
                     .collect(),
@@ -774,6 +800,9 @@ impl Shell {
             Value::Motion(motion) => settings::update(cx, |settings| settings.motion = motion),
             Value::Media(media) => settings::update(cx, |settings| settings.media = media),
             Value::History(history) => settings::update(cx, |settings| settings.history = history),
+            Value::UiLanguage(language) => {
+                settings::update(cx, |settings| settings.language = language);
+            }
             Value::Language(language) => {
                 prefs::update(cx, |chosen| chosen.language = language);
                 cx.refresh_windows();

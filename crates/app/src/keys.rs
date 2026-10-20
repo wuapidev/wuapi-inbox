@@ -142,6 +142,8 @@ pub enum Command {
     SetWallpaper,
     /// Whether the interface moves.
     SetMotion,
+    /// The language of the interface.
+    SetLanguage,
     /// The language emoji are searched in.
     SetEmojiLanguage,
     /// Which media is downloaded without being asked.
@@ -2121,6 +2123,13 @@ pub const BINDINGS: &[Binding] = &[
         &[],
     ),
     bind(C::SetMotion, "Motion…", S::Settings, W::Anywhere, &[]),
+    bind(
+        C::SetLanguage,
+        "Interface language…",
+        S::Settings,
+        W::Anywhere,
+        &[],
+    ),
     bind(
         C::SetEmojiLanguage,
         "Emoji search language…",

@@ -9,6 +9,7 @@ use super::connection::connection_words;
 use super::menus::{fact, panel_header};
 use super::shell::{CloudOffer, Home, IdentityState, Overlay, SessionKind, SettingsSection, Shell};
 use super::widgets::{label, led, mono, segmented, status_colour, switch, text_button};
+use crate::i18n::{Language, LanguageChoice};
 use crate::icons::IconName;
 use crate::product::MAKER;
 use crate::settings::{
@@ -116,7 +117,7 @@ impl Shell {
             .w(px(680.))
             // Tall enough for the longest section, Appearance, without
             // scrolling.
-            .h(px(700.))
+            .h(px(780.))
             .flex()
             .flex_col()
             .child(panel_header(
@@ -765,6 +766,31 @@ fn render_appearance(palette: &Palette, cx: &mut Context<Shell>) -> Div {
                 |motion, _, cx| {
                     cx.stop_propagation();
                     settings::update(cx, |settings| settings.motion = motion);
+                },
+            ),
+            palette,
+        ))
+        .child(choice_row(
+            "Language",
+            "The language of the interface. System follows your desktop's.",
+            segmented(
+                "language",
+                &[
+                    (LanguageChoice::System, crate::i18n::t("language.system")),
+                    (
+                        LanguageChoice::Lang(Language::En),
+                        Language::En.native_name(),
+                    ),
+                    (
+                        LanguageChoice::Lang(Language::Es),
+                        Language::Es.native_name(),
+                    ),
+                ],
+                chosen.language,
+                palette,
+                |language, _, cx| {
+                    cx.stop_propagation();
+                    settings::update(cx, |settings| settings.language = language);
                 },
             ),
             palette,
