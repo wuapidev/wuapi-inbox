@@ -971,9 +971,7 @@ impl MediaShelf {
         if self.file_state(url) != FileState::Ready {
             return None;
         }
-        let Some((bytes, _)) = self.file(url) else {
-            return None;
-        };
+        let (bytes, _) = self.file(url)?;
         self.covers
             .borrow_mut()
             .insert(url.to_owned(), Covering::Drawing);

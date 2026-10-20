@@ -5921,6 +5921,8 @@ fn what_loads_by_itself_shows_a_ring_and_a_file_tile_shows_the_button(cx: &mut T
     assert!(shows(harness.window, "media-open", cx));
 }
 
+// The numbers of this computer are not in a build without them.
+#[cfg(feature = "provider-native")]
 #[gpui_kit::test]
 fn media_downloads_by_itself_with_the_numbers_of_this_computer(cx: &mut TestAppContext) {
     let everything = |session: SessionKind, cx: &mut TestAppContext| {
