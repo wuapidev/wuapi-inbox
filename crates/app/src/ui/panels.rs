@@ -776,7 +776,10 @@ fn render_appearance(palette: &Palette, cx: &mut Context<Shell>) -> Div {
             segmented(
                 "language",
                 &[
-                    (LanguageChoice::System, crate::i18n::t("language.system")),
+                    (
+                        LanguageChoice::System,
+                        crate::i18n::t("common.language.system"),
+                    ),
                     (
                         LanguageChoice::Lang(Language::En),
                         Language::En.native_name(),

@@ -216,7 +216,7 @@ fn history_name(history: HistoryChoice) -> &'static str {
 
 fn ui_language_name(language: crate::i18n::LanguageChoice) -> String {
     match language {
-        crate::i18n::LanguageChoice::System => crate::i18n::t("language.system").to_owned(),
+        crate::i18n::LanguageChoice::System => crate::i18n::t("common.language.system").to_owned(),
         crate::i18n::LanguageChoice::Lang(lang) => lang.native_name().to_owned(),
     }
 }

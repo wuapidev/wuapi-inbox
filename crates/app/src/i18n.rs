@@ -87,21 +87,50 @@ pub fn resolve(choice: LanguageChoice, system: Option<&Locale>) -> Language {
 
 type Catalog = HashMap<String, String>;
 
+/// The files a language is written in, one per area of the interface; the
+/// keys of `<area>.json` all start with `<area>.`. Areas are files so that
+/// the people translating one do not meet in the same file.
+const AREAS: [&str; 5] = ["common", "commands", "chat", "accounts", "status"];
+
+/// The files of a language, in the order of [`AREAS`].
+macro_rules! files {
+    ($code:literal) => {
+        [
+            include_str!(concat!("../assets/locales/", $code, "/common.json")),
+            include_str!(concat!("../assets/locales/", $code, "/commands.json")),
+            include_str!(concat!("../assets/locales/", $code, "/chat.json")),
+            include_str!(concat!("../assets/locales/", $code, "/accounts.json")),
+            include_str!(concat!("../assets/locales/", $code, "/status.json")),
+        ]
+    };
+}
+/// The files of a language, in the order of [`AREAS`].
+fn files_of(lang: Language) -> [&'static str; AREAS.len()] {
+    match lang {
+        Language::En => files!("en"),
+        Language::Es => files!("es"),
+    }
+}
+
 /// The catalog of a language, read the first time it is asked for.
 fn catalog(lang: Language) -> &'static Catalog {
     static EN: OnceLock<Catalog> = OnceLock::new();
     static ES: OnceLock<Catalog> = OnceLock::new();
-    let (cell, source) = match lang {
-        Language::En => (&EN, include_str!("../assets/locales/en.json")),
-        Language::Es => (&ES, include_str!("../assets/locales/es.json")),
+    let cell = match lang {
+        Language::En => &EN,
+        Language::Es => &ES,
     };
     cell.get_or_init(|| {
-        parse_catalog(source).unwrap_or_else(|error| {
-            // A catalog that does not parse is a bug the tests catch; a
-            // release shows English rather than nothing.
-            tracing::error!(%error, language = lang.code(), "a catalog is unreadable");
-            Catalog::new()
-        })
+        let mut all = Catalog::new();
+        for (area, source) in AREAS.into_iter().zip(files_of(lang)) {
+            match parse_catalog(source) {
+                Ok(texts) => all.extend(texts),
+                // A catalog that does not parse is a bug the tests catch;
+                // a release shows English rather than nothing.
+                Err(error) => tracing::error!(%error, area, language = lang.code(), "unreadable"),
+            }
+        }
+        all
     })
 }
 
@@ -254,8 +283,10 @@ mod tests {
 
     #[test]
     fn a_text_is_found_in_the_language_in_use() {
-        assert_eq!(t("language.name"), "English");
-        with_language(Language::Es, || assert_eq!(t("language.name"), "Español"));
+        assert_eq!(t("common.language.name"), "English");
+        with_language(Language::Es, || {
+            assert_eq!(t("common.language.name"), "Español")
+        });
         assert_eq!(language(), Language::En, "the language is put back");
     }
 
@@ -287,12 +318,12 @@ mod tests {
 
     #[test]
     fn a_count_picks_its_form() {
-        assert_eq!(plural("test.messages", 1, &[]), "1 message");
-        assert_eq!(plural("test.messages", 0, &[]), "0 messages");
-        assert_eq!(plural("test.messages", 5, &[]), "5 messages");
+        assert_eq!(plural("common.test.messages", 1, &[]), "1 message");
+        assert_eq!(plural("common.test.messages", 0, &[]), "0 messages");
+        assert_eq!(plural("common.test.messages", 5, &[]), "5 messages");
         with_language(Language::Es, || {
-            assert_eq!(plural("test.messages", 1, &[]), "1 mensaje");
-            assert_eq!(plural("test.messages", 2, &[]), "2 mensajes");
+            assert_eq!(plural("common.test.messages", 1, &[]), "1 mensaje");
+            assert_eq!(plural("common.test.messages", 2, &[]), "2 mensajes");
         });
     }
 
@@ -368,6 +399,18 @@ mod tests {
                 english.contains_key(&format!("{base}.other")),
                 "{base}.other"
             );
+        }
+        // A file holds the keys of its area, and only those.
+        for lang in Language::ALL {
+            for (area, source) in AREAS.into_iter().zip(files_of(lang)) {
+                for key in parse_catalog(source).unwrap().keys() {
+                    assert!(
+                        key.starts_with(&format!("{area}.")),
+                        "{}/{area}.json: {key} belongs to another area",
+                        lang.code()
+                    );
+                }
+            }
         }
         assert_eq!(Language::from_code("ES"), Some(Language::Es));
         assert_eq!(Language::ALL.map(Language::code), ["en", "es"]);
