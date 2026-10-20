@@ -6103,6 +6103,8 @@ fn media_downloads_by_itself_with_the_numbers_of_this_computer(cx: &mut TestAppC
         harness.settle(cx);
         cx.update(|cx| harness.shell.read(cx).media.fetches_everything())
     };
+    // The numbers of this computer are there only with the native provider.
+    #[cfg(feature = "provider-native")]
     assert!(
         everything(SessionKind::Local, cx),
         "straight from WhatsApp: videos, audio and documents too"
