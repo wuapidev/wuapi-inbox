@@ -511,6 +511,173 @@ fn scrolling_back_pages_in_older_history(cx: &mut TestAppContext) {
 }
 
 #[gpui_kit::test]
+fn reaching_the_top_shows_one_more_window_and_stays_where_it_was(cx: &mut TestAppContext) {
+    let harness = open(cx, ShellOptions::default());
+    let (account, long_thread) = harness.runtime.block_on(async {
+        use client_provider::Provider as _;
+        let account = harness.mock.list_accounts().await.unwrap().remove(0).id;
+        let chat = harness
+            .mock
+            .list_chats(&account, None)
+            .await
+            .unwrap()
+            .items
+            .remove(0);
+        (account, chat.id)
+    });
+    let stored = || {
+        harness
+            .engine
+            .store()
+            .message_count(&account, &long_thread)
+            .unwrap()
+    };
+    // The whole history on disk, as after a long time with the chat.
+    harness.shell.update(cx, |shell, cx| {
+        shell.open_chat(long_thread.clone(), None, cx);
+    });
+    harness.settle(cx);
+    loop {
+        let before = stored();
+        harness.shell.update(cx, |shell, cx| shell.load_older(cx));
+        harness.settle(cx);
+        if stored() == before {
+            break;
+        }
+    }
+    assert!(stored() > 400, "a long history, got {}", stored());
+    // Opened again: only the newest window is read.
+    harness.shell.update(cx, |shell, cx| {
+        shell.close_chat(cx);
+        shell.open_chat(long_thread.clone(), None, cx);
+    });
+    harness.settle(cx);
+    let message_rows = |cx: &mut TestAppContext| {
+        cx.update(|cx| {
+            let shell = harness.shell.read(cx);
+            shell
+                .open
+                .as_ref()
+                .unwrap()
+                .rows
+                .iter()
+                .filter(|row| matches!(row, Row::Message(_)))
+                .count()
+        })
+    };
+    let first = message_rows(cx);
+    let oldest = cx.update(|cx| {
+        let shell = harness.shell.read(cx);
+        shell
+            .open
+            .as_ref()
+            .unwrap()
+            .rows
+            .iter()
+            .find_map(|row| match row {
+                Row::Message(row) => Some(row.key.clone()),
+                _ => None,
+            })
+            .unwrap()
+    });
+
+    let thread = bounds(harness.window, "thread", cx);
+    let wheel = |delta: f32, cx: &mut TestAppContext| {
+        let mut visual = VisualTestContext::from_window(harness.window.into(), cx);
+        visual.simulate_event(gpui_kit::ScrollWheelEvent {
+            position: thread.center(),
+            delta: gpui_kit::ScrollDelta::Pixels(gpui_kit::point(px(0.), px(delta))),
+            ..Default::default()
+        });
+        visual.run_until_parked();
+    };
+    // Up, a long way: the oldest row at hand comes into view, and the
+    // window before it is read.
+    for _ in 0..40 {
+        wheel(2000., cx);
+        if message_rows(cx) > first {
+            break;
+        }
+    }
+    let second = message_rows(cx);
+    assert!(second > first, "older messages were shown");
+    // The message that was the oldest is where it was: the list did not
+    // jump to the top of what was added, which would ask for more again.
+    cx.update(|cx| {
+        let shell = harness.shell.read(cx);
+        let open = shell.open.as_ref().unwrap();
+        let at = open.list.logical_scroll_top().item_ix;
+        let index = open
+            .rows
+            .iter()
+            .position(|row| matches!(row, Row::Message(row) if row.key == oldest))
+            .unwrap();
+        assert!(
+            at + 3 >= index,
+            "the view stays at the message it was on (top row {at}, that message {index})"
+        );
+    });
+    // More wheel events right after, as a trackpad sends them: nothing
+    // more is read while the added window is still to be scrolled through.
+    for _ in 0..10 {
+        wheel(20., cx);
+    }
+    assert_eq!(message_rows(cx), second, "one window at a time");
+}
+
+#[gpui_kit::test]
+fn the_messages_are_read_off_the_interfaces_thread(cx: &mut TestAppContext) {
+    let harness = keyboard::open_chat_one(cx);
+    let (account, chat) = keyboard::open_ids(&harness, cx);
+    let message_rows = |cx: &mut TestAppContext| {
+        cx.update(|cx| {
+            let shell = harness.shell.read(cx);
+            shell
+                .open
+                .as_ref()
+                .unwrap()
+                .rows
+                .iter()
+                .filter(|row| matches!(row, Row::Message(_)))
+                .count()
+        })
+    };
+    let before = message_rows(cx);
+    let store = harness.engine.store().clone();
+    let stored = |id: &str, at: i64| {
+        store
+            .upsert_message(&keyboard::text_message(
+                &account,
+                &chat,
+                id,
+                false,
+                "hello",
+                4_000_000_000_000 + at,
+            ))
+            .unwrap();
+    };
+    harness.shell.update(cx, |shell, cx| {
+        stored("x1", 1);
+        shell.reload_messages(cx);
+        // Asked again while the first read is under way.
+        stored("x2", 2);
+        shell.reload_messages(cx);
+        // Nothing was read on this thread: the rows are what they were.
+        let open = shell.open.as_ref().unwrap();
+        assert_eq!(
+            open.rows
+                .iter()
+                .filter(|row| matches!(row, Row::Message(_)))
+                .count(),
+            before
+        );
+    });
+    cx.run_until_parked();
+    // Both are there: what was asked during the read was read after it.
+    assert_eq!(message_rows(cx), before + 2);
+}
+
+#[gpui_kit::test]
 fn a_long_message_wraps_inside_a_narrow_conversation_pane(cx: &mut TestAppContext) {
     let harness = open(
         cx,
@@ -1399,6 +1566,7 @@ fn contact_info_and_search_open_from_the_conversation(cx: &mut TestAppContext) {
     click(harness.window, "chat-search", cx);
     assert!(shows(harness.window, "thread-search", cx));
     type_text(harness.window, &word, cx);
+    wait_for_message_search(cx);
     cx.update(|cx| {
         let shell = harness.shell.read(cx);
         let search = shell.thread_search.as_ref().unwrap();

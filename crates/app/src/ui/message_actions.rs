@@ -187,10 +187,15 @@ impl Shell {
         if let Some(chat) = elsewhere {
             self.show_chat(chat, None, cx);
         }
-        self.jump_to_message(message.clone(), cx);
-        if let Some(key) = self.key_of(&message) {
-            self.flash_row(key, cx);
-        }
+        self.jump_to_message(
+            message.clone(),
+            move |this, cx| {
+                if let Some(key) = this.key_of(&message) {
+                    this.flash_row(key, cx);
+                }
+            },
+            cx,
+        );
     }
 
     // ----- reply and edit -----------------------------------------------------------
