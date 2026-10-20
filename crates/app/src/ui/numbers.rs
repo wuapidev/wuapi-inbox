@@ -166,7 +166,7 @@ pub(in crate::ui) struct NumberAction {
 
 /// A failure as one sentence for the user. A passing one never names the
 /// machinery: it will be tried again.
-fn said(error: &SyncError) -> SharedString {
+pub(in crate::ui) fn said(error: &SyncError) -> SharedString {
     match error {
         SyncError::Provider(ProviderError::RateLimited { retry_after }) => match retry_after {
             Some(wait) => format!(

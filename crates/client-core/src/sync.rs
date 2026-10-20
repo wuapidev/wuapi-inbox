@@ -20,9 +20,10 @@ use crate::store::{HistoryState, Store, StoreChange, StoreError, Upsert};
 use client_provider::MediaKind;
 use client_provider::{
     Account, AccountChange, AccountId, Capabilities, Chat, ChatChange, ChatId, ClientMessageId,
-    Contact, ContactId, Direction, Feature, HistoryImport, LinkPlace, LinkStatus, LinkStep,
-    Message, MessageContent, MessageId, NewAccount, NumberCheck, OutgoingContent, OutgoingMessage,
-    PresenceState, Provider, ProviderError, ProviderEvent, Timestamp,
+    Contact, ContactId, Direction, Feature, HistoryImport, IncomingWebhook, IncomingWebhookChange,
+    LinkPlace, LinkStatus, LinkStep, Message, MessageContent, MessageId, NewAccount, NumberCheck,
+    OutgoingContent, OutgoingMessage, PresenceState, Provider, ProviderError, ProviderEvent,
+    Timestamp,
 };
 use futures::StreamExt;
 use std::collections::{HashMap, HashSet};
@@ -1220,6 +1221,68 @@ impl SyncEngine {
         self.noted(deleted)?;
         self.inner.store.remove_account(account)?;
         Ok(())
+    }
+
+    // Incoming webhooks: URLs that send a message to one chat. Asked for
+    // by the screen that shows them, awaited off the UI thread, and kept
+    // nowhere: the URL is a credential, so it is read again each time.
+
+    /// The incoming webhooks that send from `account` to `chat`.
+    pub async fn incoming_webhooks(
+        &self,
+        account: &AccountId,
+        chat: &ChatId,
+    ) -> Result<Vec<IncomingWebhook>, SyncError> {
+        let hooks = self
+            .bounded(self.inner.provider.list_incoming_webhooks(account, chat))
+            .await;
+        Ok(self.noted(hooks)?)
+    }
+
+    /// Makes an incoming webhook that sends from `account` to `chat`.
+    pub async fn create_incoming_webhook(
+        &self,
+        account: &AccountId,
+        chat: &ChatId,
+        name: &str,
+    ) -> Result<IncomingWebhook, SyncError> {
+        let hook = self
+            .bounded(
+                self.inner
+                    .provider
+                    .create_incoming_webhook(account, chat, name),
+            )
+            .await;
+        Ok(self.noted(hook)?)
+    }
+
+    /// Renames, pauses, resumes or gives a new URL to a hook.
+    pub async fn update_incoming_webhook(
+        &self,
+        account: &AccountId,
+        id: &str,
+        change: IncomingWebhookChange,
+    ) -> Result<IncomingWebhook, SyncError> {
+        let hook = self
+            .bounded(
+                self.inner
+                    .provider
+                    .update_incoming_webhook(account, id, change),
+            )
+            .await;
+        Ok(self.noted(hook)?)
+    }
+
+    /// Deletes a hook: its URL stops working.
+    pub async fn delete_incoming_webhook(
+        &self,
+        account: &AccountId,
+        id: &str,
+    ) -> Result<(), SyncError> {
+        let deleted = self
+            .bounded(self.inner.provider.delete_incoming_webhook(account, id))
+            .await;
+        Ok(self.noted(deleted)?)
     }
 
     /// Notes a refused key on the way through.

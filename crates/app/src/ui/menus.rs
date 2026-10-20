@@ -218,6 +218,7 @@ impl Shell {
                 self.render_status_sheet(palette, cx)?.into_any_element(),
                 true,
             ),
+            Overlay::Hooks => (self.render_hooks(palette, cx)?.into_any_element(), true),
         };
         Some(
             div()

@@ -315,6 +315,9 @@ pub enum Command {
     MarkRead,
     /// Deletes the chat. No provider can yet: listed, and said so.
     DeleteChat,
+    /// The chat's incoming webhooks, where its number's provider has
+    /// them.
+    IncomingWebhooks,
     /// Mutes the chat for a time chosen next.
     MuteFor,
     /// Goes to a day of the conversation.
@@ -1945,6 +1948,13 @@ pub const BINDINGS: &[Binding] = &[
     bind(C::FocusRail, "Focus the rail", S::Panes, W::Anywhere, &[]),
     bind(C::MarkRead, "Mark the chat as read", S::Chats, W::Chat, &[]),
     bind(C::DeleteChat, "Delete the chat", S::Chats, W::Chat, &[]),
+    bind(
+        C::IncomingWebhooks,
+        "Incoming webhooks",
+        S::Chats,
+        W::Chat,
+        &[],
+    ),
     bind(C::MuteFor, "Mute the chat for…", S::Chats, W::Chat, &[]),
     bind(
         C::PinAChat,

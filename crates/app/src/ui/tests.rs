@@ -5016,6 +5016,7 @@ mod design;
 mod emoji;
 mod forward;
 mod gallery;
+mod hooks;
 mod keyboard;
 mod link_dialog;
 mod links;

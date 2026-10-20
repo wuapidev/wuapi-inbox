@@ -24,6 +24,7 @@ mod emoji_picker;
 mod gallery;
 mod groups;
 mod hints;
+mod hooks;
 mod library_ui;
 mod link_qr;
 mod links;

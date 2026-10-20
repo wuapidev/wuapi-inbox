@@ -21,6 +21,7 @@ mod capabilities;
 mod content;
 mod error;
 mod event;
+mod hooks;
 mod ids;
 mod model;
 mod provider;
@@ -38,6 +39,7 @@ pub use content::{
 };
 pub use error::{ProviderError, ProviderResult};
 pub use event::{EventStream, ProviderEvent};
+pub use hooks::{IncomingWebhook, IncomingWebhookChange};
 pub use ids::{AccountId, ChatId, ClientMessageId, ContactId, Cursor, MediaRef, MessageId};
 pub use model::{
     Account, AccountChange, AccountSettings, Avatar, AvatarAnswer, Chat, ChatChange, ChatKind,

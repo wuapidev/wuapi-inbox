@@ -349,6 +349,19 @@ impl Shell {
             | C::MarkAChat => state(caps.chat_state),
             // In the menus too, as an entry that says the same.
             C::DeleteChat => Disabled(super::shell::NOT_YET),
+            // Only where the chat's number has them: a cloud feature is
+            // not listed as missing everywhere else.
+            C::IncomingWebhooks => {
+                if self
+                    .open
+                    .as_ref()
+                    .is_some_and(|open| super::hooks::hooks_offered(self, &open.chat))
+                {
+                    Enabled
+                } else {
+                    Hidden
+                }
+            }
             C::InsertMention => match &self.open {
                 Some(open) if open.chat.kind == ChatKind::Group => Enabled,
                 _ => Disabled("Only in a group"),
@@ -1046,6 +1059,7 @@ pub(super) fn menu_command(id: &str) -> Option<Command> {
         "menu-poll" => C::NewPoll,
         "menu-close" => C::CloseChat,
         "menu-delete" => C::DeleteChat,
+        "menu-hooks" => C::IncomingWebhooks,
         "menu-shortcuts" => C::Shortcuts,
         _ => return None,
     })

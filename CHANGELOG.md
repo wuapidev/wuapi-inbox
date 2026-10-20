@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+* Incoming webhooks, as the Wuapi dashboard makes them under Integrations: "Incoming webhooks" in a chat's menu (right click on it in the list, or the conversation's menu) opens the chat's webhooks. Each is a URL that sends a WhatsApp message to that chat when something posts JSON `{"text": "…"}` or plain text to it, with no key. The sheet makes a new one by name, copies a URL, pauses and resumes one, gives one a new URL (the old one stops working at once) and deletes one. Only for numbers of Wuapi Cloud; a number of this computer has nowhere to receive the URL. The URLs are read when the sheet opens and kept nowhere here.
+* `Capabilities` has `incoming_webhooks`, and `Provider` has `list_incoming_webhooks`, `create_incoming_webhook`, `update_incoming_webhook` and `delete_incoming_webhook` (`IncomingWebhook`, `IncomingWebhookChange`). They answer `Unsupported` unless a provider has them.
+* The wuapi SDK is 0.15, the first with incoming webhooks.
+
 ## [0.5.3]
 
 * A PDF in a chat shows the top of its first page over its name, and how many pages it has. Before its file is here it is the small picture the message brings; once it is here (with the numbers of this computer it downloads by itself), its own first page is drawn sharp and kept. A click on it reads it in the window.

@@ -361,6 +361,8 @@ pub(super) enum Overlay {
     EmojiPicker,
     /// A sheet of Status: a new status, who sees it, delete, forward.
     Status,
+    /// A chat's incoming webhooks.
+    Hooks,
 }
 
 /// The sections of the settings panel.
@@ -395,6 +397,8 @@ pub(super) enum MenuAction {
     Change(ChatChange),
     CloseChat,
     NewPoll,
+    /// The incoming webhooks of the menu's chat.
+    IncomingWebhooks,
     /// A command of the registry, for the message in focus.
     Run(crate::keys::Command),
 }
@@ -746,6 +750,9 @@ pub struct Shell {
     /// Why a change to a number did not go through.
     pub(super) number_note: Option<(AccountId, SharedString)>,
     pub(super) _number_work: Option<Task<()>>,
+    /// A chat's incoming webhooks, while their sheet is open.
+    pub(super) hooks: Option<super::hooks::HooksSheet>,
+    pub(super) _hooks_work: Option<Task<()>>,
     pub(super) settings_section: SettingsSection,
     /// The profile and group panels (see `social.rs`).
     pub(super) social: super::social::SocialUi,
@@ -1079,6 +1086,8 @@ impl Shell {
             number_action: None,
             number_note: None,
             _number_work: None,
+            hooks: None,
+            _hooks_work: None,
             settings_section: SettingsSection::default(),
             social: super::social::SocialUi::new(),
             identity: IdentityState::Unknown,
@@ -1716,6 +1725,8 @@ impl Shell {
             Overlay::None => {}
             // Its title field takes the keyboard itself.
             Overlay::Task => {}
+            // So does the name of a new webhook.
+            Overlay::Hooks => {}
             Overlay::NewChat => {
                 self.new_chat_cursor = 0;
                 self.new_chat_checking = false;
@@ -1799,6 +1810,7 @@ impl Shell {
         match self.overlay {
             Overlay::AddNumber => self.cancel_link(window, cx),
             Overlay::NumberAction => self.back_to_settings(window, cx),
+            Overlay::Hooks => self.close_hooks(window, cx),
             Overlay::ContactInfo => self.info_back(window, cx),
             Overlay::NewGroup => self.leave_new_group(window, cx),
             Overlay::OwnProfile => self.leave_own_profile(window, cx),
@@ -2218,6 +2230,7 @@ impl Shell {
             self.overlay,
             Overlay::AddNumber
                 | Overlay::NumberAction
+                | Overlay::Hooks
                 | Overlay::NewGroup
                 | Overlay::OwnProfile
                 | Overlay::AttachSheet
@@ -2328,7 +2341,7 @@ impl Shell {
                 };
                 let change =
                     |change: ChatChange| caps.chat_state.then_some(MenuAction::Change(change));
-                vec![
+                let mut entries = vec![
                     if chat.unread_count > 0 {
                         item(
                             "menu-read",
@@ -2371,8 +2384,20 @@ impl Shell {
                         change(ChatChange::Archived(!chat.archived)),
                         NOT_HERE,
                     ),
-                    item("menu-delete", "Delete chat", I::Trash, None, NOT_YET),
-                ]
+                ];
+                // A cloud feature: offered where the number's provider
+                // has it, and not mentioned elsewhere.
+                if super::hooks::hooks_offered(self, chat) {
+                    entries.push(item(
+                        "menu-hooks",
+                        "Incoming webhooks",
+                        I::Webhook,
+                        Some(MenuAction::IncomingWebhooks),
+                        "",
+                    ));
+                }
+                entries.push(item("menu-delete", "Delete chat", I::Trash, None, NOT_YET));
+                entries
             }
             Overlay::ChatMenu => {
                 let Some(open) = &self.open else {
@@ -2381,7 +2406,7 @@ impl Shell {
                 let chat = &open.chat;
                 let change =
                     |change: ChatChange| caps.chat_state.then_some(MenuAction::Change(change));
-                vec![
+                let mut entries = vec![
                     item(
                         "menu-info",
                         match chat.kind {
@@ -2438,6 +2463,17 @@ impl Shell {
                         caps.polls.then_some(MenuAction::NewPoll),
                         NOT_HERE,
                     ),
+                ];
+                if super::hooks::hooks_offered(self, chat) {
+                    entries.push(item(
+                        "menu-hooks",
+                        "Incoming webhooks",
+                        I::Webhook,
+                        Some(MenuAction::IncomingWebhooks),
+                        "",
+                    ));
+                }
+                entries.extend([
                     item(
                         "menu-close",
                         "Close chat",
@@ -2453,7 +2489,8 @@ impl Shell {
                         Some(MenuAction::Run(crate::keys::Command::Shortcuts)),
                         "",
                     ),
-                ]
+                ]);
+                entries
             }
             Overlay::MessageMenu => self.message_menu_items(),
             _ => Vec::new(),
@@ -2480,6 +2517,12 @@ impl Shell {
                 }
             }
             MenuAction::NewPoll => return self.open_overlay(Overlay::NewPoll, window, cx),
+            MenuAction::IncomingWebhooks => {
+                return match self.menu_chat() {
+                    Some(chat) => self.open_hooks(&chat, window, cx),
+                    None => self.close_overlay(window, cx),
+                }
+            }
             MenuAction::MarkAllRead => {
                 for row in &self.list_rows {
                     if let ListRow::Chat(chat) = row {

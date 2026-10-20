@@ -4120,6 +4120,7 @@ mod envelope;
 mod fake_stream;
 mod favorites;
 mod forward;
+mod hooks;
 mod live;
 mod message_types;
 mod older_backend;

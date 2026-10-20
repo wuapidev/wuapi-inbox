@@ -806,6 +806,9 @@ impl Provider for NativeProvider {
             // TODO(native): video needs a camera and an H.264 encoder.
             // With video where there is something to encode it with.
             video_calls: crate::call_video::available(),
+            // A URL that sends a message needs a server to receive it:
+            // Wuapi Cloud has them, a number on this computer does not.
+            incoming_webhooks: false,
         }
     }
 
