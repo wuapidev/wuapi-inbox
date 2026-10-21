@@ -720,6 +720,102 @@ async fn reading_a_chat_tells_the_sender_once_and_clears_the_count() {
         .all(|m| m.status == DeliveryStatus::Read));
 }
 
+async fn unread_of_ana(world: &World) -> u32 {
+    world
+        .provider
+        .list_chats(&world.account, None)
+        .await
+        .unwrap()
+        .items
+        .iter()
+        .find(|chat| chat.id.as_str() == ANA_ID)
+        .map_or(0, |chat| chat.unread_count)
+}
+
+#[tokio::test]
+async fn messages_answered_elsewhere_that_come_after_the_answer_are_not_unread() {
+    // Back from being closed, the offline queue hands over the reply
+    // written on WhatsApp Web before the messages it answered.
+    let world = world().await;
+    let mut reply = incoming(ANA, "R1", 3_000, text_proto("esooo"));
+    reply.from_me = true;
+    world.hear(Inbound::Messages(vec![reply]));
+    world.hear(Inbound::Messages(vec![
+        incoming(ANA, "A1", 1_000, text_proto("one")),
+        incoming(ANA, "A2", 2_000, text_proto("two")),
+    ]));
+    assert_eq!(unread_of_ana(&world).await, 0);
+    // What is written after the reply is unread.
+    world.hear(Inbound::Messages(vec![incoming(
+        ANA,
+        "A3",
+        4_000,
+        text_proto("three"),
+    )]));
+    assert_eq!(unread_of_ana(&world).await, 1);
+}
+
+#[tokio::test]
+async fn messages_read_elsewhere_that_come_after_the_reading_are_not_unread() {
+    let world = world().await;
+    world.hear(Inbound::MarkedRead {
+        chat: jid(ANA),
+        read: true,
+        at_ms: 2_000,
+    });
+    world.hear(Inbound::Messages(vec![incoming(
+        ANA,
+        "A1",
+        1_000,
+        text_proto("one"),
+    )]));
+    assert_eq!(unread_of_ana(&world).await, 0);
+    world.hear(Inbound::Messages(vec![incoming(
+        ANA,
+        "A2",
+        3_000,
+        text_proto("two"),
+    )]));
+    assert_eq!(unread_of_ana(&world).await, 1);
+    // Marked unread elsewhere moves nothing back: a badge, no more.
+    world.hear(Inbound::MarkedRead {
+        chat: jid(ANA),
+        read: false,
+        at_ms: 4_000,
+    });
+    assert_eq!(unread_of_ana(&world).await, 1);
+}
+
+#[tokio::test]
+async fn a_reply_handed_over_by_the_phone_answers_what_comes_later_and_older() {
+    let world = world().await;
+    let mut reply = incoming(ANA, "R1", 3_000, text_proto("esooo"));
+    reply.from_me = true;
+    world.hear(Inbound::History {
+        chats: vec![HistoryChat {
+            chat: jid(ANA),
+            chat_alt: None,
+            name: None,
+            unread: None,
+            marked_unread: false,
+            archived: false,
+            pinned_at_ms: None,
+            muted_until_ms: None,
+            messages: vec![reply],
+        }],
+        names: Vec::new(),
+        aliases: Vec::new(),
+        asked: false,
+    });
+    world.hear(Inbound::Messages(vec![incoming(
+        ANA,
+        "A1",
+        1_000,
+        text_proto("one"),
+    )]));
+    assert_eq!(unread_of_ana(&world).await, 0);
+}
+
 #[tokio::test]
 async fn ticks_move_forward_and_never_back() {
     let world = world().await;
@@ -874,7 +970,7 @@ async fn the_phones_history_lists_chats_as_the_phone_has_them() {
                 chat: jid(group),
                 chat_alt: None,
                 name: Some("Family".into()),
-                unread: Some(0),
+                unread: Some(2),
                 marked_unread: false,
                 archived: true,
                 pinned_at_ms: None,
@@ -915,7 +1011,10 @@ async fn the_phones_history_lists_chats_as_the_phone_has_them() {
         .find(|chat| chat.id.as_str() == ANA_ID)
         .unwrap();
     assert_eq!(ana.title, "Ana", "the address book's name wins");
-    assert_eq!(ana.unread_count, 3);
+    assert_eq!(
+        ana.unread_count, 0,
+        "the phone's count is older than the reply it hands over"
+    );
     assert!(ana.pinned && ana.muted && !ana.archived);
     assert_eq!(
         ana.last_message
@@ -925,6 +1024,7 @@ async fn the_phones_history_lists_chats_as_the_phone_has_them() {
     );
     let family = chats.iter().find(|chat| chat.id.as_str() == group).unwrap();
     assert_eq!(family.title, "Family");
+    assert_eq!(family.unread_count, 2, "the phone's count");
     assert!(family.archived);
     assert_eq!(family.kind, client_provider::ChatKind::Group);
 

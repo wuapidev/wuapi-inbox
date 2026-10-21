@@ -420,7 +420,11 @@ impl Hearing {
                     ReceiptType::Read | ReceiptType::Played => ReceiptLevel::Read,
                     ReceiptType::ReadSelf => {
                         // Read on another of the account's devices.
-                        self.tell(Inbound::MarkedRead { chat, read: true });
+                        self.tell(Inbound::MarkedRead {
+                            chat,
+                            read: true,
+                            at_ms: millis(receipt.timestamp),
+                        });
                         return;
                     }
                     _ => return,
@@ -496,6 +500,7 @@ impl Hearing {
             Event::MarkChatAsReadUpdate(update) => self.tell(Inbound::MarkedRead {
                 chat: update.jid.to_non_ad(),
                 read: update.action.read.unwrap_or(true),
+                at_ms: millis(update.timestamp),
             }),
             Event::DeleteChatUpdate(update) => self.tell(Inbound::ChatDeleted {
                 chat: update.jid.to_non_ad(),

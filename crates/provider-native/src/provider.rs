@@ -422,6 +422,7 @@ impl Inner {
             self.archive
                 .update_chat(account.as_str(), chat, |chat| {
                     chat.last_ms = chat.last_ms.max(at_ms);
+                    chat.read_ms = chat.read_ms.max(at_ms);
                     chat.unread = 0;
                     chat.marked_unread = false;
                 })
@@ -1109,6 +1110,7 @@ impl Provider for NativeProvider {
             .update_chat(account.as_str(), chat.as_str(), |chat| {
                 chat.unread = 0;
                 chat.marked_unread = false;
+                chat.read_ms = chat.read_ms.max(chat.last_ms);
             })
             .map_err(db)?;
         Ok(())
@@ -1128,6 +1130,7 @@ impl Provider for NativeProvider {
             .update_chat(account.as_str(), chat.as_str(), |chat| {
                 chat.unread = 0;
                 chat.marked_unread = false;
+                chat.read_ms = chat.read_ms.max(chat.last_ms);
             })
             .map_err(db)?;
         Ok(())

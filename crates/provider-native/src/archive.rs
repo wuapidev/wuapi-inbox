@@ -96,6 +96,10 @@ pub struct StoredChat {
     pub last_ms: i64,
     /// The id of its picture.
     pub picture_id: Option<String>,
+    /// Up to when, in milliseconds, it is read: a message received that
+    /// was sent before then is not an unread one, whatever order the
+    /// messages and the news of the reading came in.
+    pub read_ms: i64,
 }
 
 /// A person, as far as this device knows them.
@@ -155,6 +159,7 @@ CREATE TABLE IF NOT EXISTS chats (
     account TEXT NOT NULL, id TEXT NOT NULL, name TEXT, unread INTEGER NOT NULL DEFAULT 0,
     pinned_at INTEGER, muted_until INTEGER, archived INTEGER NOT NULL DEFAULT 0,
     marked_unread INTEGER NOT NULL DEFAULT 0, last_ms INTEGER NOT NULL DEFAULT 0, picture_id TEXT,
+    read_ms INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (account, id)
 ) WITHOUT ROWID;
 CREATE TABLE IF NOT EXISTS messages (
@@ -235,11 +240,12 @@ fn chat_from(row: &rusqlite::Row<'_>) -> rusqlite::Result<StoredChat> {
         marked_unread: row.get(6)?,
         last_ms: row.get(7)?,
         picture_id: row.get(8)?,
+        read_ms: row.get(9)?,
     })
 }
 
-const CHAT_COLUMNS: &str =
-    "id, name, unread, pinned_at, muted_until, archived, marked_unread, last_ms, picture_id";
+const CHAT_COLUMNS: &str = "id, name, unread, pinned_at, muted_until, archived, marked_unread, \
+     last_ms, picture_id, read_ms";
 
 impl Archive {
     /// Opens the archive at `path`, encrypted under `key_hex` (64
@@ -263,7 +269,36 @@ impl Archive {
 
     fn with(db: Connection) -> ArchiveResult<Self> {
         db.execute_batch(SCHEMA)?;
+        Self::add_read_ms(&db)?;
         Ok(Self { db: Mutex::new(db) })
+    }
+
+    /// Gives an archive made before chats had a `read_ms` the column, read
+    /// up to the account's last message in each chat. A chat with nothing
+    /// received after that message has nothing unread: its count was
+    /// raised by messages that came in after the reply that answered them.
+    fn add_read_ms(db: &Connection) -> ArchiveResult<()> {
+        let has = db
+            .prepare("SELECT 1 FROM pragma_table_info('chats') WHERE name = 'read_ms'")?
+            .exists([])?;
+        if has {
+            return Ok(());
+        }
+        db.execute_batch(
+            "BEGIN;
+             ALTER TABLE chats ADD COLUMN read_ms INTEGER NOT NULL DEFAULT 0;
+             UPDATE chats SET read_ms = COALESCE((
+                 SELECT MAX(ts) FROM messages
+                 WHERE messages.account = chats.account AND messages.chat = chats.id
+                     AND from_me = 1), 0);
+             UPDATE chats SET unread = 0
+             WHERE read_ms > 0 AND unread > 0 AND NOT EXISTS (
+                 SELECT 1 FROM messages
+                 WHERE messages.account = chats.account AND messages.chat = chats.id
+                     AND from_me = 0 AND ts > chats.read_ms);
+             COMMIT;",
+        )?;
+        Ok(())
     }
 
     fn db(&self) -> std::sync::MutexGuard<'_, Connection> {
@@ -602,6 +637,14 @@ impl Archive {
             "DELETE FROM pins WHERE account = ?1 AND chat = ?2",
             params![account, from],
         )?;
+        // Read under either id is read under the one kept.
+        tx.execute(
+            "UPDATE chats SET read_ms = MAX(read_ms, (
+                 SELECT read_ms FROM chats WHERE account = ?1 AND id = ?2))
+             WHERE account = ?1 AND id = ?3
+                 AND EXISTS (SELECT 1 FROM chats WHERE account = ?1 AND id = ?2)",
+            params![account, from, into],
+        )?;
         tx.execute(
             "UPDATE OR IGNORE chats SET id = ?3 WHERE account = ?1 AND id = ?2",
             params![account, from, into],
@@ -665,11 +708,11 @@ impl Archive {
     pub fn put_chat(&self, account: &str, chat: &StoredChat) -> ArchiveResult<()> {
         self.db().execute(
             "INSERT INTO chats (account, id, name, unread, pinned_at, muted_until, archived,
-                 marked_unread, last_ms, picture_id)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
+                 marked_unread, last_ms, picture_id, read_ms)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
              ON CONFLICT (account, id) DO UPDATE SET name = ?3, unread = ?4, pinned_at = ?5,
                  muted_until = ?6, archived = ?7, marked_unread = ?8, last_ms = ?9,
-                 picture_id = ?10",
+                 picture_id = ?10, read_ms = ?11",
             params![
                 account,
                 chat.id,
@@ -680,7 +723,8 @@ impl Archive {
                 chat.archived,
                 chat.marked_unread,
                 chat.last_ms,
-                chat.picture_id
+                chat.picture_id,
+                chat.read_ms
             ],
         )?;
         Ok(())
@@ -1153,6 +1197,65 @@ mod tests {
             )
             .unwrap();
         assert!(!changed);
+    }
+
+    #[test]
+    fn an_archive_from_before_read_ms_clears_the_counts_its_replies_answered() {
+        let db = Connection::open_in_memory().unwrap();
+        // The chats table as it was; the rest as it is.
+        db.execute_batch(
+            "CREATE TABLE chats (
+                 account TEXT NOT NULL, id TEXT NOT NULL, name TEXT,
+                 unread INTEGER NOT NULL DEFAULT 0, pinned_at INTEGER, muted_until INTEGER,
+                 archived INTEGER NOT NULL DEFAULT 0, marked_unread INTEGER NOT NULL DEFAULT 0,
+                 last_ms INTEGER NOT NULL DEFAULT 0, picture_id TEXT,
+                 PRIMARY KEY (account, id)
+             ) WITHOUT ROWID;",
+        )
+        .unwrap();
+        db.execute_batch(SCHEMA).unwrap();
+        // Answered, then counted anyway; answered, then written to again;
+        // never answered; with no messages here at all.
+        for (chat, unread) in [("+1", 2), ("+2", 1), ("+3", 3), ("+4", 5)] {
+            db.execute(
+                "INSERT INTO chats (account, id, unread) VALUES (?1, ?2, ?3)",
+                params![ME, chat, unread],
+            )
+            .unwrap();
+        }
+        for (chat, id, ts, from_me) in [
+            ("+1", "A", 1, false),
+            ("+1", "B", 2, true),
+            ("+2", "C", 1, true),
+            ("+2", "D", 2, false),
+            ("+3", "E", 1, false),
+        ] {
+            db.execute(
+                "INSERT INTO messages (account, chat, id, sender, from_me, ts, status, proto)
+                 VALUES (?1, ?2, ?3, '+9', ?4, ?5, 4, x'00')",
+                params![ME, chat, id, from_me, ts],
+            )
+            .unwrap();
+        }
+        let archive = Archive::with(db).unwrap();
+        let chat = |id: &str| archive.chat(ME, id).unwrap().unwrap();
+        assert_eq!((chat("+1").unread, chat("+1").read_ms), (0, 2));
+        assert_eq!((chat("+2").unread, chat("+2").read_ms), (1, 1));
+        assert_eq!((chat("+3").unread, chat("+3").read_ms), (3, 0));
+        assert_eq!((chat("+4").unread, chat("+4").read_ms), (5, 0));
+        // Opened again, nothing changes.
+        archive
+            .put_chat(
+                ME,
+                &StoredChat {
+                    unread: 7,
+                    ..chat("+1")
+                },
+            )
+            .unwrap();
+        let db = std::mem::replace(&mut *archive.db(), Connection::open_in_memory().unwrap());
+        let archive = Archive::with(db).unwrap();
+        assert_eq!(archive.chat(ME, "+1").unwrap().unwrap().unread, 7);
     }
 
     #[test]

@@ -137,10 +137,11 @@ impl Inner {
             Inbound::Archived { chat, archived } => {
                 self.change_chat(&id, &chat, |stored| stored.archived = archived);
             }
-            Inbound::MarkedRead { chat, read } => self.change_chat(&id, &chat, |stored| {
+            Inbound::MarkedRead { chat, read, at_ms } => self.change_chat(&id, &chat, |stored| {
                 stored.marked_unread = !read;
                 if read {
                     stored.unread = 0;
+                    stored.read_ms = stored.read_ms.max(at_ms);
                 }
             }),
             Inbound::ChatDeleted { chat } => {
@@ -487,7 +488,11 @@ impl Inner {
                         // the chat is being read there.
                         held.unread = 0;
                         held.marked_unread = false;
-                    } else if !reaction {
+                        held.read_ms = held.read_ms.max(stored.timestamp_ms);
+                    } else if !reaction && stored.timestamp_ms > held.read_ms {
+                        // One sent before the chat was read came late
+                        // (the offline queue keeps no order between
+                        // senders): it was read with the rest.
                         held.unread = held.unread.saturating_add(1);
                     }
                 });
@@ -643,8 +648,12 @@ impl Inner {
             self.canonical(me, &history.chat, history.chat_alt.as_ref())
         };
         let mut newest = 0;
+        let mut newest_mine = 0;
         for mut incoming in history.messages {
             newest = newest.max(incoming.timestamp_ms);
+            if incoming.from_me {
+                newest_mine = newest_mine.max(incoming.timestamp_ms);
+            }
             // The messages of a chat that was handed over under one
             // address belong to it under the other too.
             incoming.chat = history.chat.clone();
@@ -658,8 +667,14 @@ impl Inner {
             if let Some(name) = history.name.clone().filter(|name| !name.trim().is_empty()) {
                 held.name = Some(name);
             }
+            held.read_ms = held.read_ms.max(newest_mine);
+            held.last_ms = held.last_ms.max(newest);
             if let Some(unread) = history.unread {
-                held.unread = unread;
+                // The phone's count may be older than a reply it hands
+                // over, or one that came here live: nothing after the
+                // account's last word is nothing unread.
+                let answered = held.read_ms > 0 && held.last_ms <= held.read_ms;
+                held.unread = if answered { 0 } else { unread };
             }
             held.marked_unread = held.marked_unread || history.marked_unread;
             held.archived = held.archived || history.archived;
@@ -669,7 +684,6 @@ impl Inner {
             if history.muted_until_ms.is_some() {
                 held.muted_until_ms = history.muted_until_ms;
             }
-            held.last_ms = held.last_ms.max(newest);
         });
         if let Ok(updated) = updated {
             self.chat_changed(me, &updated);
@@ -776,7 +790,7 @@ impl Inner {
         }
         let updated = self.archive.update_chat(me, chat, |held| {
             held.last_ms = held.last_ms.max(at_ms);
-            if counts {
+            if counts && at_ms > held.read_ms {
                 held.unread = held.unread.saturating_add(1);
             }
         });
