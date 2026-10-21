@@ -18,6 +18,7 @@
 use super::shell::Shell;
 use super::status::{tooltip_with_keys, Updates};
 use super::widgets::{avatar_or, label, mono, AvatarKind};
+use crate::i18n;
 use crate::icons::{icon, IconName};
 use crate::keys::Command;
 use crate::theme::{metrics, px, story, Palette};
@@ -54,12 +55,12 @@ pub(super) fn window_of(
 /// What the strip says in place of people, when nobody has anything new.
 fn note_of(updates: Updates) -> &'static str {
     match updates {
-        Updates::Listed | Updates::Empty => "No new updates",
-        Updates::Loading => "Checking for updates…",
-        Updates::Offline => "Offline: updates come back with the connection",
-        Updates::Unavailable => "Updates are not available for this number yet",
-        Updates::NotOffered => "Contacts' updates are not available from this provider",
-        Updates::Failed => "Could not check for updates",
+        Updates::Listed | Updates::Empty => i18n::t("status.strip.note.none"),
+        Updates::Loading => i18n::t("status.strip.note.loading"),
+        Updates::Offline => i18n::t("status.strip.note.offline"),
+        Updates::Unavailable => i18n::t("status.strip.note.unavailable"),
+        Updates::NotOffered => i18n::t("status.strip.note.not_offered"),
+        Updates::Failed => i18n::t("status.strip.note.failed"),
     }
 }
 
@@ -100,7 +101,7 @@ impl Shell {
             .cursor_pointer()
             .hover(move |style| style.bg(hover))
             .tooltip(tooltip_with_keys(
-                "Show status updates",
+                i18n::t("status.strip.show"),
                 Command::ToggleStatusStrip,
             ))
             .on_click(cx.listener(|this, _, _, cx| this.toggle_status_strip(cx)))
@@ -109,7 +110,7 @@ impl Shell {
                     .flex()
                     .items_center()
                     .gap_2()
-                    .child(label("Status", palette))
+                    .child(label(i18n::t("status.title"), palette))
                     .when(people > 0, |this| {
                         this.child(
                             div()
@@ -124,7 +125,13 @@ impl Shell {
                                         .rounded_full()
                                         .bg(palette.accent),
                                 )
-                                .child(mono(format!("{people} new")).text_color(palette.text)),
+                                .child(
+                                    mono(i18n::tr(
+                                        "status.strip.new_count",
+                                        &[("people", &people)],
+                                    ))
+                                    .text_color(palette.text),
+                                ),
                         )
                     }),
             )
@@ -210,7 +217,7 @@ impl Shell {
                     .bg(palette.background)
                     .hover(move |style| style.bg(hover))
                     .tooltip(tooltip_with_keys(
-                        "Fold status updates",
+                        i18n::t("status.strip.fold"),
                         Command::ToggleStatusStrip,
                     ))
                     .on_click(cx.listener(|this, _, _, cx| {
@@ -295,7 +302,7 @@ impl Shell {
                         .items_center()
                         .justify_center()
                         .cursor_pointer()
-                        .tooltip(tooltip_with_keys("New status", Command::NewStatus))
+                        .tooltip(tooltip_with_keys(i18n::t("status.new"), Command::NewStatus))
                         .on_click(cx.listener(|this, _, window, cx| {
                             cx.stop_propagation();
                             this.open_status_post(window, cx);
@@ -304,16 +311,16 @@ impl Shell {
                 )
             });
         let hover = palette.hover;
-        Self::strip_cell(face, "My status".into(), false, palette)
+        Self::strip_cell(face, i18n::t("status.mine").into(), false, palette)
             .id("story-strip-mine")
             .debug_selector(|| "story-strip-mine".into())
             .cursor_pointer()
             .hover(move |style| style.bg(hover))
             .tooltip(move |window, cx| {
                 Tooltip::new(if mine > 0 {
-                    "My status"
+                    i18n::t("status.mine")
                 } else {
-                    "Add to my status"
+                    i18n::t("status.strip.add")
                 })
                 .build(window, cx)
             })
@@ -353,7 +360,7 @@ impl Shell {
         .debug_selector(move || format!("story-strip-author-{index}"))
         .cursor_pointer()
         .hover(move |style| style.bg(hover))
-        .tooltip(|window, cx| Tooltip::new("Watch their status").build(window, cx))
+        .tooltip(|window, cx| Tooltip::new(i18n::t("status.list.watch_tooltip")).build(window, cx))
         .on_click(cx.listener(move |this, _, window, cx| {
             this.watch_status_key(&key, window, cx);
         }))
@@ -378,7 +385,10 @@ impl Shell {
             .text_size(metrics::TEXT_SMALL())
             .text_color(palette.text_muted)
             .hover(move |style| style.text_color(ink))
-            .tooltip(tooltip_with_keys("Status", Command::ShowStatus))
+            .tooltip(tooltip_with_keys(
+                i18n::t("status.title"),
+                Command::ShowStatus,
+            ))
             .on_click(cx.listener(|this, _, window, cx| {
                 this.set_list_mode(super::status::ListMode::Status, window, cx)
             }))

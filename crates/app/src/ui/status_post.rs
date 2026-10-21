@@ -15,6 +15,7 @@ use super::shell::{Overlay, PickKind, Shell};
 use super::widgets::{label, mono, text_button};
 use crate::attach::{self, Attachment, Pasted};
 use crate::format::file_size;
+use crate::i18n;
 use crate::icons::{icon, IconName};
 use crate::stories::{face_of, text_size, Face, Family};
 use crate::theme::{fonts, metrics, px, story, Palette};
@@ -275,7 +276,9 @@ impl Shell {
                             refused
                                 .into_iter()
                                 .next()
-                                .unwrap_or_else(|| "That file could not be read.".to_owned())
+                                .unwrap_or_else(|| {
+                                    i18n::t("status.post.file_unreadable").to_owned()
+                                })
                                 .into(),
                         )
                     }
@@ -295,7 +298,7 @@ impl Shell {
     ) {
         let kind = attachment.kind(false);
         if !matches!(kind, MediaKind::Image | MediaKind::Video) {
-            self.status.draft.note = Some("A status is a picture, a video or a text.".into());
+            self.status.draft.note = Some(i18n::t("status.post.kinds").into());
             return;
         }
         self.status.draft.file = Some(StoryFile {
@@ -358,7 +361,7 @@ impl Shell {
             }
             PostTab::Media => {
                 let Some(file) = self.status.draft.file.take() else {
-                    self.status.draft.note = Some("Choose a picture or a video first.".into());
+                    self.status.draft.note = Some(i18n::t("status.post.choose_first").into());
                     return cx.notify();
                 };
                 let caption =
@@ -393,7 +396,7 @@ impl Shell {
                                 .post_story_prepared(&account, prepared)
                                 .map_err(|error| error.to_string()),
                             Some(Err(error)) => Err(error.to_string()),
-                            None => Err("The file could not be prepared.".to_owned()),
+                            None => Err(i18n::t("status.post.not_prepared").to_owned()),
                         };
                         match outcome {
                             Ok(_) => this.status_posted(window, cx),
@@ -435,15 +438,17 @@ impl Shell {
             .as_ref()
             .and_then(|account| self.engine.story_privacy_cached(account).ok().flatten());
         match privacy {
-            None => ("The people your privacy settings choose".into(), None),
+            None => (i18n::t("status.post.audience.default").into(), None),
             Some(privacy) => match privacy.audience {
-                StoryAudience::Contacts => ("My contacts".into(), None),
-                StoryAudience::ContactsExcept => {
-                    ("My contacts except".into(), Some(privacy.except.len()))
-                }
-                StoryAudience::OnlyShareWith => {
-                    ("Only share with".into(), Some(privacy.only.len()))
-                }
+                StoryAudience::Contacts => (i18n::t("status.post.audience.contacts").into(), None),
+                StoryAudience::ContactsExcept => (
+                    i18n::t("status.post.audience.except").into(),
+                    Some(privacy.except.len()),
+                ),
+                StoryAudience::OnlyShareWith => (
+                    i18n::t("status.post.audience.only").into(),
+                    Some(privacy.only.len()),
+                ),
             },
         }
     }
@@ -539,7 +544,7 @@ impl Shell {
                 this.story_paths(paths.paths().to_vec(), cx);
             }))
             .child(super::menus::panel_header(
-                "New status",
+                i18n::t("status.new"),
                 palette,
                 cx.listener(|this, _, window, cx| this.close_status_sheet(window, cx)),
             ))
@@ -558,16 +563,21 @@ impl Shell {
                             .flex()
                             .gap_1()
                             .child(
-                                tab("post-tab-text", "Text", draft.tab == PostTab::Text).on_click(
-                                    cx.listener(|this, _, window, cx| {
+                                tab(
+                                    "post-tab-text",
+                                    i18n::t("status.post.tab_text"),
+                                    draft.tab == PostTab::Text,
+                                )
+                                .on_click(cx.listener(
+                                    |this, _, window, cx| {
                                         this.set_post_tab(PostTab::Text, window, cx)
-                                    }),
-                                ),
+                                    },
+                                )),
                             )
                             .child(
                                 tab(
                                     "post-tab-media",
-                                    "Photo or video",
+                                    i18n::t("status.post.tab_media"),
                                     draft.tab == PostTab::Media,
                                 )
                                 .on_click(cx.listener(
@@ -593,7 +603,7 @@ impl Shell {
                                     .min_w_0()
                                     .flex()
                                     .flex_col()
-                                    .child(label("Visible to", palette))
+                                    .child(label(i18n::t("status.post.visible_to"), palette))
                                     .child(
                                         div()
                                             .debug_selector(|| "post-audience-name".into())
@@ -607,18 +617,24 @@ impl Shell {
                                     ),
                             )
                             .child(if can_edit {
-                                text_button("post-audience-edit", "Change", None, false, palette)
-                                    .on_click(cx.listener(|this, _, window, cx| {
-                                        this.status.sheet = None;
-                                        this.open_audience(window, cx);
-                                    }))
-                                    .into_any_element()
+                                text_button(
+                                    "post-audience-edit",
+                                    i18n::t("status.post.change"),
+                                    None,
+                                    false,
+                                    palette,
+                                )
+                                .on_click(cx.listener(|this, _, window, cx| {
+                                    this.status.sheet = None;
+                                    this.open_audience(window, cx);
+                                }))
+                                .into_any_element()
                             } else {
                                 div()
                                     .debug_selector(|| "post-audience-readonly".into())
                                     .text_size(metrics::TEXT_SMALL())
                                     .text_color(palette.text_faint)
-                                    .child("Change it on your phone")
+                                    .child(i18n::t("status.post.change_on_phone"))
                                     .into_any_element()
                             }),
                     )
@@ -641,14 +657,25 @@ impl Shell {
                     .justify_end()
                     .gap_2()
                     .child(
-                        text_button("post-cancel", "Cancel", None, false, palette).on_click(
+                        text_button(
+                            "post-cancel",
+                            i18n::t("status.post.cancel"),
+                            None,
+                            false,
+                            palette,
+                        )
+                        .on_click(
                             cx.listener(|this, _, window, cx| this.close_status_sheet(window, cx)),
                         ),
                     )
                     .child(
                         text_button(
                             "post-send",
-                            if ready { "Post" } else { "Reading…" },
+                            if ready {
+                                i18n::t("status.post.post")
+                            } else {
+                                i18n::t("status.post.reading")
+                            },
                             Some(IconName::SendHorizontal),
                             true,
                             palette,
@@ -744,7 +771,7 @@ impl Shell {
                     face,
                 )
                 .child(if shown.trim().is_empty() {
-                    SharedString::from("Your status")
+                    SharedString::from(i18n::t("status.post.preview_placeholder"))
                 } else {
                     SharedString::from(shown)
                 }),
@@ -754,7 +781,7 @@ impl Shell {
                     .flex()
                     .items_center()
                     .justify_between()
-                    .child(label("Background", palette))
+                    .child(label(i18n::t("status.post.background"), palette))
                     .child(mono(format!("{left}")).text_color(if left < 0 {
                         palette.danger
                     } else {
@@ -762,7 +789,7 @@ impl Shell {
                     })),
             )
             .child(swatches)
-            .child(label("Font", palette))
+            .child(label(i18n::t("status.post.font"), palette))
             .child(fonts_row)
     }
 
@@ -810,7 +837,7 @@ impl Shell {
                                 div()
                                     .text_size(metrics::TEXT_SMALL())
                                     .text_color(palette.text_muted)
-                                    .child("Video"),
+                                    .child(i18n::t("status.kind.video")),
                             ),
                     })
                     .child(
@@ -847,7 +874,7 @@ impl Shell {
                     div()
                         .text_size(metrics::TEXT_SMALL())
                         .text_color(palette.text_muted)
-                        .child("Drop a picture or a video here, or paste a picture"),
+                        .child(i18n::t("status.post.drop")),
                 )
                 .into_any_element(),
         };
@@ -860,9 +887,9 @@ impl Shell {
                 text_button(
                     "post-choose",
                     if draft.file.is_some() {
-                        "Choose another file"
+                        i18n::t("status.post.choose_another")
                     } else {
-                        "Choose a file"
+                        i18n::t("status.post.choose")
                     },
                     Some(IconName::Camera),
                     false,
@@ -875,7 +902,10 @@ impl Shell {
                 div()
                     .text_size(metrics::TEXT_SMALL())
                     .text_color(palette.text_faint)
-                    .child(SharedString::from(format!("Up to {}.", file_size(limit))))
+                    .child(SharedString::from(i18n::tr(
+                        "status.post.limit",
+                        &[("size", &file_size(limit))],
+                    )))
             }))
     }
 
@@ -931,68 +961,71 @@ impl Shell {
                 .and_then(|person| person.shown().map(str::to_owned))
                 .unwrap_or_else(|| client_core::UNKNOWN_PERSON.to_owned())
         };
-        let mode_row =
-            |index: usize, mode: StoryAudience, title: &'static str, about: &'static str| {
-                let on = edit.privacy.audience == mode;
-                let listed = match mode {
-                    StoryAudience::Contacts => None,
-                    StoryAudience::ContactsExcept => Some(edit.privacy.except.len()),
-                    StoryAudience::OnlyShareWith => Some(edit.privacy.only.len()),
-                };
-                div()
-                    .id(("audience-mode", index))
-                    .debug_selector(move || format!("audience-mode-{index}"))
-                    .px_3()
-                    .py_2()
-                    .rounded(metrics::RADIUS())
-                    .border_1()
-                    .border_color(if on { palette.text } else { palette.border })
-                    .flex()
-                    .items_center()
-                    .gap_3()
-                    .when(editable, |this| this.cursor_pointer())
-                    .child(icon(
-                        if on {
-                            IconName::CircleCheck
-                        } else {
-                            IconName::Circle
-                        },
-                        px(18.),
-                        if on {
-                            palette.accent
-                        } else {
-                            palette.text_faint
-                        },
-                    ))
-                    .child(
-                        div()
-                            .flex_1()
-                            .min_w_0()
-                            .flex()
-                            .flex_col()
-                            .child(
-                                div()
-                                    .text_size(metrics::TEXT_BODY())
-                                    .font_weight(FontWeight::MEDIUM)
-                                    .child(match listed {
-                                        Some(n) => SharedString::from(format!("{title} ({n})")),
-                                        None => SharedString::from(title),
-                                    }),
-                            )
-                            .child(
-                                div()
-                                    .text_size(metrics::TEXT_SMALL())
-                                    .text_color(palette.text_muted)
-                                    .child(about),
-                            ),
-                    )
-                    .when(listed.is_some() && editable, |this| {
-                        let pick: &'static str = match index {
-                            1 => "audience-pick-1",
-                            _ => "audience-pick-2",
-                        };
-                        this.child(text_button(pick, "Edit", None, false, palette).on_click(
-                            cx.listener(move |this, _, _, cx| {
+        let mode_row = |index: usize,
+                        mode: StoryAudience,
+                        title: &'static str,
+                        about: &'static str| {
+            let on = edit.privacy.audience == mode;
+            let listed = match mode {
+                StoryAudience::Contacts => None,
+                StoryAudience::ContactsExcept => Some(edit.privacy.except.len()),
+                StoryAudience::OnlyShareWith => Some(edit.privacy.only.len()),
+            };
+            div()
+                .id(("audience-mode", index))
+                .debug_selector(move || format!("audience-mode-{index}"))
+                .px_3()
+                .py_2()
+                .rounded(metrics::RADIUS())
+                .border_1()
+                .border_color(if on { palette.text } else { palette.border })
+                .flex()
+                .items_center()
+                .gap_3()
+                .when(editable, |this| this.cursor_pointer())
+                .child(icon(
+                    if on {
+                        IconName::CircleCheck
+                    } else {
+                        IconName::Circle
+                    },
+                    px(18.),
+                    if on {
+                        palette.accent
+                    } else {
+                        palette.text_faint
+                    },
+                ))
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .flex()
+                        .flex_col()
+                        .child(
+                            div()
+                                .text_size(metrics::TEXT_BODY())
+                                .font_weight(FontWeight::MEDIUM)
+                                .child(match listed {
+                                    Some(n) => SharedString::from(format!("{title} ({n})")),
+                                    None => SharedString::from(title),
+                                }),
+                        )
+                        .child(
+                            div()
+                                .text_size(metrics::TEXT_SMALL())
+                                .text_color(palette.text_muted)
+                                .child(about),
+                        ),
+                )
+                .when(listed.is_some() && editable, |this| {
+                    let pick: &'static str = match index {
+                        1 => "audience-pick-1",
+                        _ => "audience-pick-2",
+                    };
+                    this.child(
+                        text_button(pick, i18n::t("status.audience.edit"), None, false, palette)
+                            .on_click(cx.listener(move |this, _, _, cx| {
                                 cx.stop_propagation();
                                 if let Some(edit) = this.status.draft.audience.as_mut() {
                                     edit.privacy.audience = mode;
@@ -1000,15 +1033,15 @@ impl Shell {
                                     edit.query.clear();
                                 }
                                 cx.notify();
-                            }),
-                        ))
-                    })
-                    .when(editable, |this| {
-                        this.on_click(
-                            cx.listener(move |this, _, _, cx| this.set_audience_mode(mode, cx)),
-                        )
-                    })
-            };
+                            })),
+                    )
+                })
+                .when(editable, |this| {
+                    this.on_click(
+                        cx.listener(move |this, _, _, cx| this.set_audience_mode(mode, cx)),
+                    )
+                })
+        };
         let picking = edit.picking;
         let list: Div = match picking {
             Some(mode) => self.render_audience_picker(mode, edit, palette, cx),
@@ -1020,20 +1053,20 @@ impl Shell {
                     .child(mode_row(
                         0,
                         StoryAudience::Contacts,
-                        "My contacts",
-                        "Everyone in your address book.",
+                        i18n::t("status.audience.contacts"),
+                        i18n::t("status.audience.contacts_about"),
                     ))
                     .child(mode_row(
                         1,
                         StoryAudience::ContactsExcept,
-                        "My contacts except…",
-                        "Everyone but the people you pick.",
+                        i18n::t("status.audience.except"),
+                        i18n::t("status.audience.except_about"),
                     ))
                     .child(mode_row(
                         2,
                         StoryAudience::OnlyShareWith,
-                        "Only share with…",
-                        "Only the people you pick.",
+                        i18n::t("status.audience.only"),
+                        i18n::t("status.audience.only_about"),
                     ));
                 let named: Vec<SharedString> = edit
                     .privacy
@@ -1065,7 +1098,7 @@ impl Shell {
             .flex()
             .flex_col()
             .child(super::menus::panel_header(
-                "Who sees my status",
+                i18n::t("status.mine.audience"),
                 palette,
                 cx.listener(|this, _, window, cx| this.close_status_sheet(window, cx)),
             ))
@@ -1109,7 +1142,11 @@ impl Shell {
                     .child(
                         text_button(
                             "audience-cancel",
-                            if editable { "Cancel" } else { "Close" },
+                            if editable {
+                                i18n::t("status.post.cancel")
+                            } else {
+                                i18n::t("status.audience.close")
+                            },
                             None,
                             false,
                             palette,
@@ -1122,21 +1159,33 @@ impl Shell {
                     )
                     .when(editable && picking.is_none(), |this| {
                         this.child(
-                            text_button("audience-save", "Save", None, true, palette).on_click(
+                            text_button(
+                                "audience-save",
+                                i18n::t("status.audience.save"),
+                                None,
+                                true,
+                                palette,
+                            )
+                            .on_click(
                                 cx.listener(|this, _, window, cx| this.save_audience(window, cx)),
                             ),
                         )
                     })
                     .when(editable && picking.is_some(), |this| {
                         this.child(
-                            text_button("audience-done", "Done", None, true, palette).on_click(
-                                cx.listener(|this, _, _, cx| {
-                                    if let Some(edit) = this.status.draft.audience.as_mut() {
-                                        edit.picking = None;
-                                    }
-                                    cx.notify();
-                                }),
-                            ),
+                            text_button(
+                                "audience-done",
+                                i18n::t("status.audience.done"),
+                                None,
+                                true,
+                                palette,
+                            )
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                if let Some(edit) = this.status.draft.audience.as_mut() {
+                                    edit.picking = None;
+                                }
+                                cx.notify();
+                            })),
                         )
                     }),
             )
@@ -1211,9 +1260,9 @@ impl Shell {
             .gap_2()
             .child(label(
                 if mode == StoryAudience::ContactsExcept {
-                    "Hide my status from"
+                    i18n::t("status.audience.hide_from")
                 } else {
-                    "Share my status only with"
+                    i18n::t("status.audience.share_only")
                 },
                 palette,
             ))
@@ -1230,7 +1279,7 @@ impl Shell {
                     div()
                         .text_size(metrics::TEXT_SMALL())
                         .text_color(palette.text_muted)
-                        .child("No contacts to pick from yet."),
+                        .child(i18n::t("status.audience.no_contacts")),
                 )
             })
     }
@@ -1247,7 +1296,7 @@ impl Shell {
             .flex()
             .flex_col()
             .child(super::menus::panel_header(
-                "Delete status?",
+                i18n::t("status.delete.title"),
                 palette,
                 cx.listener(|this, _, window, cx| this.close_status_sheet(window, cx)),
             ))
@@ -1262,15 +1311,12 @@ impl Shell {
                             .text_size(metrics::TEXT_SMALL())
                             .line_height(px(19.))
                             .text_color(palette.text_muted)
-                            .child(
-                                "It is taken down for everyone who could see it, including the \
-                                 people who already did.",
-                            ),
+                            .child(i18n::t("status.delete.about")),
                     )
                     .child(
                         text_button(
                             "status-delete-yes",
-                            "Delete",
+                            i18n::t("status.mine.delete"),
                             Some(IconName::Trash),
                             false,
                             palette,
@@ -1286,7 +1332,14 @@ impl Shell {
                         )),
                     )
                     .child(
-                        text_button("status-delete-no", "Cancel", None, false, palette).on_click(
+                        text_button(
+                            "status-delete-no",
+                            i18n::t("status.post.cancel"),
+                            None,
+                            false,
+                            palette,
+                        )
+                        .on_click(
                             cx.listener(|this, _, window, cx| this.close_status_sheet(window, cx)),
                         ),
                     ),
@@ -1362,7 +1415,7 @@ impl Shell {
             .flex()
             .flex_col()
             .child(super::menus::panel_header(
-                "Forward to",
+                i18n::t("status.forward.title"),
                 palette,
                 cx.listener(|this, _, window, cx| this.close_status_sheet(window, cx)),
             ))
