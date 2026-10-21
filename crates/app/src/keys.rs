@@ -527,20 +527,20 @@ impl Section {
     /// Its heading.
     pub fn title(self) -> &'static str {
         match self {
-            Section::Search => "Search",
-            Section::Navigation => "Navigation",
-            Section::Panes => "Panes",
-            Section::ChatList => "Chat list",
-            Section::Chats => "Chats",
-            Section::Compose => "Compose",
-            Section::Numbers => "Numbers",
-            Section::Settings => "Settings",
-            Section::Messages => "Messages",
-            Section::Message => "The message in focus",
-            Section::Viewer => "The picture viewer",
-            Section::Status => "Status",
-            Section::View => "View",
-            Section::Application => "Application",
+            Section::Search => crate::i18n::t("commands.sections.search"),
+            Section::Navigation => crate::i18n::t("commands.sections.navigation"),
+            Section::Panes => crate::i18n::t("commands.sections.panes"),
+            Section::ChatList => crate::i18n::t("commands.sections.chat_list"),
+            Section::Chats => crate::i18n::t("commands.sections.chats"),
+            Section::Compose => crate::i18n::t("commands.sections.compose"),
+            Section::Numbers => crate::i18n::t("commands.sections.numbers"),
+            Section::Settings => crate::i18n::t("commands.sections.settings"),
+            Section::Messages => crate::i18n::t("commands.sections.messages"),
+            Section::Message => crate::i18n::t("commands.sections.message"),
+            Section::Viewer => crate::i18n::t("commands.sections.viewer"),
+            Section::Status => crate::i18n::t("commands.sections.status"),
+            Section::View => crate::i18n::t("commands.sections.view"),
+            Section::Application => crate::i18n::t("commands.sections.application"),
         }
     }
 }
@@ -774,8 +774,12 @@ fn key_name(key: &str, mac: bool) -> String {
 pub struct Binding {
     /// What it does.
     pub command: Command,
-    /// What it is called, in menus, the palette and the sheet.
+    /// What it is called in English: the text of `key` in the English
+    /// catalog, which the palette also searches in any language.
     pub label: &'static str,
+    /// The catalog key of what it is called, in menus, the palette and the
+    /// sheet (`commands.keys.set_theme`).
+    pub key: &'static str,
     /// Where the sheet lists it.
     pub section: Section,
     /// When its keys apply.
@@ -788,6 +792,7 @@ pub struct Binding {
 const fn bind(
     command: Command,
     label: &'static str,
+    key: &'static str,
     section: Section,
     when: When,
     chords: &'static [Chord],
@@ -795,6 +800,7 @@ const fn bind(
     Binding {
         command,
         label,
+        key,
         section,
         when,
         chords,
@@ -811,6 +817,7 @@ pub const BINDINGS: &[Binding] = &[
     bind(
         C::Palette,
         "Go to a chat, a person or a message",
+        "commands.keys.palette",
         S::Search,
         W::Anywhere,
         &[secondary("p"), secondary("k")],
@@ -818,6 +825,7 @@ pub const BINDINGS: &[Binding] = &[
     bind(
         C::PaletteCommands,
         "Command palette",
+        "commands.keys.palette_commands",
         S::Search,
         W::Anywhere,
         &[secondary_shift("p")],
@@ -825,6 +833,7 @@ pub const BINDINGS: &[Binding] = &[
     bind(
         C::SearchMessages,
         "Search all messages",
+        "commands.keys.search_messages",
         S::Search,
         W::Anywhere,
         &[secondary_shift("f")],
@@ -832,6 +841,7 @@ pub const BINDINGS: &[Binding] = &[
     bind(
         C::Find,
         "Search in the conversation",
+        "commands.keys.find",
         S::Search,
         W::Anywhere,
         &[secondary("f")],
@@ -839,6 +849,7 @@ pub const BINDINGS: &[Binding] = &[
     bind(
         C::FindNext,
         "Next match",
+        "commands.keys.find_next",
         S::Search,
         W::Chat,
         &[secondary("g")],
@@ -846,6 +857,7 @@ pub const BINDINGS: &[Binding] = &[
     bind(
         C::FindPrevious,
         "Previous match",
+        "commands.keys.find_previous",
         S::Search,
         W::Chat,
         &[secondary_shift("g")],
@@ -854,6 +866,7 @@ pub const BINDINGS: &[Binding] = &[
     bind(
         C::NextChat,
         "Next chat",
+        "commands.keys.next_chat",
         S::Navigation,
         W::Anywhere,
         &[control("tab")],
@@ -861,6 +874,7 @@ pub const BINDINGS: &[Binding] = &[
     bind(
         C::PreviousChat,
         "Previous chat",
+        "commands.keys.previous_chat",
         S::Navigation,
         W::Anywhere,
         &[control_shift("tab")],
@@ -868,6 +882,7 @@ pub const BINDINGS: &[Binding] = &[
     bind(
         C::NextUnread,
         "Next unread chat",
+        "commands.keys.next_unread",
         S::Navigation,
         W::Anywhere,
         &[secondary_shift("u")],
@@ -875,6 +890,7 @@ pub const BINDINGS: &[Binding] = &[
     bind(
         C::Account(1),
         "Number 1",
+        "commands.keys.account_1",
         S::Navigation,
         W::Anywhere,
         &[secondary("1")],
@@ -882,6 +898,7 @@ pub const BINDINGS: &[Binding] = &[
     bind(
         C::Account(2),
         "Number 2",
+        "commands.keys.account_2",
         S::Navigation,
         W::Anywhere,
         &[secondary("2")],
@@ -889,6 +906,7 @@ pub const BINDINGS: &[Binding] = &[
     bind(
         C::Account(3),
         "Number 3",
+        "commands.keys.account_3",
         S::Navigation,
         W::Anywhere,
         &[secondary("3")],
@@ -896,6 +914,7 @@ pub const BINDINGS: &[Binding] = &[
     bind(
         C::Account(4),
         "Number 4",
+        "commands.keys.account_4",
         S::Navigation,
         W::Anywhere,
         &[secondary("4")],
@@ -903,6 +922,7 @@ pub const BINDINGS: &[Binding] = &[
     bind(
         C::Account(5),
         "Number 5",
+        "commands.keys.account_5",
         S::Navigation,
         W::Anywhere,
         &[secondary("5")],
@@ -910,6 +930,7 @@ pub const BINDINGS: &[Binding] = &[
     bind(
         C::Account(6),
         "Number 6",
+        "commands.keys.account_6",
         S::Navigation,
         W::Anywhere,
         &[secondary("6")],
@@ -917,6 +938,7 @@ pub const BINDINGS: &[Binding] = &[
     bind(
         C::Account(7),
         "Number 7",
+        "commands.keys.account_7",
         S::Navigation,
         W::Anywhere,
         &[secondary("7")],
@@ -924,6 +946,7 @@ pub const BINDINGS: &[Binding] = &[
     bind(
         C::Account(8),
         "Number 8",
+        "commands.keys.account_8",
         S::Navigation,
         W::Anywhere,
         &[secondary("8")],
@@ -931,6 +954,7 @@ pub const BINDINGS: &[Binding] = &[
     bind(
         C::Account(9),
         "Number 9",
+        "commands.keys.account_9",
         S::Navigation,
         W::Anywhere,
         &[secondary("9")],
@@ -938,6 +962,7 @@ pub const BINDINGS: &[Binding] = &[
     bind(
         C::NextAccount,
         "Next number",
+        "commands.keys.next_account",
         S::Navigation,
         W::Anywhere,
         &[secondary_shift("]")],
@@ -945,6 +970,7 @@ pub const BINDINGS: &[Binding] = &[
     bind(
         C::PreviousAccount,
         "Previous number",
+        "commands.keys.previous_account",
         S::Navigation,
         W::Anywhere,
         &[secondary_shift("[")],
@@ -953,6 +979,7 @@ pub const BINDINGS: &[Binding] = &[
     bind(
         C::NewChat,
         "New chat",
+        "commands.keys.new_chat",
         S::Compose,
         W::Anywhere,
         &[secondary("n")],
@@ -960,6 +987,7 @@ pub const BINDINGS: &[Binding] = &[
     bind(
         C::NewGroup,
         "New group",
+        "commands.keys.new_group",
         S::Compose,
         W::Anywhere,
         &[secondary_shift("n")],
@@ -967,14 +995,23 @@ pub const BINDINGS: &[Binding] = &[
     bind(
         C::NewCommunity,
         "New community",
+        "commands.keys.new_community",
         S::Compose,
         W::Anywhere,
         &[],
     ),
-    bind(C::Menu, "Menu", S::Chats, W::Anywhere, &[secondary(".")]),
+    bind(
+        C::Menu,
+        "Menu",
+        "commands.keys.menu",
+        S::Chats,
+        W::Anywhere,
+        &[secondary(".")],
+    ),
     bind(
         C::MarkAllRead,
         "Mark all as read",
+        "commands.keys.mark_all_read",
         S::Chats,
         W::Anywhere,
         &[],
@@ -982,6 +1019,7 @@ pub const BINDINGS: &[Binding] = &[
     bind(
         C::ShowArchived,
         "Archived chats",
+        "commands.keys.show_archived",
         S::Chats,
         W::Anywhere,
         &[],
@@ -989,6 +1027,7 @@ pub const BINDINGS: &[Binding] = &[
     bind(
         C::ChatInfo,
         "Contact or group info",
+        "commands.keys.chat_info",
         S::Chats,
         W::Chat,
         &[secondary_shift("i")],
@@ -996,6 +1035,7 @@ pub const BINDINGS: &[Binding] = &[
     bind(
         C::MuteChat,
         "Mute or unmute the chat",
+        "commands.keys.mute_chat",
         S::Chats,
         W::Chat,
         &[secondary_shift("m")],
@@ -1003,6 +1043,7 @@ pub const BINDINGS: &[Binding] = &[
     bind(
         C::ArchiveChat,
         "Archive or unarchive the chat",
+        "commands.keys.archive_chat",
         S::Chats,
         W::Chat,
         &[secondary_shift("a")],
@@ -1010,6 +1051,7 @@ pub const BINDINGS: &[Binding] = &[
     bind(
         C::PinChat,
         "Pin or unpin the chat",
+        "commands.keys.pin_chat",
         S::Chats,
         W::Chat,
         // "T" for the top of the list. (Ctrl+Shift+P is the command
@@ -1019,6 +1061,7 @@ pub const BINDINGS: &[Binding] = &[
     bind(
         C::MarkUnread,
         "Mark the chat as unread",
+        "commands.keys.mark_unread",
         S::Chats,
         W::Chat,
         &[],
@@ -1026,14 +1069,23 @@ pub const BINDINGS: &[Binding] = &[
     bind(
         C::Attach,
         "Attach files",
+        "commands.keys.attach",
         S::Compose,
         W::Chat,
         &[secondary("o")],
     ),
-    bind(C::NewPoll, "New poll", S::Compose, W::Chat, &[]),
+    bind(
+        C::NewPoll,
+        "New poll",
+        "commands.keys.new_poll",
+        S::Compose,
+        W::Chat,
+        &[],
+    ),
     bind(
         C::EmojiPicker,
         "Emoji",
+        "commands.keys.emoji_picker",
         S::Compose,
         W::Chat,
         &[secondary("e")],
@@ -1045,6 +1097,7 @@ pub const BINDINGS: &[Binding] = &[
     bind(
         C::AttachPrevious,
         "Previous file, while attaching",
+        "commands.keys.attach_previous",
         S::Compose,
         W::Attach,
         &[secondary("pageup"), key("left")],
@@ -1052,6 +1105,7 @@ pub const BINDINGS: &[Binding] = &[
     bind(
         C::AttachNext,
         "Next file, while attaching",
+        "commands.keys.attach_next",
         S::Compose,
         W::Attach,
         &[secondary("pagedown"), key("right")],
@@ -1059,6 +1113,7 @@ pub const BINDINGS: &[Binding] = &[
     bind(
         C::AttachMoveEarlier,
         "Move the file earlier, while attaching",
+        "commands.keys.attach_move_earlier",
         S::Compose,
         W::Attach,
         &[secondary_shift("pageup")],
@@ -1066,6 +1121,7 @@ pub const BINDINGS: &[Binding] = &[
     bind(
         C::AttachMoveLater,
         "Move the file later, while attaching",
+        "commands.keys.attach_move_later",
         S::Compose,
         W::Attach,
         &[secondary_shift("pagedown")],
@@ -1073,6 +1129,7 @@ pub const BINDINGS: &[Binding] = &[
     bind(
         C::AttachRemove,
         "Remove the file, while attaching",
+        "commands.keys.attach_remove",
         S::Compose,
         W::Attach,
         &[key("delete"), key("backspace")],
@@ -1080,6 +1137,7 @@ pub const BINDINGS: &[Binding] = &[
     bind(
         C::StickerPicker,
         "Stickers",
+        "commands.keys.sticker_picker",
         S::Compose,
         W::Chat,
         &[secondary_shift("e")],
@@ -1087,6 +1145,7 @@ pub const BINDINGS: &[Binding] = &[
     bind(
         C::GifPicker,
         "GIFs",
+        "commands.keys.gif_picker",
         S::Compose,
         W::Chat,
         &[secondary_shift("j")],
@@ -1094,6 +1153,7 @@ pub const BINDINGS: &[Binding] = &[
     bind(
         C::FavoriteSticker,
         "Star or unstar a sticker",
+        "commands.keys.favorite_sticker",
         S::Compose,
         W::Chat,
         &[secondary("d")],
@@ -1101,6 +1161,7 @@ pub const BINDINGS: &[Binding] = &[
     bind(
         C::ImportSticker,
         "Make a sticker from a picture…",
+        "commands.keys.import_sticker",
         S::Compose,
         W::Anywhere,
         &[],
@@ -1108,6 +1169,7 @@ pub const BINDINGS: &[Binding] = &[
     bind(
         C::ImportGif,
         "Add GIFs from files…",
+        "commands.keys.import_gif",
         S::Compose,
         W::Anywhere,
         &[],
@@ -1115,6 +1177,7 @@ pub const BINDINGS: &[Binding] = &[
     bind(
         C::RecordVoice,
         "Record a voice note, or stop recording",
+        "commands.keys.record_voice",
         S::Compose,
         W::Chat,
         &[secondary_shift("r")],
@@ -1122,6 +1185,7 @@ pub const BINDINGS: &[Binding] = &[
     bind(
         C::RecordSend,
         "Send the voice note",
+        "commands.keys.record_send",
         S::Chats,
         W::Recording,
         &[key("enter")],
@@ -1129,6 +1193,7 @@ pub const BINDINGS: &[Binding] = &[
     bind(
         C::RecordPause,
         "Pause the recording, or listen to it",
+        "commands.keys.record_pause",
         S::Chats,
         W::Recording,
         &[key("space")],
@@ -1136,6 +1201,7 @@ pub const BINDINGS: &[Binding] = &[
     bind(
         C::RecordDiscard,
         "Throw the voice note away",
+        "commands.keys.record_discard",
         S::Chats,
         W::Recording,
         &[key("escape")],
@@ -1143,6 +1209,7 @@ pub const BINDINGS: &[Binding] = &[
     bind(
         C::LeaveConversation,
         "Close the search, or go to the chat list",
+        "commands.keys.leave_conversation",
         S::Chats,
         W::Chat,
         &[key("escape")],
@@ -1150,6 +1217,7 @@ pub const BINDINGS: &[Binding] = &[
     bind(
         C::CloseChat,
         "Close the chat",
+        "commands.keys.close_chat",
         S::Chats,
         W::Chat,
         &[secondary("w")],
@@ -1158,6 +1226,7 @@ pub const BINDINGS: &[Binding] = &[
     bind(
         C::FocusList,
         "Focus the chat list",
+        "commands.keys.focus_list",
         S::Panes,
         W::Anywhere,
         &[secondary("l")],
@@ -1165,6 +1234,7 @@ pub const BINDINGS: &[Binding] = &[
     bind(
         C::PaneLeft,
         "The pane to the left",
+        "commands.keys.pane_left",
         S::Panes,
         W::Anywhere,
         &[alt("left")],
@@ -1172,6 +1242,7 @@ pub const BINDINGS: &[Binding] = &[
     bind(
         C::PaneRight,
         "The pane to the right",
+        "commands.keys.pane_right",
         S::Panes,
         W::Anywhere,
         &[alt("right")],
@@ -1179,6 +1250,7 @@ pub const BINDINGS: &[Binding] = &[
     bind(
         C::RailUp,
         "The number above",
+        "commands.keys.rail_up",
         S::Panes,
         W::Rail,
         &[key("up")],
@@ -1186,6 +1258,7 @@ pub const BINDINGS: &[Binding] = &[
     bind(
         C::RailDown,
         "The number below",
+        "commands.keys.rail_down",
         S::Panes,
         W::Rail,
         &[key("down")],
@@ -1193,6 +1266,7 @@ pub const BINDINGS: &[Binding] = &[
     bind(
         C::RailToList,
         "From the rail to the chat list",
+        "commands.keys.rail_to_list",
         S::Panes,
         W::Rail,
         &[key("right")],
@@ -1201,6 +1275,7 @@ pub const BINDINGS: &[Binding] = &[
     bind(
         C::ListUp,
         "The chat above",
+        "commands.keys.list_up",
         S::ChatList,
         W::List,
         &[key("up"), key("k")],
@@ -1208,6 +1283,7 @@ pub const BINDINGS: &[Binding] = &[
     bind(
         C::ListDown,
         "The chat below",
+        "commands.keys.list_down",
         S::ChatList,
         W::List,
         &[key("down"), key("j")],
@@ -1215,6 +1291,7 @@ pub const BINDINGS: &[Binding] = &[
     bind(
         C::ListFirst,
         "The first chat",
+        "commands.keys.list_first",
         S::ChatList,
         W::List,
         &[key("home")],
@@ -1222,6 +1299,7 @@ pub const BINDINGS: &[Binding] = &[
     bind(
         C::ListLast,
         "The last chat",
+        "commands.keys.list_last",
         S::ChatList,
         W::List,
         &[key("end")],
@@ -1229,6 +1307,7 @@ pub const BINDINGS: &[Binding] = &[
     bind(
         C::ListPageUp,
         "A screen up",
+        "commands.keys.list_page_up",
         S::ChatList,
         W::List,
         &[key("pageup")],
@@ -1236,6 +1315,7 @@ pub const BINDINGS: &[Binding] = &[
     bind(
         C::ListPageDown,
         "A screen down",
+        "commands.keys.list_page_down",
         S::ChatList,
         W::List,
         &[key("pagedown")],
@@ -1243,6 +1323,7 @@ pub const BINDINGS: &[Binding] = &[
     bind(
         C::ListOpen,
         "Open the chat",
+        "commands.keys.list_open",
         S::ChatList,
         W::List,
         &[key("enter"), key("right")],
@@ -1250,6 +1331,7 @@ pub const BINDINGS: &[Binding] = &[
     bind(
         C::ListSearch,
         "Search the chats",
+        "commands.keys.list_search",
         S::ChatList,
         W::List,
         &[key("/")],
@@ -1257,6 +1339,7 @@ pub const BINDINGS: &[Binding] = &[
     bind(
         C::ListNextFilter,
         "The next filter",
+        "commands.keys.list_next_filter",
         S::ChatList,
         W::List,
         &[key("tab")],
@@ -1264,6 +1347,7 @@ pub const BINDINGS: &[Binding] = &[
     bind(
         C::ListPreviousFilter,
         "The filter before",
+        "commands.keys.list_previous_filter",
         S::ChatList,
         W::List,
         &[shift("tab")],
@@ -1271,6 +1355,7 @@ pub const BINDINGS: &[Binding] = &[
     bind(
         C::ListPin,
         "Pin or unpin the chat",
+        "commands.keys.list_pin",
         S::ChatList,
         W::List,
         &[key("p")],
@@ -1278,6 +1363,7 @@ pub const BINDINGS: &[Binding] = &[
     bind(
         C::ListArchive,
         "Archive or unarchive it",
+        "commands.keys.list_archive",
         S::ChatList,
         W::List,
         &[key("a")],
@@ -1285,6 +1371,7 @@ pub const BINDINGS: &[Binding] = &[
     bind(
         C::ListMute,
         "Mute or unmute it",
+        "commands.keys.list_mute",
         S::ChatList,
         W::List,
         &[key("m")],
@@ -1292,6 +1379,7 @@ pub const BINDINGS: &[Binding] = &[
     bind(
         C::ListToggleRead,
         "Mark it as read or unread",
+        "commands.keys.list_toggle_read",
         S::ChatList,
         W::List,
         &[key("u")],
@@ -1299,6 +1387,7 @@ pub const BINDINGS: &[Binding] = &[
     bind(
         C::ListMenu,
         "The chat's menu",
+        "commands.keys.list_menu",
         S::ChatList,
         W::List,
         &[key("menu"), shift("f10")],
@@ -1306,6 +1395,7 @@ pub const BINDINGS: &[Binding] = &[
     bind(
         C::ListClear,
         "Empty the search",
+        "commands.keys.list_clear",
         S::ChatList,
         W::List,
         &[key("escape")],
@@ -1314,6 +1404,7 @@ pub const BINDINGS: &[Binding] = &[
     bind(
         C::FocusMessages,
         "Go to the newest message",
+        "commands.keys.focus_messages",
         S::Messages,
         W::Chat,
         &[alt("up")],
@@ -1321,6 +1412,7 @@ pub const BINDINGS: &[Binding] = &[
     bind(
         C::MessageUp,
         "Message above",
+        "commands.keys.message_up",
         S::Messages,
         W::Message,
         &[key("up"), key("k")],
@@ -1328,6 +1420,7 @@ pub const BINDINGS: &[Binding] = &[
     bind(
         C::MessageDown,
         "Message below",
+        "commands.keys.message_down",
         S::Messages,
         W::Message,
         &[key("down"), key("j")],
@@ -1335,6 +1428,7 @@ pub const BINDINGS: &[Binding] = &[
     bind(
         C::MessageFirst,
         "Oldest message",
+        "commands.keys.message_first",
         S::Messages,
         W::Message,
         &[key("home")],
@@ -1342,6 +1436,7 @@ pub const BINDINGS: &[Binding] = &[
     bind(
         C::MessageLast,
         "Newest message",
+        "commands.keys.message_last",
         S::Messages,
         W::Message,
         &[key("end")],
@@ -1349,6 +1444,7 @@ pub const BINDINGS: &[Binding] = &[
     bind(
         C::PageUp,
         "A screen up",
+        "commands.keys.page_up",
         S::Messages,
         W::Message,
         &[key("pageup")],
@@ -1356,6 +1452,7 @@ pub const BINDINGS: &[Binding] = &[
     bind(
         C::PageDown,
         "A screen down",
+        "commands.keys.page_down",
         S::Messages,
         W::Message,
         &[key("pagedown")],
@@ -1363,6 +1460,7 @@ pub const BINDINGS: &[Binding] = &[
     bind(
         C::ExtendUp,
         "Select the message above too",
+        "commands.keys.extend_up",
         S::Messages,
         W::Message,
         &[shift("up")],
@@ -1370,6 +1468,7 @@ pub const BINDINGS: &[Binding] = &[
     bind(
         C::ExtendDown,
         "Select the message below too",
+        "commands.keys.extend_down",
         S::Messages,
         W::Message,
         &[shift("down")],
@@ -1377,6 +1476,7 @@ pub const BINDINGS: &[Binding] = &[
     bind(
         C::BackToComposer,
         "Back to the composer",
+        "commands.keys.back_to_composer",
         S::Messages,
         W::Message,
         &[key("escape")],
@@ -1385,6 +1485,7 @@ pub const BINDINGS: &[Binding] = &[
     bind(
         C::Reply,
         "Reply",
+        "commands.keys.reply",
         S::Message,
         W::Message,
         &[key("enter"), key("r")],
@@ -1392,6 +1493,7 @@ pub const BINDINGS: &[Binding] = &[
     bind(
         C::ReplyPrivately,
         "Reply privately",
+        "commands.keys.reply_privately",
         S::Message,
         W::Message,
         &[shift("r")],
@@ -1399,14 +1501,23 @@ pub const BINDINGS: &[Binding] = &[
     bind(
         C::React,
         "React",
+        "commands.keys.react",
         S::Message,
         W::Message,
         &[key("+"), key(":")],
     ),
-    bind(C::Edit, "Edit", S::Message, W::Message, &[key("e")]),
+    bind(
+        C::Edit,
+        "Edit",
+        "commands.keys.edit",
+        S::Message,
+        W::Message,
+        &[key("e")],
+    ),
     bind(
         C::Copy,
         "Copy",
+        "commands.keys.copy",
         S::Message,
         W::Message,
         &[secondary("c"), key("c")],
@@ -1414,6 +1525,7 @@ pub const BINDINGS: &[Binding] = &[
     bind(
         C::CopyLink,
         "Copy link or number",
+        "commands.keys.copy_link",
         S::Message,
         W::Message,
         &[shift("c")],
@@ -1421,6 +1533,7 @@ pub const BINDINGS: &[Binding] = &[
     bind(
         C::CopyImage,
         "Copy image",
+        "commands.keys.copy_image",
         S::Message,
         W::Message,
         &[secondary_shift("c")],
@@ -1428,14 +1541,23 @@ pub const BINDINGS: &[Binding] = &[
     bind(
         C::SelectText,
         "Select the message's text",
+        "commands.keys.select_text",
         S::Message,
         W::Message,
         &[secondary("a")],
     ),
-    bind(C::Forward, "Forward", S::Message, W::Message, &[key("f")]),
+    bind(
+        C::Forward,
+        "Forward",
+        "commands.keys.forward",
+        S::Message,
+        W::Message,
+        &[key("f")],
+    ),
     bind(
         C::Star,
         "Star or unstar",
+        "commands.keys.star",
         S::Message,
         W::Message,
         &[key("s")],
@@ -1443,6 +1565,7 @@ pub const BINDINGS: &[Binding] = &[
     bind(
         C::Pin,
         "Pin or unpin in the chat",
+        "commands.keys.pin",
         S::Message,
         W::Message,
         &[key("p")],
@@ -1450,6 +1573,7 @@ pub const BINDINGS: &[Binding] = &[
     bind(
         C::CreateTask,
         "Create task",
+        "commands.keys.create_task",
         S::Message,
         W::Message,
         &[key("t")],
@@ -1457,14 +1581,23 @@ pub const BINDINGS: &[Binding] = &[
     bind(
         C::Reactions,
         "Who reacted",
+        "commands.keys.reactions",
         S::Message,
         W::Message,
         &[key("w")],
     ),
-    bind(C::Info, "Message info", S::Message, W::Message, &[key("i")]),
+    bind(
+        C::Info,
+        "Message info",
+        "commands.keys.info",
+        S::Message,
+        W::Message,
+        &[key("i")],
+    ),
     bind(
         C::Open,
         "Open the file or link",
+        "commands.keys.open",
         S::Message,
         W::Message,
         &[key("o")],
@@ -1472,6 +1605,7 @@ pub const BINDINGS: &[Binding] = &[
     bind(
         C::Download,
         "Download the file",
+        "commands.keys.download",
         S::Message,
         W::Message,
         &[key("d")],
@@ -1479,6 +1613,7 @@ pub const BINDINGS: &[Binding] = &[
     bind(
         C::SelectMessages,
         "Select messages",
+        "commands.keys.select_messages",
         S::Message,
         W::Message,
         &[key("x")],
@@ -1486,6 +1621,7 @@ pub const BINDINGS: &[Binding] = &[
     bind(
         C::Delete,
         "Delete",
+        "commands.keys.delete",
         S::Message,
         W::Message,
         &[key("backspace"), key("delete")],
@@ -1493,6 +1629,7 @@ pub const BINDINGS: &[Binding] = &[
     bind(
         C::SaveAs,
         "Save as…",
+        "commands.keys.save_as",
         S::Message,
         W::Message,
         &[secondary("s")],
@@ -1500,6 +1637,7 @@ pub const BINDINGS: &[Binding] = &[
     bind(
         C::SaveToDownloads,
         "Save to Downloads",
+        "commands.keys.save_to_downloads",
         S::Message,
         W::Message,
         &[secondary_shift("s")],
@@ -1507,6 +1645,7 @@ pub const BINDINGS: &[Binding] = &[
     bind(
         C::SaveSticker,
         "Add the sticker to favorites",
+        "commands.keys.save_sticker",
         S::Message,
         W::Message,
         &[key("v")],
@@ -1514,6 +1653,7 @@ pub const BINDINGS: &[Binding] = &[
     bind(
         C::SaveGif,
         "Save the GIF",
+        "commands.keys.save_gif",
         S::Message,
         W::Message,
         &[key("g")],
@@ -1521,6 +1661,7 @@ pub const BINDINGS: &[Binding] = &[
     bind(
         C::MessageMenu,
         "Message menu",
+        "commands.keys.message_menu",
         S::Message,
         W::Message,
         &[key("m")],
@@ -1529,15 +1670,24 @@ pub const BINDINGS: &[Binding] = &[
     bind(
         C::ToggleTasks,
         "Show or hide tasks",
+        "commands.keys.toggle_tasks",
         S::View,
         W::Anywhere,
         &[alt("t")],
     ),
-    bind(C::NewTask, "New task", S::View, W::Anywhere, &[]),
+    bind(
+        C::NewTask,
+        "New task",
+        "commands.keys.new_task",
+        S::View,
+        W::Anywhere,
+        &[],
+    ),
     // Status: getting to it, and what is done to a status.
     bind(
         C::ShowStatus,
         "Show Status",
+        "commands.keys.show_status",
         S::Status,
         W::Anywhere,
         &[alt("s")],
@@ -1545,6 +1695,7 @@ pub const BINDINGS: &[Binding] = &[
     bind(
         C::ShowChats,
         "Show chats",
+        "commands.keys.show_chats",
         S::Status,
         W::Anywhere,
         &[alt("c")],
@@ -1552,6 +1703,7 @@ pub const BINDINGS: &[Binding] = &[
     bind(
         C::NewStatus,
         "New status",
+        "commands.keys.new_status",
         S::Status,
         W::Anywhere,
         &[alt("n")],
@@ -1559,6 +1711,7 @@ pub const BINDINGS: &[Binding] = &[
     bind(
         C::SettingsStatus,
         "Who sees my status",
+        "commands.keys.settings_status",
         S::Settings,
         W::Anywhere,
         &[],
@@ -1566,6 +1719,7 @@ pub const BINDINGS: &[Binding] = &[
     bind(
         C::ToggleStoryReceipts,
         "Status view receipts",
+        "commands.keys.toggle_story_receipts",
         S::Settings,
         W::Anywhere,
         &[],
@@ -1573,15 +1727,24 @@ pub const BINDINGS: &[Binding] = &[
     bind(
         C::ToggleStatusStrip,
         "Show or fold the status updates above the chats",
+        "commands.keys.toggle_status_strip",
         S::Status,
         W::Anywhere,
         &[],
     ),
     // The status list.
-    bind(C::StatusUp, "Row above", S::Status, W::Status, &[key("up")]),
+    bind(
+        C::StatusUp,
+        "Row above",
+        "commands.keys.status_up",
+        S::Status,
+        W::Status,
+        &[key("up")],
+    ),
     bind(
         C::StatusDown,
         "Row below",
+        "commands.keys.status_down",
         S::Status,
         W::Status,
         &[key("down")],
@@ -1589,6 +1752,7 @@ pub const BINDINGS: &[Binding] = &[
     bind(
         C::StatusFirst,
         "First row",
+        "commands.keys.status_first",
         S::Status,
         W::Status,
         &[key("home")],
@@ -1596,6 +1760,7 @@ pub const BINDINGS: &[Binding] = &[
     bind(
         C::StatusLast,
         "Last row",
+        "commands.keys.status_last",
         S::Status,
         W::Status,
         &[key("end")],
@@ -1603,6 +1768,7 @@ pub const BINDINGS: &[Binding] = &[
     bind(
         C::StatusOpen,
         "Open the status",
+        "commands.keys.status_open",
         S::Status,
         W::Status,
         &[key("enter")],
@@ -1610,6 +1776,7 @@ pub const BINDINGS: &[Binding] = &[
     bind(
         C::StatusMute,
         "Mute or unmute their status",
+        "commands.keys.status_mute",
         S::Status,
         W::Status,
         &[key("m")],
@@ -1617,6 +1784,7 @@ pub const BINDINGS: &[Binding] = &[
     bind(
         C::StatusToggleMuted,
         "Show or hide muted updates",
+        "commands.keys.status_toggle_muted",
         S::Status,
         W::Status,
         &[key("u")],
@@ -1624,6 +1792,7 @@ pub const BINDINGS: &[Binding] = &[
     bind(
         C::StatusMine,
         "Who saw my status",
+        "commands.keys.status_mine",
         S::Status,
         W::Status,
         &[key("i")],
@@ -1631,6 +1800,7 @@ pub const BINDINGS: &[Binding] = &[
     bind(
         C::StatusRefresh,
         "Check for status updates again",
+        "commands.keys.status_refresh",
         S::Status,
         W::Status,
         &[key("r")],
@@ -1639,6 +1809,7 @@ pub const BINDINGS: &[Binding] = &[
     bind(
         C::StoryNext,
         "Next story",
+        "commands.keys.story_next",
         S::Status,
         W::Story,
         &[key("right")],
@@ -1646,6 +1817,7 @@ pub const BINDINGS: &[Binding] = &[
     bind(
         C::StoryPrevious,
         "Previous story",
+        "commands.keys.story_previous",
         S::Status,
         W::Story,
         &[key("left")],
@@ -1653,6 +1825,7 @@ pub const BINDINGS: &[Binding] = &[
     bind(
         C::StoryNextAuthor,
         "Next person's stories",
+        "commands.keys.story_next_author",
         S::Status,
         W::Story,
         &[key("down"), control("right")],
@@ -1660,6 +1833,7 @@ pub const BINDINGS: &[Binding] = &[
     bind(
         C::StoryPreviousAuthor,
         "Previous person's stories",
+        "commands.keys.story_previous_author",
         S::Status,
         W::Story,
         &[key("up"), control("left")],
@@ -1667,6 +1841,7 @@ pub const BINDINGS: &[Binding] = &[
     bind(
         C::StoryPause,
         "Pause or go on",
+        "commands.keys.story_pause",
         S::Status,
         W::Story,
         &[key("space")],
@@ -1674,6 +1849,7 @@ pub const BINDINGS: &[Binding] = &[
     bind(
         C::StoryClose,
         "Close the status",
+        "commands.keys.story_close",
         S::Status,
         W::Story,
         &[key("escape")],
@@ -1681,6 +1857,7 @@ pub const BINDINGS: &[Binding] = &[
     bind(
         C::StoryMute,
         "Mute their status",
+        "commands.keys.story_mute",
         S::Status,
         W::Story,
         &[key("m")],
@@ -1688,6 +1865,7 @@ pub const BINDINGS: &[Binding] = &[
     bind(
         C::StoryInfo,
         "Who saw it, and when it goes",
+        "commands.keys.story_info",
         S::Status,
         W::Story,
         &[key("i")],
@@ -1695,6 +1873,7 @@ pub const BINDINGS: &[Binding] = &[
     bind(
         C::StoryReply,
         "Reply to the status",
+        "commands.keys.story_reply",
         S::Status,
         W::Story,
         &[key("r")],
@@ -1702,6 +1881,7 @@ pub const BINDINGS: &[Binding] = &[
     bind(
         C::StoryReact,
         "React to the status",
+        "commands.keys.story_react",
         S::Status,
         W::Story,
         &[key("e")],
@@ -1709,6 +1889,7 @@ pub const BINDINGS: &[Binding] = &[
     bind(
         C::StoryOpenVideo,
         "Play the video",
+        "commands.keys.story_open_video",
         S::Status,
         W::Story,
         &[key("o")],
@@ -1716,6 +1897,7 @@ pub const BINDINGS: &[Binding] = &[
     bind(
         C::StoryDelete,
         "Delete my status",
+        "commands.keys.story_delete",
         S::Status,
         W::Story,
         &[key("delete"), key("backspace")],
@@ -1725,6 +1907,7 @@ pub const BINDINGS: &[Binding] = &[
     bind(
         C::ViewerNext,
         "Next picture",
+        "commands.keys.viewer_next",
         S::Viewer,
         W::Viewer,
         &[key("right")],
@@ -1732,6 +1915,7 @@ pub const BINDINGS: &[Binding] = &[
     bind(
         C::ViewerPrevious,
         "Previous picture",
+        "commands.keys.viewer_previous",
         S::Viewer,
         W::Viewer,
         &[key("left")],
@@ -1739,14 +1923,23 @@ pub const BINDINGS: &[Binding] = &[
     bind(
         C::ZoomIn,
         "Zoom in",
+        "commands.keys.zoom_in",
         S::Viewer,
         W::Viewer,
         &[key("+"), key("=")],
     ),
-    bind(C::ZoomOut, "Zoom out", S::Viewer, W::Viewer, &[key("-")]),
+    bind(
+        C::ZoomOut,
+        "Zoom out",
+        "commands.keys.zoom_out",
+        S::Viewer,
+        W::Viewer,
+        &[key("-")],
+    ),
     bind(
         C::ZoomFit,
         "Fit the window",
+        "commands.keys.zoom_fit",
         S::Viewer,
         W::Viewer,
         &[key("0")],
@@ -1754,6 +1947,7 @@ pub const BINDINGS: &[Binding] = &[
     bind(
         C::ZoomActual,
         "Actual size",
+        "commands.keys.zoom_actual",
         S::Viewer,
         W::Viewer,
         &[key("1")],
@@ -1762,6 +1956,7 @@ pub const BINDINGS: &[Binding] = &[
     bind(
         C::ToggleTheme,
         "Light or dark",
+        "commands.keys.toggle_theme",
         S::View,
         W::Anywhere,
         &[secondary_shift("d")],
@@ -1769,6 +1964,7 @@ pub const BINDINGS: &[Binding] = &[
     bind(
         C::Larger,
         "Larger",
+        "commands.keys.larger",
         S::View,
         W::Anywhere,
         &[secondary("+"), secondary("=")],
@@ -1776,6 +1972,7 @@ pub const BINDINGS: &[Binding] = &[
     bind(
         C::Smaller,
         "Smaller",
+        "commands.keys.smaller",
         S::View,
         W::Anywhere,
         &[secondary("-")],
@@ -1783,6 +1980,7 @@ pub const BINDINGS: &[Binding] = &[
     bind(
         C::ActualSize,
         "Actual size",
+        "commands.keys.actual_size",
         S::View,
         W::Anywhere,
         &[secondary("0")],
@@ -1791,6 +1989,7 @@ pub const BINDINGS: &[Binding] = &[
     bind(
         C::Settings,
         "Settings",
+        "commands.keys.settings",
         S::Application,
         W::Anywhere,
         &[secondary(",")],
@@ -1798,6 +1997,7 @@ pub const BINDINGS: &[Binding] = &[
     bind(
         C::SettingsAppearance,
         "Settings: Appearance",
+        "commands.keys.settings_appearance",
         S::Application,
         W::Anywhere,
         &[],
@@ -1805,6 +2005,7 @@ pub const BINDINGS: &[Binding] = &[
     bind(
         C::SettingsSync,
         "Settings: Sync",
+        "commands.keys.settings_sync",
         S::Application,
         W::Anywhere,
         &[],
@@ -1812,6 +2013,7 @@ pub const BINDINGS: &[Binding] = &[
     bind(
         C::SettingsNotifications,
         "Settings: Notifications",
+        "commands.keys.settings_notifications",
         S::Application,
         W::Anywhere,
         &[],
@@ -1819,6 +2021,7 @@ pub const BINDINGS: &[Binding] = &[
     bind(
         C::SettingsAudio,
         "Settings: Audio",
+        "commands.keys.settings_audio",
         S::Application,
         W::Anywhere,
         &[],
@@ -1826,6 +2029,7 @@ pub const BINDINGS: &[Binding] = &[
     bind(
         C::SettingsStickers,
         "Settings: Stickers and GIFs",
+        "commands.keys.settings_stickers",
         S::Application,
         W::Anywhere,
         &[],
@@ -1833,6 +2037,7 @@ pub const BINDINGS: &[Binding] = &[
     bind(
         C::SettingsKeyboard,
         "Settings: Keyboard",
+        "commands.keys.settings_keyboard",
         S::Application,
         W::Anywhere,
         &[],
@@ -1840,6 +2045,7 @@ pub const BINDINGS: &[Binding] = &[
     bind(
         C::Shortcuts,
         "Keyboard shortcuts",
+        "commands.keys.shortcuts",
         S::Application,
         W::Anywhere,
         // "?" on its own too, when nothing is being typed.
@@ -1848,14 +2054,23 @@ pub const BINDINGS: &[Binding] = &[
     bind(
         C::AddNumber,
         "Add a number",
+        "commands.keys.add_number",
         S::Application,
         W::Anywhere,
         &[],
     ),
-    bind(C::SignOut, "Sign out", S::Application, W::Anywhere, &[]),
+    bind(
+        C::SignOut,
+        "Sign out",
+        "commands.keys.sign_out",
+        S::Application,
+        W::Anywhere,
+        &[],
+    ),
     bind(
         C::Diagnostics,
         "Check the connection",
+        "commands.keys.diagnostics",
         S::Application,
         W::Anywhere,
         &[],
@@ -1863,14 +2078,23 @@ pub const BINDINGS: &[Binding] = &[
     bind(
         C::SettingsAccount,
         "Settings: Account",
+        "commands.keys.settings_account",
         S::Application,
         W::Anywhere,
         &[],
     ),
-    bind(C::SettingsAbout, "About", S::Application, W::Anywhere, &[]),
+    bind(
+        C::SettingsAbout,
+        "About",
+        "commands.keys.settings_about",
+        S::Application,
+        W::Anywhere,
+        &[],
+    ),
     bind(
         C::OpenLinksHere,
         "Open WhatsApp links with Wuapi",
+        "commands.keys.open_links_here",
         S::Application,
         W::Anywhere,
         &[],
@@ -1878,6 +2102,7 @@ pub const BINDINGS: &[Binding] = &[
     bind(
         C::CheckForUpdates,
         "Check for updates",
+        "commands.keys.check_for_updates",
         S::Application,
         W::Anywhere,
         &[],
@@ -1885,15 +2110,24 @@ pub const BINDINGS: &[Binding] = &[
     bind(
         C::RestartToUpdate,
         "Restart to update",
+        "commands.keys.restart_to_update",
         S::Application,
         W::Anywhere,
         &[],
     ),
-    bind(C::Quit, "Quit", S::Application, W::Anywhere, QUIT_KEYS),
+    bind(
+        C::Quit,
+        "Quit",
+        "commands.keys.quit",
+        S::Application,
+        W::Anywhere,
+        QUIT_KEYS,
+    ),
     // Reached from the palette: no keys of their own.
     bind(
         C::ShowAllChats,
         "Show all chats",
+        "commands.keys.show_all_chats",
         S::Navigation,
         W::Anywhere,
         &[],
@@ -1901,6 +2135,7 @@ pub const BINDINGS: &[Binding] = &[
     bind(
         C::ShowUnread,
         "Show unread chats",
+        "commands.keys.show_unread",
         S::Navigation,
         W::Anywhere,
         &[],
@@ -1908,6 +2143,7 @@ pub const BINDINGS: &[Binding] = &[
     bind(
         C::ShowGroups,
         "Show groups",
+        "commands.keys.show_groups",
         S::Navigation,
         W::Anywhere,
         &[],
@@ -1915,6 +2151,7 @@ pub const BINDINGS: &[Binding] = &[
     bind(
         C::SwitchNumber,
         "Switch number…",
+        "commands.keys.switch_number",
         S::Navigation,
         W::Anywhere,
         &[],
@@ -1922,6 +2159,7 @@ pub const BINDINGS: &[Binding] = &[
     bind(
         C::JumpToDate,
         "Go to a date in the conversation…",
+        "commands.keys.jump_to_date",
         S::Navigation,
         W::Chat,
         &[],
@@ -1929,6 +2167,7 @@ pub const BINDINGS: &[Binding] = &[
     bind(
         C::JumpToFirstUnread,
         "Go to the first unread message",
+        "commands.keys.jump_to_first_unread",
         S::Navigation,
         W::Chat,
         &[],
@@ -1936,6 +2175,7 @@ pub const BINDINGS: &[Binding] = &[
     bind(
         C::JumpToNewest,
         "Go to the newest message",
+        "commands.keys.jump_to_newest",
         S::Navigation,
         W::Chat,
         &[],
@@ -1943,24 +2183,55 @@ pub const BINDINGS: &[Binding] = &[
     bind(
         C::FocusConversation,
         "Focus the conversation",
+        "commands.keys.focus_conversation",
         S::Panes,
         W::Anywhere,
         &[],
     ),
-    bind(C::FocusRail, "Focus the rail", S::Panes, W::Anywhere, &[]),
-    bind(C::MarkRead, "Mark the chat as read", S::Chats, W::Chat, &[]),
-    bind(C::DeleteChat, "Delete the chat", S::Chats, W::Chat, &[]),
     bind(
-        C::IncomingWebhooks,
-        "Incoming webhooks",
+        C::FocusRail,
+        "Focus the rail",
+        "commands.keys.focus_rail",
+        S::Panes,
+        W::Anywhere,
+        &[],
+    ),
+    bind(
+        C::MarkRead,
+        "Mark the chat as read",
+        "commands.keys.mark_read",
         S::Chats,
         W::Chat,
         &[],
     ),
-    bind(C::MuteFor, "Mute the chat for…", S::Chats, W::Chat, &[]),
+    bind(
+        C::DeleteChat,
+        "Delete the chat",
+        "commands.keys.delete_chat",
+        S::Chats,
+        W::Chat,
+        &[],
+    ),
+    bind(
+        C::IncomingWebhooks,
+        "Incoming webhooks",
+        "commands.keys.incoming_webhooks",
+        S::Chats,
+        W::Chat,
+        &[],
+    ),
+    bind(
+        C::MuteFor,
+        "Mute the chat for…",
+        "commands.keys.mute_for",
+        S::Chats,
+        W::Chat,
+        &[],
+    ),
     bind(
         C::PinAChat,
         "Pin or unpin a chat…",
+        "commands.keys.pin_a_chat",
         S::Chats,
         W::Anywhere,
         &[],
@@ -1968,22 +2239,39 @@ pub const BINDINGS: &[Binding] = &[
     bind(
         C::ArchiveAChat,
         "Archive or unarchive a chat…",
+        "commands.keys.archive_a_chat",
         S::Chats,
         W::Anywhere,
         &[],
     ),
-    bind(C::MuteAChat, "Mute a chat…", S::Chats, W::Anywhere, &[]),
+    bind(
+        C::MuteAChat,
+        "Mute a chat…",
+        "commands.keys.mute_a_chat",
+        S::Chats,
+        W::Anywhere,
+        &[],
+    ),
     bind(
         C::MarkAChat,
         "Mark a chat as read or unread…",
+        "commands.keys.mark_a_chat",
         S::Chats,
         W::Anywhere,
         &[],
     ),
-    bind(C::Paste, "Paste", S::Compose, W::Chat, &[]),
+    bind(
+        C::Paste,
+        "Paste",
+        "commands.keys.paste",
+        S::Compose,
+        W::Chat,
+        &[],
+    ),
     bind(
         C::InsertMention,
         "Mention somebody",
+        "commands.keys.insert_mention",
         S::Compose,
         W::Chat,
         &[],
@@ -1991,6 +2279,7 @@ pub const BINDINGS: &[Binding] = &[
     bind(
         C::LinkNumber,
         "Link this number",
+        "commands.keys.link_number",
         S::Numbers,
         W::Anywhere,
         &[],
@@ -1998,6 +2287,7 @@ pub const BINDINGS: &[Binding] = &[
     bind(
         C::RenameNumber,
         "Rename this number",
+        "commands.keys.rename_number",
         S::Numbers,
         W::Anywhere,
         &[],
@@ -2005,6 +2295,7 @@ pub const BINDINGS: &[Binding] = &[
     bind(
         C::ReconnectNumber,
         "Reconnect this number",
+        "commands.keys.reconnect_number",
         S::Numbers,
         W::Anywhere,
         &[],
@@ -2012,6 +2303,7 @@ pub const BINDINGS: &[Binding] = &[
     bind(
         C::EditProfile,
         "Edit this number's WhatsApp profile",
+        "commands.keys.edit_profile",
         S::Numbers,
         W::Anywhere,
         &[],
@@ -2019,6 +2311,7 @@ pub const BINDINGS: &[Binding] = &[
     bind(
         C::MoveNumberToGroup,
         "Move this number to a group…",
+        "commands.keys.move_number_to_group",
         S::Numbers,
         W::Anywhere,
         &[],
@@ -2026,6 +2319,7 @@ pub const BINDINGS: &[Binding] = &[
     bind(
         C::LogOutNumber,
         "Log this number out",
+        "commands.keys.log_out_number",
         S::Numbers,
         W::Anywhere,
         &[],
@@ -2033,6 +2327,7 @@ pub const BINDINGS: &[Binding] = &[
     bind(
         C::NumberLook,
         "Change this number's icon and colour",
+        "commands.keys.number_look",
         S::Numbers,
         W::Anywhere,
         &[],
@@ -2040,6 +2335,7 @@ pub const BINDINGS: &[Binding] = &[
     bind(
         C::GroupNumberWith,
         "New group of numbers with…",
+        "commands.keys.group_number_with",
         S::Numbers,
         W::Anywhere,
         &[],
@@ -2047,6 +2343,7 @@ pub const BINDINGS: &[Binding] = &[
     bind(
         C::LeaveRailGroup,
         "Remove this number from its group",
+        "commands.keys.leave_rail_group",
         S::Numbers,
         W::Anywhere,
         &[],
@@ -2054,6 +2351,7 @@ pub const BINDINGS: &[Binding] = &[
     bind(
         C::MoveNumberUp,
         "Move this number up",
+        "commands.keys.move_number_up",
         S::Numbers,
         W::Anywhere,
         &[],
@@ -2061,6 +2359,7 @@ pub const BINDINGS: &[Binding] = &[
     bind(
         C::MoveNumberDown,
         "Move this number down",
+        "commands.keys.move_number_down",
         S::Numbers,
         W::Anywhere,
         &[],
@@ -2068,6 +2367,7 @@ pub const BINDINGS: &[Binding] = &[
     bind(
         C::MuteNumber,
         "Mute or unmute this number's notifications",
+        "commands.keys.mute_number",
         S::Numbers,
         W::Anywhere,
         &[],
@@ -2075,6 +2375,7 @@ pub const BINDINGS: &[Binding] = &[
     bind(
         C::RemoveNumber,
         "Remove this number",
+        "commands.keys.remove_number",
         S::Numbers,
         W::Anywhere,
         &[],
@@ -2082,6 +2383,7 @@ pub const BINDINGS: &[Binding] = &[
     bind(
         C::ToggleRailGroup,
         "Expand or collapse a group of numbers…",
+        "commands.keys.toggle_rail_group",
         S::Numbers,
         W::Anywhere,
         &[],
@@ -2089,6 +2391,7 @@ pub const BINDINGS: &[Binding] = &[
     bind(
         C::EditRailGroup,
         "Rename a group of numbers…",
+        "commands.keys.edit_rail_group",
         S::Numbers,
         W::Anywhere,
         &[],
@@ -2096,14 +2399,23 @@ pub const BINDINGS: &[Binding] = &[
     bind(
         C::Ungroup,
         "Ungroup a group of numbers…",
+        "commands.keys.ungroup",
         S::Numbers,
         W::Anywhere,
         &[],
     ),
-    bind(C::SetTheme, "Theme…", S::Settings, W::Anywhere, &[]),
+    bind(
+        C::SetTheme,
+        "Theme…",
+        "commands.keys.set_theme",
+        S::Settings,
+        W::Anywhere,
+        &[],
+    ),
     bind(
         C::SetInterfaceSize,
         "Interface size…",
+        "commands.keys.set_interface_size",
         S::Settings,
         W::Anywhere,
         &[],
@@ -2111,6 +2423,7 @@ pub const BINDINGS: &[Binding] = &[
     bind(
         C::SetBubbles,
         "Message bubbles…",
+        "commands.keys.set_bubbles",
         S::Settings,
         W::Anywhere,
         &[],
@@ -2118,14 +2431,23 @@ pub const BINDINGS: &[Binding] = &[
     bind(
         C::SetWallpaper,
         "Chat wallpaper…",
+        "commands.keys.set_wallpaper",
         S::Settings,
         W::Anywhere,
         &[],
     ),
-    bind(C::SetMotion, "Motion…", S::Settings, W::Anywhere, &[]),
+    bind(
+        C::SetMotion,
+        "Motion…",
+        "commands.keys.set_motion",
+        S::Settings,
+        W::Anywhere,
+        &[],
+    ),
     bind(
         C::SetLanguage,
         "Interface language…",
+        "commands.keys.set_language",
         S::Settings,
         W::Anywhere,
         &[],
@@ -2133,6 +2455,7 @@ pub const BINDINGS: &[Binding] = &[
     bind(
         C::SetEmojiLanguage,
         "Emoji search language…",
+        "commands.keys.set_emoji_language",
         S::Settings,
         W::Anywhere,
         &[],
@@ -2140,6 +2463,7 @@ pub const BINDINGS: &[Binding] = &[
     bind(
         C::SetMediaDownload,
         "Download media automatically…",
+        "commands.keys.set_media_download",
         S::Settings,
         W::Anywhere,
         &[],
@@ -2147,6 +2471,7 @@ pub const BINDINGS: &[Binding] = &[
     bind(
         C::SetHistory,
         "History to fetch…",
+        "commands.keys.set_history",
         S::Settings,
         W::Anywhere,
         &[],
@@ -2154,6 +2479,7 @@ pub const BINDINGS: &[Binding] = &[
     bind(
         C::ToggleReadReceipts,
         "Read receipts",
+        "commands.keys.toggle_read_receipts",
         S::Settings,
         W::Anywhere,
         &[],
@@ -2161,6 +2487,7 @@ pub const BINDINGS: &[Binding] = &[
     bind(
         C::ToggleDesktopNotifications,
         "Desktop notifications",
+        "commands.keys.toggle_desktop_notifications",
         S::Settings,
         W::Anywhere,
         &[],
@@ -2168,6 +2495,7 @@ pub const BINDINGS: &[Binding] = &[
     bind(
         C::ToggleMessagePreviews,
         "Message previews in notifications",
+        "commands.keys.toggle_message_previews",
         S::Settings,
         W::Anywhere,
         &[],
@@ -2190,9 +2518,16 @@ pub fn binding(command: Command) -> Option<&'static Binding> {
     BINDINGS.iter().find(|binding| binding.command == command)
 }
 
-/// What a command is called.
+/// What a command is called, in the language in use.
 pub fn label(command: Command) -> &'static str {
-    binding(command).map_or("", |binding| binding.label)
+    binding(command).map_or("", Binding::title)
+}
+
+impl Binding {
+    /// What the command is called, in the language in use.
+    pub fn title(&self) -> &'static str {
+        crate::i18n::t(self.key)
+    }
 }
 
 /// The keys shown next to a command, written as this platform does; `None`
@@ -2347,6 +2682,52 @@ mod tests {
                     binding.command
                 );
             }
+        }
+    }
+
+    /// The texts of a language's commands catalog.
+    fn commands_catalog(code: &str) -> HashMap<String, String> {
+        let source = match code {
+            "en" => include_str!("../assets/locales/en/commands.json"),
+            _ => include_str!("../assets/locales/es/commands.json"),
+        };
+        serde_json::from_str(source).expect("a catalog")
+    }
+
+    #[test]
+    fn every_command_and_section_is_named_in_every_language() {
+        let (english, spanish) = (commands_catalog("en"), commands_catalog("es"));
+        for binding in BINDINGS {
+            // The English label of the table is the English catalog's.
+            assert_eq!(
+                english.get(binding.key),
+                Some(&binding.label.to_owned()),
+                "{:?}",
+                binding.command
+            );
+            assert!(
+                spanish.contains_key(binding.key),
+                "{:?} has no Spanish name",
+                binding.command
+            );
+            assert_eq!(binding.title(), binding.label, "tests run in English");
+            crate::i18n::with_language(crate::i18n::Language::Es, || {
+                assert_eq!(
+                    binding.title(),
+                    spanish[binding.key],
+                    "{:?}",
+                    binding.command
+                )
+            });
+        }
+        for section in Section::ALL {
+            crate::i18n::with_language(crate::i18n::Language::Es, || {
+                assert!(
+                    spanish.values().any(|text| text == section.title()),
+                    "{section:?} has no Spanish heading"
+                )
+            });
+            assert!(english.values().any(|text| text == section.title()));
         }
     }
 
