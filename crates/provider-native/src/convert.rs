@@ -86,6 +86,10 @@ pub fn to_message(
         }
     };
     extras.starred = stored.starred;
+    // In a chat, somebody else's answer to a status answers the account's.
+    if let Some(story) = &mut extras.story_reply {
+        story.of_mine = !stored.from_me;
+    }
     Some(Message {
         id: MessageId::new(stored.id.clone()),
         client_id: stored.client_id.clone().map(ClientMessageId::new),
@@ -621,6 +625,33 @@ mod tests {
             to_message(&account(), &row, None).unwrap().content,
             MessageContent::System(notice)
         );
+    }
+
+    #[test]
+    fn an_answer_to_a_status_says_whose_status_it_was() {
+        let answer = text_message(
+            "nice",
+            Some(wa::ContextInfo {
+                stanza_id: Some("3EB0DDDD".into()),
+                remote_jid: Some(STATUS_CHAT.into()),
+                ..Default::default()
+            }),
+        );
+        let theirs = to_message(&account(), &stored(encode(&answer)), None).unwrap();
+        let story = theirs.extras.story_reply.expect("it answers a status");
+        assert!(story.of_mine, "somebody answered the account's status");
+        assert!(theirs.reply_to.is_none());
+
+        let mine = to_message(
+            &account(),
+            &StoredMessage {
+                from_me: true,
+                ..stored(encode(&answer))
+            },
+            None,
+        )
+        .unwrap();
+        assert!(!mine.extras.story_reply.unwrap().of_mine);
     }
 
     #[test]

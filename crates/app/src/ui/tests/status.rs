@@ -2047,6 +2047,55 @@ fn a_reply_to_a_status_says_which_one_and_shows_it_while_it_is_there(cx: &mut Te
 }
 
 #[gpui_kit::test]
+fn an_answer_to_a_status_that_names_no_message_still_shows_the_status(cx: &mut TestAppContext) {
+    let harness = open_status(cx);
+    let (story, author) = cx.update(|cx| {
+        let author = &harness.shell.read(cx).status.feed.recent[0];
+        (author.stories[0].story.id.clone(), author.author.clone())
+    });
+    let chat = client_provider::ChatId::new(author.as_str());
+    // As WhatsApp delivers it: the status is marked, and the message
+    // answered is none, since the status is not in this chat.
+    let message = client_provider::Message {
+        id: MessageId::new("answer-1"),
+        client_id: None,
+        account_id: personal(),
+        chat_id: chat.clone(),
+        sender: author,
+        sender_name: None,
+        direction: client_provider::Direction::Incoming,
+        timestamp: Timestamp::from_millis(Timestamp::now().as_millis() + 120_000),
+        content: client_provider::MessageContent::text("Thanks!"),
+        reply_to: None,
+        status: client_provider::DeliveryStatus::Delivered,
+        edited: false,
+        deleted: false,
+        extras: client_provider::MessageExtras {
+            story_reply: Some(client_provider::StoryReplyRef {
+                story,
+                kind: client_provider::StoryReplyKind::Text,
+                preview: None,
+                of_mine: true,
+            }),
+            ..Default::default()
+        },
+    };
+    harness
+        .engine
+        .apply_event(client_provider::ProviderEvent::MessageUpserted(message))
+        .unwrap();
+    click(harness.window, "nav-chats", cx);
+    harness
+        .shell
+        .update(cx, |shell, cx| shell.open_chat(chat.clone(), None, cx));
+    harness.settle(cx);
+    assert!(
+        shows(harness.window, "story-quote", cx),
+        "the status it answers is quoted"
+    );
+}
+
+#[gpui_kit::test]
 fn the_contact_profile_mutes_their_status(cx: &mut TestAppContext) {
     let harness = open_status(cx);
     let (author, chat) = cx.update(|cx| {
