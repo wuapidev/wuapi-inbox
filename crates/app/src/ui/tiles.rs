@@ -11,6 +11,7 @@ use super::media::MediaVisual;
 use super::shell::Shell;
 use super::widgets::{avatar, mono, AvatarKind};
 use crate::calendar;
+use crate::i18n;
 use crate::icons::{icon, IconName};
 use crate::markup::{self, Block, Handle, Line};
 use crate::theme::{fonts, hairline, metrics, px, Palette};
@@ -150,12 +151,15 @@ impl Shell {
         if let Some(contact) = known {
             match self.engine.chat_with_contact(&contact) {
                 Ok(chat) => self.show_chat(chat, None, cx),
-                Err(error) => self.say(format!("The chat could not be opened: {error}")),
+                Err(error) => self.say(i18n::tr(
+                    "common.tiles.chat_not_opened",
+                    &[("error", &error)],
+                )),
             }
             return cx.notify();
         }
         if !self.caps_here().start_chat {
-            return self.say("This provider cannot start a chat with a new number.");
+            return self.say(i18n::t("common.tiles.no_new_chat"));
         }
         let engine = self.engine.clone();
         let asked = phone.clone();
@@ -169,13 +173,22 @@ impl Shell {
                 match outcome {
                     Ok(Ok(client_core::NewChat::Open(chat))) => this.show_chat(chat, None, cx),
                     Ok(Ok(client_core::NewChat::NotOnWhatsApp(phone))) => {
-                        this.say(format!("{phone} is not on WhatsApp."));
+                        this.say(i18n::tr(
+                            "common.chat_open.not_on_whatsapp",
+                            &[("phone", &phone)],
+                        ));
                     }
                     Ok(Err(error)) if error.is_transient() => {
-                        this.say("Could not reach the provider. Try again.");
+                        this.say(i18n::t("common.chat_open.unreachable"));
                     }
-                    Ok(Err(error)) => this.say(format!("The chat could not be opened: {error}")),
-                    Err(error) => this.say(format!("The chat could not be opened: {error}")),
+                    Ok(Err(error)) => this.say(i18n::tr(
+                        "common.tiles.chat_not_opened",
+                        &[("error", &error)],
+                    )),
+                    Err(error) => this.say(i18n::tr(
+                        "common.tiles.chat_not_opened",
+                        &[("error", &error)],
+                    )),
                 }
                 cx.notify();
             })
@@ -198,9 +211,9 @@ impl Shell {
                 self.engine
                     .vote_poll(&message.account_id, &message.chat_id, &message.id, choices)
             }
-            None => self.say(format!(
-                "This poll takes {} answers at most. Take one back first.",
-                poll.max_choices
+            None => self.say(i18n::tr(
+                "common.tiles.poll_max",
+                &[("max", &poll.max_choices)],
             )),
         }
         cx.notify();
@@ -217,7 +230,10 @@ impl Shell {
     ) {
         match export_event(&super::media::exports_dir(), event, message) {
             Ok(path) => cx.open_with_system(&path),
-            Err(error) => self.say(format!("The event could not be added: {error}")),
+            Err(error) => self.say(i18n::tr(
+                "common.tiles.event_not_added",
+                &[("error", &error)],
+            )),
         }
     }
 }
@@ -230,7 +246,7 @@ pub(super) fn export_event(
     message: &MessageId,
 ) -> Result<std::path::PathBuf, String> {
     let file = calendar::ics(event, message.as_str(), Timestamp::now())
-        .ok_or("the event has no start time")?;
+        .ok_or_else(|| i18n::t("common.tiles.event_no_start").to_owned())?;
     let dir = exports.join("events");
     std::fs::create_dir_all(&dir).map_err(|error| error.to_string())?;
     #[cfg(unix)]
@@ -371,9 +387,9 @@ pub(super) fn location(
     context: &RowContext,
 ) -> Div {
     let fallback = if place.live {
-        "Live location"
+        i18n::t("common.tiles.live_location")
     } else {
-        "Location"
+        i18n::t("common.tiles.location")
     };
     let title = div()
         .min_w_0()
@@ -386,7 +402,7 @@ pub(super) fn location(
         details.push(detail(address.clone(), side));
     }
     if place.live && place.name.is_some() {
-        details.push(detail("Live location", side));
+        details.push(detail(i18n::t("common.tiles.live_location"), side));
     }
     details.push(
         div()
@@ -404,7 +420,7 @@ pub(super) fn location(
                     format!("map-{}", message.id),
                     "location-open",
                     IconName::ExternalLink,
-                    "OPEN IN MAPS",
+                    i18n::t("common.tiles.open_in_maps"),
                     side,
                 )
                 .on_click(move |_, _, cx| {
@@ -447,9 +463,9 @@ pub(super) fn contacts(
     if cards.len() > CARDS_SHOWN {
         let (view, id) = (context.view.clone(), message.id.clone());
         let text = if expanded {
-            "SHOW FEWER".to_owned()
+            i18n::t("common.tiles.show_fewer").to_owned()
         } else {
-            format!("VIEW ALL · {}", cards.len())
+            i18n::tr("common.tiles.view_all", &[("n", &cards.len())])
         };
         block = block.child(
             div().flex().child(
@@ -487,7 +503,7 @@ fn contact_card(
         card.phones
             .first()
             .cloned()
-            .unwrap_or_else(|| "Contact".to_owned())
+            .unwrap_or_else(|| i18n::t("common.tiles.contact").to_owned())
     } else {
         card.name.clone()
     };
@@ -540,7 +556,7 @@ fn contact_card(
                 format!("message-{key}"),
                 "contact-message",
                 IconName::MessageCircle,
-                "MESSAGE",
+                i18n::t("common.tiles.message"),
                 side,
             )
             .on_click(move |_, _, cx| {
@@ -559,7 +575,11 @@ fn contact_card(
             } else {
                 IconName::Copy
             },
-            if copied { "COPIED" } else { "COPY NUMBER" },
+            if copied {
+                i18n::t("common.tiles.copied")
+            } else {
+                i18n::t("common.tiles.copy_number")
+            },
             side,
         )
         .on_click(move |_, _, cx| {
@@ -586,9 +606,9 @@ pub(super) fn poll(poll: &Poll, message: &Message, side: &Side, context: &RowCon
             DeliveryStatus::Pending | DeliveryStatus::Accepted | DeliveryStatus::Failed { .. }
         );
     let rule: SharedString = match poll.max_choices {
-        1 => "SELECT ONE".into(),
-        0 => "SELECT ONE OR MORE".into(),
-        many => format!("SELECT UP TO {many}").into(),
+        1 => i18n::t("common.tiles.select_one").into(),
+        0 => i18n::t("common.tiles.select_many").into(),
+        many => i18n::tr("common.tiles.select_up_to", &[("n", &many)]).into(),
     };
     // A full bar is everybody who voted.
     let scale = poll.voters.max(1) as f32;
@@ -693,9 +713,8 @@ pub(super) fn poll(poll: &Poll, message: &Message, side: &Side, context: &RowCon
         });
     }
     let voters: SharedString = match poll.voters {
-        0 => "NO VOTES YET".into(),
-        1 => "1 VOTER".into(),
-        many => format!("{many} VOTERS").into(),
+        0 => i18n::t("common.tiles.no_votes").into(),
+        many => i18n::plural("common.tiles.voters", many as u64, &[]).into(),
     };
     block.child(
         div()
@@ -727,7 +746,7 @@ pub(super) fn event(
             div()
                 .debug_selector(|| "event-cancelled".into())
                 .text_color(palette.danger)
-                .child(mono("CANCELLED").line_height(px(16.))),
+                .child(mono(i18n::t("common.tiles.cancelled")).line_height(px(16.))),
         );
     }
     let when = calendar::time_range(event);
@@ -754,8 +773,8 @@ pub(super) fn event(
     if let Some(call) = event.call {
         details.push(detail(
             match call {
-                EventCall::Voice => "Voice call",
-                EventCall::Video => "Video call",
+                EventCall::Voice => i18n::t("common.tiles.voice_call"),
+                EventCall::Video => i18n::t("common.tiles.video_call"),
             },
             side,
         ));
@@ -772,7 +791,7 @@ pub(super) fn event(
                 format!("calendar-{}", message.id),
                 "event-add",
                 IconName::CalendarPlus,
-                "ADD TO CALENDAR",
+                i18n::t("common.tiles.add_to_calendar"),
                 side,
             )
             .on_click(move |_, _, cx| {
@@ -789,7 +808,7 @@ pub(super) fn event(
                 format!("event-map-{}", message.id),
                 "event-map",
                 IconName::MapPin,
-                "OPEN IN MAPS",
+                i18n::t("common.tiles.open_in_maps"),
                 side,
             )
             .on_click(move |_, _, cx| {
@@ -809,7 +828,7 @@ pub(super) fn event(
                 format!("event-join-{}", message.id),
                 "event-join",
                 IconName::ExternalLink,
-                "JOIN",
+                i18n::t("common.tiles.join"),
                 side,
             )
             .on_click(move |_, _, cx| {
@@ -920,17 +939,17 @@ pub(super) fn link_card(
 /// here, and nothing about it is shown beyond its kind.
 pub(super) fn view_once(kind: Option<MediaKind>, side: &Side) -> Div {
     let what = match kind {
-        Some(MediaKind::Image) => "View once photo",
-        Some(MediaKind::Video) => "View once video",
-        Some(MediaKind::Voice | MediaKind::Audio) => "View once voice message",
-        _ => "View once message",
+        Some(MediaKind::Image) => i18n::t("common.tiles.once_photo"),
+        Some(MediaKind::Video) => i18n::t("common.tiles.once_video"),
+        Some(MediaKind::Voice | MediaKind::Audio) => i18n::t("common.tiles.once_voice"),
+        _ => i18n::t("common.tiles.once_message"),
     };
     tile("view-once-tile", side).child(heading(
         IconName::Timer,
         div().min_w_0().font_weight(FontWeight::MEDIUM).child(what),
         vec![div()
             .text_color(side.meta)
-            .child(mono("OPEN IT ON YOUR PHONE").line_height(px(16.)))],
+            .child(mono(i18n::t("common.tiles.open_on_phone")).line_height(px(16.)))],
         side,
     ))
 }
@@ -958,7 +977,7 @@ pub(super) fn unsupported(description: &str, side: &Side) -> Div {
         div()
             .min_w_0()
             .font_weight(FontWeight::MEDIUM)
-            .child("Unsupported message"),
+            .child(i18n::t("common.tiles.unsupported")),
         details,
         side,
     ))
@@ -1016,9 +1035,9 @@ pub(super) fn forwarded_label(side: &Side, many: bool) -> Div {
             )
         })
         .child(if many {
-            "Forwarded many times"
+            i18n::t("common.tiles.forwarded_many")
         } else {
-            "Forwarded"
+            i18n::t("common.tiles.forwarded")
         })
 }
 

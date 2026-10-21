@@ -17,6 +17,7 @@
 //!   (RFC 7845), mono, 16 kHz in, as the phones record them.
 
 use crate::audio::Clip;
+use crate::i18n;
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::time::Duration;
 
@@ -96,10 +97,10 @@ impl AudioInput for SystemInput {
         });
         let device = named
             .or_else(|| host.default_input_device())
-            .ok_or("No microphone was found.")?;
-        let supported = device.default_input_config().map_err(|error| {
-            format!("The microphone cannot be used: it may be in use, or not allowed ({error}).")
-        })?;
+            .ok_or_else(|| i18n::t("common.record.no_microphone").to_owned())?;
+        let supported = device
+            .default_input_config()
+            .map_err(|error| i18n::tr("common.record.unusable", &[("error", &error)]))?;
         let config = supported.config();
         let format = Format {
             rate: config.sample_rate,
@@ -139,14 +140,10 @@ impl AudioInput for SystemInput {
                 None,
             ),
         }
-        .map_err(|error| {
-            format!(
-                "The microphone could not be opened: it may be in use, or not allowed ({error})."
-            )
-        })?;
+        .map_err(|error| i18n::tr("common.record.open", &[("error", &error)]))?;
         stream
             .play()
-            .map_err(|error| format!("The microphone could not be started ({error})."))?;
+            .map_err(|error| i18n::tr("common.record.start", &[("error", &error)]))?;
         self.stream = Some(stream);
         Ok(format)
     }
@@ -406,7 +403,7 @@ impl Take {
         let mut encoder = Encoder::builder(RATE, Channels::Mono, Application::Voip)
             .bitrate(Bitrate::Bits(BITRATE))
             .build()
-            .map_err(|error| format!("The recording could not be encoded ({error})."))?;
+            .map_err(|error| i18n::tr("common.record.encode", &[("error", &error)]))?;
         // What the encoder holds back at the start, which a player skips:
         // in 48 kHz samples, the unit of everything in the container.
         let pre_skip = encoder.lookahead() * (48_000 / RATE);
@@ -441,7 +438,7 @@ impl Take {
             frame[..to - from].copy_from_slice(&self.samples[from..to]);
             let length = encoder
                 .encode(&frame, &mut packet)
-                .map_err(|error| format!("The recording could not be encoded ({error})."))?;
+                .map_err(|error| i18n::tr("common.record.encode", &[("error", &error)]))?;
             page.push(packet[..length].to_vec());
             let last = index + 1 == packets;
             // A page a second, as the reference encoder writes them.

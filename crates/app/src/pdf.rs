@@ -10,6 +10,7 @@
 //! and its text cannot be selected or searched. Both are said by the
 //! reader, which offers the system's application for the file instead.
 
+use crate::i18n;
 use hayro::hayro_interpret::InterpreterSettings;
 use hayro::hayro_syntax::Pdf;
 use hayro::vello_cpu::color::palette::css::WHITE;
@@ -51,8 +52,8 @@ pub struct Document {
 pub fn open(bytes: Vec<u8>) -> Result<Document, String> {
     use hayro::hayro_syntax::LoadPdfError;
     let pdf = Pdf::new(bytes).map_err(|error| match error {
-        LoadPdfError::Decryption(_) => "This PDF is protected with a password.".to_owned(),
-        LoadPdfError::Invalid => "This file could not be read as a PDF.".to_owned(),
+        LoadPdfError::Decryption(_) => i18n::t("common.pdf.password").to_owned(),
+        LoadPdfError::Invalid => i18n::t("common.pdf.invalid").to_owned(),
     })?;
     let pages: Arc<[(f32, f32)]> = pdf
         .pages()
@@ -60,7 +61,7 @@ pub fn open(bytes: Vec<u8>) -> Result<Document, String> {
         .map(|page| page.render_dimensions())
         .collect();
     if pages.is_empty() {
-        return Err("This PDF has no pages.".to_owned());
+        return Err(i18n::t("common.pdf.no_pages").to_owned());
     }
     Ok(Document {
         pdf: Arc::new(pdf),

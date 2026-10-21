@@ -576,7 +576,7 @@ fn pinning_moved_to_its_new_key(cx: &mut TestAppContext) {
 
 #[gpui_kit::test]
 fn the_shortcuts_are_a_click_away_and_every_control_says_its_keys(cx: &mut TestAppContext) {
-    use crate::ui::hints::{hint, keys_line, CONTROLS};
+    use crate::ui::hints::{controls, hint, keys_line};
     let harness = open_one(cx);
     harness.settle(cx);
     focus_composer(&harness, cx);
@@ -638,7 +638,7 @@ fn the_shortcuts_are_a_click_away_and_every_control_says_its_keys(cx: &mut TestA
 
     // Every control that is a command says its keys when pointed at, as
     // this platform writes them, and is on screen to be pointed at.
-    for (id, name, command) in CONTROLS {
+    for (id, name, command) in controls() {
         let said = hint(id).unwrap().to_string();
         assert!(said.starts_with(name), "{id}: {said}");
         match command.and_then(keys::keys_label) {

@@ -10,6 +10,7 @@
 use super::shell::{MenuItem, Overlay, Shell};
 use super::transfer::{transfer_button, Transfer};
 use super::widgets::{avatar_or, icon_button, label, mono, text_button, AvatarKind};
+use crate::i18n;
 use crate::icons::{icon, IconName};
 use crate::theme::px;
 use crate::theme::{metrics, Palette};
@@ -474,9 +475,9 @@ impl Shell {
                             .flex_col()
                             .child(div().text_size(metrics::TEXT_BODY()).child(
                                 if self.new_chat_checking {
-                                    "Checking the number…"
+                                    i18n::t("common.menus.checking_number")
                                 } else {
-                                    "New number"
+                                    i18n::t("common.menus.new_number")
                                 },
                             ))
                             .child(mono(number).text_color(palette.text_muted)),
@@ -491,13 +492,13 @@ impl Shell {
         let empty: Option<&'static str> = if !contacts.is_empty() {
             None
         } else if typed {
-            Some("No contact matches. To write to a number, type it with its country code.")
+            Some(i18n::t("common.shell.no_match"))
         } else if !self.caps_here().contacts {
-            Some("Write to a number, with its country code.")
+            Some(i18n::t("common.menus.write_to_number"))
         } else if synced {
-            Some("No contacts yet: the phone's address book is empty, or has not been shared.")
+            Some(i18n::t("common.menus.no_contacts"))
         } else {
-            Some("Your contacts appear here once the phone has synced them.")
+            Some(i18n::t("common.menus.contacts_soon"))
         };
         self.card("new-chat-panel", palette)
             .absolute()
@@ -506,7 +507,7 @@ impl Shell {
             .flex()
             .flex_col()
             .gap_2()
-            .child(label("New chat", palette))
+            .child(label(i18n::t("common.shell.menu_new_chat"), palette))
             .child(
                 div()
                     .h(px(36.))
@@ -623,7 +624,7 @@ impl Shell {
                             "viewer-previous",
                             IconName::ChevronLeft,
                             Some(C::ViewerPrevious),
-                            "Previous picture",
+                            i18n::t("common.viewer.previous"),
                         )
                         .when(!before, |this| this.opacity(0.35))
                         .on_click(cx.listener(|this, _, _, cx| {
@@ -636,7 +637,7 @@ impl Shell {
                             "viewer-next",
                             IconName::ChevronRight,
                             Some(C::ViewerNext),
-                            "Next picture",
+                            i18n::t("common.viewer.next"),
                         )
                         .when(!after, |this| this.opacity(0.35))
                         .on_click(cx.listener(|this, _, _, cx| {
@@ -649,7 +650,7 @@ impl Shell {
                             "viewer-zoom-out",
                             IconName::ZoomOut,
                             Some(C::ZoomOut),
-                            "Zoom out",
+                            i18n::t("common.viewer.zoom_out"),
                         )
                         .on_click(cx.listener(|this, _, window, cx| {
                             cx.stop_propagation();
@@ -671,7 +672,7 @@ impl Shell {
                             "viewer-zoom-in",
                             IconName::ZoomIn,
                             Some(C::ZoomIn),
-                            "Zoom in",
+                            i18n::t("common.viewer.zoom_in"),
                         )
                         .on_click(cx.listener(|this, _, window, cx| {
                             cx.stop_propagation();
@@ -683,7 +684,7 @@ impl Shell {
                             "viewer-fit",
                             IconName::Maximize,
                             Some(C::ZoomFit),
-                            "Fit the window",
+                            i18n::t("common.viewer.fit"),
                         )
                         .on_click(cx.listener(|this, _, window, cx| {
                             cx.stop_propagation();
@@ -695,7 +696,7 @@ impl Shell {
                             "viewer-actual",
                             IconName::Scan,
                             Some(C::ZoomActual),
-                            "Actual size",
+                            i18n::t("common.viewer.actual"),
                         )
                         .on_click(cx.listener(|this, _, window, cx| {
                             cx.stop_propagation();
@@ -703,19 +704,23 @@ impl Shell {
                         })),
                     )
                     .child(
-                        tool("viewer-copy", IconName::Copy, Some(C::Copy), "Copy image").on_click(
-                            cx.listener(|this, _, _, cx| {
-                                cx.stop_propagation();
-                                this.copy_image(cx);
-                            }),
-                        ),
+                        tool(
+                            "viewer-copy",
+                            IconName::Copy,
+                            Some(C::Copy),
+                            i18n::t("common.viewer.copy"),
+                        )
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            cx.stop_propagation();
+                            this.copy_image(cx);
+                        })),
                     )
                     .child(
                         tool(
                             "viewer-save",
                             IconName::ArrowDownToLine,
                             Some(C::SaveAs),
-                            "Save as…",
+                            i18n::t("common.viewer.save"),
                         )
                         .on_click(cx.listener(|this, _, _, cx| {
                             cx.stop_propagation();
@@ -727,7 +732,7 @@ impl Shell {
                             "viewer-open",
                             IconName::ExternalLink,
                             Some(C::Open),
-                            "Open with another application",
+                            i18n::t("common.viewer.open_other"),
                         )
                         .on_click(cx.listener(|this, _, _, cx| {
                             cx.stop_propagation();
@@ -735,12 +740,16 @@ impl Shell {
                         })),
                     )
                     .child(
-                        tool("viewer-close", IconName::X, None, "Close (Esc)").on_click(
-                            cx.listener(|this, _, window, cx| {
-                                cx.stop_propagation();
-                                this.close_overlay(window, cx);
-                            }),
-                        ),
+                        tool(
+                            "viewer-close",
+                            IconName::X,
+                            None,
+                            i18n::t("common.viewer.close"),
+                        )
+                        .on_click(cx.listener(|this, _, window, cx| {
+                            cx.stop_propagation();
+                            this.close_overlay(window, cx);
+                        })),
                     ),
             );
         Some(
@@ -823,7 +832,7 @@ impl Shell {
             .flex()
             .flex_col()
             .child(panel_header(
-                "Sign out?",
+                i18n::t("common.signout.title"),
                 palette,
                 cx.listener(|this, _, window, cx| this.close_overlay(window, cx)),
             ))
@@ -839,15 +848,9 @@ impl Shell {
                             .line_height(px(21.))
                             .text_color(palette.text_muted)
                             .child(if self.cloud == super::shell::CloudOffer::Connected {
-                                "Signing out of Wuapi Cloud removes its API key from your \
-                                 system keychain and deletes its numbers' chats from this \
-                                 computer. The numbers linked to this computer stay, and \
-                                 Wuapi Cloud's come back when you sign in again."
+                                i18n::t("common.signout.body_cloud")
                             } else {
-                                "Signing out removes the API key from your system keychain and \
-                                 deletes the chats stored on this computer, with their key. \
-                                 Your settings stay, and the chats come back from wuapi when \
-                                 you sign in again."
+                                i18n::t("common.signout.body")
                             }),
                     )
                     .when(unsent > 0, |this| {
@@ -868,15 +871,11 @@ impl Shell {
                                         .text_size(metrics::TEXT_SMALL())
                                         .line_height(px(19.))
                                         .text_color(palette.text)
-                                        .child(SharedString::from(match unsent {
-                                            1 => "1 message is still waiting to be sent. It \
-                                                  will be lost."
-                                                .to_owned(),
-                                            n => format!(
-                                                "{n} messages are still waiting to be sent. \
-                                                 They will be lost."
-                                            ),
-                                        })),
+                                        .child(SharedString::from(i18n::plural(
+                                            "common.signout.unsent",
+                                            unsent as u64,
+                                            &[],
+                                        ))),
                                 ),
                         )
                     }),
@@ -890,20 +889,25 @@ impl Shell {
                     .justify_end()
                     .gap_2()
                     .child(
-                        text_button("sign-out-cancel", "Cancel", None, false, palette).on_click(
-                            cx.listener(|this, _, window, cx| {
-                                cx.stop_propagation();
-                                this.close_overlay(window, cx);
-                            }),
-                        ),
+                        text_button(
+                            "sign-out-cancel",
+                            i18n::t("common.signout.cancel"),
+                            None,
+                            false,
+                            palette,
+                        )
+                        .on_click(cx.listener(|this, _, window, cx| {
+                            cx.stop_propagation();
+                            this.close_overlay(window, cx);
+                        })),
                     )
                     .child(
                         text_button(
                             "sign-out-confirm",
                             if unsent > 0 {
-                                "Sign out and lose them"
+                                i18n::t("common.signout.confirm_lose")
                             } else {
-                                "Sign out"
+                                i18n::t("common.signout.confirm")
                             },
                             Some(IconName::LogOut),
                             false,

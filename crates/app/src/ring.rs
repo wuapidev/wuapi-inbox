@@ -5,6 +5,7 @@
 //! the audio output chosen in the settings. The device is open only while
 //! something rings.
 
+use crate::i18n;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
@@ -131,7 +132,7 @@ fn open(what: Ringing, device: Option<&str>) -> Result<cpal::Stream, String> {
     });
     let device = named
         .or_else(|| host.default_output_device())
-        .ok_or("no audio output device")?;
+        .ok_or_else(|| i18n::t("common.audio.no_output_lower").to_owned())?;
     let supported = device
         .default_output_config()
         .map_err(|error| error.to_string())?;

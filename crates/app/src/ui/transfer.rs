@@ -5,6 +5,7 @@
 //! and a document say the same thing the same way.
 
 use crate::format::file_size;
+use crate::i18n;
 use crate::icons::{icon, IconName};
 use crate::theme::px;
 use crate::theme::Palette;
@@ -47,15 +48,21 @@ impl Transfer {
     /// What it says under the pointer.
     fn hint(&self) -> SharedString {
         match self {
-            Self::Download { size: Some(size) } => {
-                format!("Download ({})", file_size(*size)).into()
-            }
-            Self::Download { size: None } => "Download".into(),
+            Self::Download { size: Some(size) } => i18n::tr(
+                "common.transfer.download_size",
+                &[("size", &file_size(*size))],
+            )
+            .into(),
+            Self::Download { size: None } => i18n::t("common.transfer.download").into(),
             Self::Loading {
                 fraction: Some(fraction),
-            } => format!("Downloading, {:.0}%: click to stop", fraction * 100.).into(),
-            Self::Loading { fraction: None } => "Downloading: click to stop".into(),
-            Self::Retry(reason) => format!("{reason} Click to try again.").into(),
+            } => i18n::tr(
+                "common.transfer.downloading_percent",
+                &[("percent", &format!("{:.0}", fraction * 100.))],
+            )
+            .into(),
+            Self::Loading { fraction: None } => i18n::t("common.transfer.downloading").into(),
+            Self::Retry(reason) => i18n::tr("common.transfer.retry", &[("reason", reason)]).into(),
         }
     }
 }

@@ -1,6 +1,7 @@
 //! Small text helpers: times, initials, sizes.
 
-use chrono::{DateTime, Datelike, Local, TimeZone};
+use crate::i18n;
+use chrono::{DateTime, Datelike, Local, TimeZone, Weekday};
 use client_provider::Timestamp;
 
 fn local(ts: Timestamp) -> DateTime<Local> {
@@ -26,8 +27,8 @@ pub fn list_time(ts: Timestamp, now: Timestamp) -> String {
     let at = local(ts);
     match days_ago(ts, now) {
         i64::MIN..=0 => at.format("%H:%M").to_string(),
-        1 => "Yesterday".to_owned(),
-        2..=6 => at.format("%A").to_string(),
+        1 => i18n::t("common.time.yesterday").to_owned(),
+        2..=6 => weekday(at.weekday()).to_owned(),
         _ => at.format("%-d/%-m/%Y").to_string(),
     }
 }
@@ -36,11 +37,63 @@ pub fn list_time(ts: Timestamp, now: Timestamp) -> String {
 pub fn day_label(ts: Timestamp, now: Timestamp) -> String {
     let at = local(ts);
     match days_ago(ts, now) {
-        i64::MIN..=0 => "Today".to_owned(),
-        1 => "Yesterday".to_owned(),
-        2..=6 => at.format("%A").to_string(),
-        _ if at.year() == local(now).year() => at.format("%-d %B").to_string(),
-        _ => at.format("%-d %B %Y").to_string(),
+        i64::MIN..=0 => i18n::t("common.time.today").to_owned(),
+        1 => i18n::t("common.time.yesterday").to_owned(),
+        2..=6 => weekday(at.weekday()).to_owned(),
+        _ if at.year() == local(now).year() => i18n::tr(
+            "common.date.day_month",
+            &[("day", &at.day()), ("month", &month_name(at.month()))],
+        ),
+        _ => date(ts),
+    }
+}
+
+/// The name of a weekday in the language in use.
+fn weekday(day: Weekday) -> &'static str {
+    match day {
+        Weekday::Mon => i18n::t("common.weekday.mon"),
+        Weekday::Tue => i18n::t("common.weekday.tue"),
+        Weekday::Wed => i18n::t("common.weekday.wed"),
+        Weekday::Thu => i18n::t("common.weekday.thu"),
+        Weekday::Fri => i18n::t("common.weekday.fri"),
+        Weekday::Sat => i18n::t("common.weekday.sat"),
+        Weekday::Sun => i18n::t("common.weekday.sun"),
+    }
+}
+
+/// The name of a month (1 to 12) in the language in use.
+fn month_name(month: u32) -> &'static str {
+    match month {
+        1 => i18n::t("common.month.jan"),
+        2 => i18n::t("common.month.feb"),
+        3 => i18n::t("common.month.mar"),
+        4 => i18n::t("common.month.apr"),
+        5 => i18n::t("common.month.may"),
+        6 => i18n::t("common.month.jun"),
+        7 => i18n::t("common.month.jul"),
+        8 => i18n::t("common.month.aug"),
+        9 => i18n::t("common.month.sep"),
+        10 => i18n::t("common.month.oct"),
+        11 => i18n::t("common.month.nov"),
+        _ => i18n::t("common.month.dec"),
+    }
+}
+
+/// The short name of a month (1 to 12) in the language in use.
+fn month_short(month: u32) -> &'static str {
+    match month {
+        1 => i18n::t("common.month_short.jan"),
+        2 => i18n::t("common.month_short.feb"),
+        3 => i18n::t("common.month_short.mar"),
+        4 => i18n::t("common.month_short.apr"),
+        5 => i18n::t("common.month_short.may"),
+        6 => i18n::t("common.month_short.jun"),
+        7 => i18n::t("common.month_short.jul"),
+        8 => i18n::t("common.month_short.aug"),
+        9 => i18n::t("common.month_short.sep"),
+        10 => i18n::t("common.month_short.oct"),
+        11 => i18n::t("common.month_short.nov"),
+        _ => i18n::t("common.month_short.dec"),
     }
 }
 
@@ -52,17 +105,37 @@ pub fn file_stamp(ts: Timestamp) -> String {
 
 /// A date in full, for "created on": `1 September 2026`.
 pub fn date(ts: Timestamp) -> String {
-    local(ts).format("%-d %B %Y").to_string()
+    let at = local(ts);
+    i18n::tr(
+        "common.date.full",
+        &[
+            ("day", &at.day()),
+            ("month", &month_name(at.month())),
+            ("year", &at.year()),
+        ],
+    )
 }
 
 /// The month a message was sent in, for a heading: `October 2026`.
 pub fn month(ts: Timestamp) -> String {
-    local(ts).format("%B %Y").to_string()
+    let at = local(ts);
+    i18n::tr(
+        "common.date.month_year",
+        &[("month", &month_name(at.month())), ("year", &at.year())],
+    )
 }
 
 /// A date in a few characters: `13 Oct 2026`.
 pub fn short_date(ts: Timestamp) -> String {
-    local(ts).format("%-d %b %Y").to_string()
+    let at = local(ts);
+    i18n::tr(
+        "common.date.short",
+        &[
+            ("day", &at.day()),
+            ("month", &month_short(at.month())),
+            ("year", &at.year()),
+        ],
+    )
 }
 
 /// A phone number as people write it: the country code, then the rest in
@@ -102,11 +175,14 @@ pub fn file_size(bytes: u64) -> String {
     const KB: f64 = 1024.0;
     let bytes = bytes as f64;
     if bytes < KB {
-        format!("{bytes:.0} B")
+        i18n::tr("common.size.bytes", &[("n", &format!("{bytes:.0}"))])
     } else if bytes < KB * KB {
-        format!("{:.0} kB", bytes / KB)
+        i18n::tr("common.size.kb", &[("n", &format!("{:.0}", bytes / KB))])
     } else {
-        format!("{:.1} MB", bytes / KB / KB)
+        i18n::tr(
+            "common.size.mb",
+            &[("n", &format!("{:.1}", bytes / KB / KB))],
+        )
     }
 }
 
@@ -161,5 +237,20 @@ mod tests {
             Timestamp::from_millis(now.as_millis() - 2 * day),
             now
         ));
+    }
+
+    #[test]
+    fn dates_are_written_in_the_language_in_use() {
+        let at = Local.with_ymd_and_hms(2025, 10, 13, 12, 0, 0).unwrap();
+        let ts = Timestamp::from_millis(at.timestamp_millis());
+        assert_eq!(date(ts), "13 October 2025");
+        assert_eq!(short_date(ts), "13 Oct 2025");
+        assert_eq!(month(ts), "October 2025");
+        crate::i18n::with_language(crate::i18n::Language::Es, || {
+            assert_eq!(date(ts), "13 de octubre de 2025");
+            assert_eq!(short_date(ts), "13 oct 2025");
+            assert_eq!(month(ts), "octubre de 2025");
+            assert_eq!(file_size(80_000), "78 kB");
+        });
     }
 }

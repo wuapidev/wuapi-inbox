@@ -2,6 +2,7 @@
 //! that are a command of the registry, its keys. Nobody learns a shortcut
 //! that is not written where the pointer already is.
 
+use crate::i18n;
 use crate::keys::{self, Command};
 use gpui_kit::component::tooltip::Tooltip;
 use gpui_kit::prelude::*;
@@ -9,26 +10,76 @@ use gpui_kit::{Div, SharedString, Stateful};
 
 /// The controls that say something: by their name in the window, what
 /// they are called, and the command they stand for.
-pub(super) const CONTROLS: [(&str, &str, Option<Command>); 14] = [
-    ("nav-chats", "Chats", Some(Command::ShowChats)),
-    ("nav-status", "Status", Some(Command::ShowStatus)),
-    ("new-chat", "New chat", Some(Command::NewChat)),
-    ("list-menu", "Menu", Some(Command::Menu)),
-    (
-        "chat-search",
-        "Search in the conversation",
-        Some(Command::Find),
-    ),
-    ("chat-menu", "Menu", Some(Command::Menu)),
-    ("attach", "Attach files", Some(Command::Attach)),
-    ("emoji", "Emoji", Some(Command::EmojiPicker)),
-    ("voice", "Record a voice note", Some(Command::RecordVoice)),
-    ("send", "Send", None),
-    ("add-number", "Add a number", Some(Command::AddNumber)),
-    ("toggle-theme", "Light or dark", Some(Command::ToggleTheme)),
-    ("shortcuts", "Keyboard shortcuts", Some(Command::Shortcuts)),
-    ("settings", "Settings", Some(Command::Settings)),
-];
+pub(super) fn controls() -> [(&'static str, &'static str, Option<Command>); 14] {
+    [
+        (
+            "nav-chats",
+            i18n::t("common.hints.chats"),
+            Some(Command::ShowChats),
+        ),
+        (
+            "nav-status",
+            i18n::t("common.hints.status"),
+            Some(Command::ShowStatus),
+        ),
+        (
+            "new-chat",
+            i18n::t("common.hints.new_chat"),
+            Some(Command::NewChat),
+        ),
+        (
+            "list-menu",
+            i18n::t("common.hints.menu"),
+            Some(Command::Menu),
+        ),
+        (
+            "chat-search",
+            i18n::t("common.hints.search_conversation"),
+            Some(Command::Find),
+        ),
+        (
+            "chat-menu",
+            i18n::t("common.hints.menu"),
+            Some(Command::Menu),
+        ),
+        (
+            "attach",
+            i18n::t("common.hints.attach"),
+            Some(Command::Attach),
+        ),
+        (
+            "emoji",
+            i18n::t("common.hints.emoji"),
+            Some(Command::EmojiPicker),
+        ),
+        (
+            "voice",
+            i18n::t("common.hints.voice"),
+            Some(Command::RecordVoice),
+        ),
+        ("send", i18n::t("common.hints.send"), None),
+        (
+            "add-number",
+            i18n::t("common.hints.add_number"),
+            Some(Command::AddNumber),
+        ),
+        (
+            "toggle-theme",
+            i18n::t("common.hints.theme"),
+            Some(Command::ToggleTheme),
+        ),
+        (
+            "shortcuts",
+            i18n::t("common.hints.shortcuts"),
+            Some(Command::Shortcuts),
+        ),
+        (
+            "settings",
+            i18n::t("common.hints.settings"),
+            Some(Command::Settings),
+        ),
+    ]
+}
 
 /// A name with the keys of its command after it: "New chat  Ctrl+N".
 pub(super) fn with_keys(name: &str, command: Option<Command>) -> SharedString {
@@ -40,10 +91,10 @@ pub(super) fn with_keys(name: &str, command: Option<Command>) -> SharedString {
 
 /// What the control called `id` says when pointed at.
 pub(super) fn hint(id: &str) -> Option<SharedString> {
-    CONTROLS
-        .iter()
+    controls()
+        .into_iter()
         .find(|(known, _, _)| *known == id)
-        .map(|(_, name, command)| with_keys(name, *command))
+        .map(|(_, name, command)| with_keys(name, command))
 }
 
 /// Gives a control its hint.
@@ -59,10 +110,18 @@ pub(super) fn hinted(control: Stateful<Div>, id: &'static str) -> Stateful<Div> 
 /// The line of the start screen that says where Status is: its key, for
 /// whoever has not seen the button in the rail.
 pub(super) fn status_line() -> String {
-    format!(
-        "{} for Status, {} for a new one",
-        keys::keys_label(Command::ShowStatus).unwrap_or_default(),
-        keys::keys_label(Command::NewStatus).unwrap_or_default()
+    i18n::tr(
+        "common.hints.status_line",
+        &[
+            (
+                "status",
+                &keys::keys_label(Command::ShowStatus).unwrap_or_default(),
+            ),
+            (
+                "new",
+                &keys::keys_label(Command::NewStatus).unwrap_or_default(),
+            ),
+        ],
     )
 }
 
@@ -70,9 +129,11 @@ pub(super) fn status_line() -> String {
 /// the way in.
 pub(super) fn keys_line() -> String {
     let key = |command| keys::keys_label(command).unwrap_or_default();
-    format!(
-        "Press {} to do anything, {} for all shortcuts",
-        key(Command::Palette),
-        key(Command::Shortcuts)
+    i18n::tr(
+        "common.hints.keys_line",
+        &[
+            ("palette", &key(Command::Palette)),
+            ("shortcuts", &key(Command::Shortcuts)),
+        ],
     )
 }

@@ -20,6 +20,7 @@ use super::transfer::ring;
 use super::widgets::mono;
 use crate::audio::{Playback, BARS};
 use crate::format::{duration, file_size};
+use crate::i18n;
 use crate::icons::{icon, IconName};
 use crate::theme::px;
 use crate::theme::{metrics, Palette};
@@ -304,7 +305,11 @@ pub(super) fn audio_block(
                     .cursor_pointer()
                     .hover(|style| style.opacity(0.8))
                     .tooltip(move |window, cx| {
-                        let words = if fetching { "Stop" } else { "Download" };
+                        let words = if fetching {
+                            i18n::t("common.voice.stop")
+                        } else {
+                            i18n::t("common.voice.download")
+                        };
                         gpui_kit::component::tooltip::Tooltip::new(words).build(window, cx)
                     })
                     .on_click(move |_, _, cx| {
@@ -361,16 +366,20 @@ pub(super) fn audio_block(
 
     let clock = |at: std::time::Duration| duration(at.as_secs() as u32);
     let (note, alarming): (Option<SharedString>, bool) = if url.is_none() {
-        (Some("NOT AVAILABLE".into()), false)
+        (Some(i18n::t("common.voice.not_available").into()), false)
     } else if let Some(reason) = no_output {
         (Some(reason.to_uppercase().into()), true)
     } else if let Some(reason) = failure {
         (
-            Some(format!("COULD NOT PLAY · {reason}").to_uppercase().into()),
+            Some(
+                i18n::tr("common.voice.could_not_play", &[("reason", &reason)])
+                    .to_uppercase()
+                    .into(),
+            ),
             true,
         )
     } else if waiting {
-        (Some("DOWNLOADING".into()), false)
+        (Some(i18n::t("common.voice.downloading").into()), false)
     } else {
         // The length when it is known; never a made-up 0:00. A file that
         // is not here yet says how large it is, when the message does.
