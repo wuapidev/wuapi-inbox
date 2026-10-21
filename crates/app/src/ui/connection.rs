@@ -4,6 +4,7 @@
 
 use super::shell::Shell;
 use super::widgets::{led, status_colour};
+use crate::i18n;
 use crate::icons::{icon, IconName};
 use crate::theme::px;
 use crate::theme::{metrics, Palette};
@@ -52,18 +53,18 @@ pub(super) struct ConnectionWords {
 pub(super) fn reason_words(reason: &str) -> String {
     let reason = reason.trim();
     match reason.to_ascii_lowercase().as_str() {
-        "logged_out" => "it was logged out on the phone".into(),
-        "session_not_found" => "its session no longer exists on the server".into(),
-        "link_timeout" => "it was not linked in time".into(),
-        "free_limit_reached" => "the free plan's limit was reached".into(),
-        "proxy_paused" => "its proxy is paused".into(),
+        "logged_out" => i18n::t("accounts.connection.reason.logged_out").into(),
+        "session_not_found" => i18n::t("accounts.connection.reason.session_not_found").into(),
+        "link_timeout" => i18n::t("accounts.connection.reason.link_timeout").into(),
+        "free_limit_reached" => i18n::t("accounts.connection.reason.free_limit_reached").into(),
+        "proxy_paused" => i18n::t("accounts.connection.reason.proxy_paused").into(),
         _ => reason.trim_end_matches('.').to_owned(),
     }
 }
 
 /// The words for `account`'s connection, the same in every pane.
 pub(super) fn connection_words(account: &Account) -> ConnectionWords {
-    const BACK: &str = "Messages you send will go out when it is back.";
+    let back = i18n::t("accounts.connection.back");
     let said = |label: &'static str, slug, sentence: String, waiting: String, action, tone| {
         ConnectionWords {
             label,
@@ -80,35 +81,34 @@ pub(super) fn connection_words(account: &Account) -> ConnectionWords {
         // Created and never linked: nothing broke, it is waiting for a
         // phone.
         _ if account.never_linked() => said(
-            "Not linked yet",
+            i18n::t("accounts.connection.not_linked"),
             "unlinked",
-            "This number was created and never linked to a phone.".into(),
-            "This number is not linked yet. Messages you send will go out once it is linked."
-                .into(),
-            Some("Link"),
+            i18n::t("accounts.connection.unlinked_sentence").into(),
+            i18n::t("accounts.connection.unlinked_waiting").into(),
+            Some(i18n::t("accounts.connection.action_link")),
             Tone::Unlinked,
         ),
         ConnectionState::Connected => said(
-            "Connected",
+            i18n::t("accounts.connection.connected"),
             "connected",
-            "Connected".into(),
-            "Connected".into(),
+            i18n::t("accounts.connection.connected").into(),
+            i18n::t("accounts.connection.connected").into(),
             None,
             Tone::Quiet,
         ),
         ConnectionState::Connecting => said(
-            "Connecting",
+            i18n::t("accounts.connection.connecting"),
             "connecting",
-            "Connecting…".into(),
-            format!("Connecting… {BACK}"),
+            i18n::t("accounts.connection.connecting_sentence").into(),
+            i18n::tr("accounts.connection.connecting_back", &[("back", &back)]),
             None,
             Tone::Busy,
         ),
         ConnectionState::Reconnecting => said(
-            "Reconnecting",
+            i18n::t("accounts.connection.reconnecting"),
             "reconnecting",
-            format!("Reconnecting… {BACK}"),
-            format!("Reconnecting… {BACK}"),
+            i18n::tr("accounts.connection.reconnecting_back", &[("back", &back)]),
+            i18n::tr("accounts.connection.reconnecting_back", &[("back", &back)]),
             None,
             Tone::Busy,
         ),
@@ -118,29 +118,34 @@ pub(super) fn connection_words(account: &Account) -> ConnectionWords {
                 .map(reason_words)
                 .filter(|reason| !reason.is_empty());
             let summary = match &reason {
-                Some(reason) => format!("Not connected: {reason}"),
-                None => "Not connected".into(),
+                Some(reason) => i18n::tr(
+                    "accounts.connection.not_connected_reason",
+                    &[("reason", reason)],
+                ),
+                None => i18n::t("accounts.connection.not_connected").into(),
             };
             ConnectionWords {
                 summary: summary.clone(),
                 reason,
                 ..said(
-                    "Not connected",
+                    i18n::t("accounts.connection.not_connected"),
                     "disconnected",
                     summary,
-                    format!("This number is not connected. {BACK}"),
-                    Some("Reconnect"),
+                    i18n::tr(
+                        "accounts.connection.disconnected_waiting",
+                        &[("back", &back)],
+                    ),
+                    Some(i18n::t("accounts.connection.action_reconnect")),
                     Tone::Broken,
                 )
             }
         }
         ConnectionState::LoggedOut => said(
-            "Logged out",
+            i18n::t("accounts.connection.logged_out"),
             "logged-out",
-            "This number was logged out. Link it again.".into(),
-            "This number was logged out. Messages you send will go out once it is linked again."
-                .into(),
-            Some("Link again"),
+            i18n::t("accounts.connection.logged_out_sentence").into(),
+            i18n::t("accounts.connection.logged_out_waiting").into(),
+            Some(i18n::t("accounts.connection.action_link_again")),
             Tone::Broken,
         ),
     }

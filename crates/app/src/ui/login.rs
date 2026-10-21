@@ -13,6 +13,7 @@ use super::conversation::{colophon, framed_rows, mark_frame};
 use super::widgets::{
     grid_mark_in, label, led, mono, reveal, screen_header, screen_rail, tag, text_button, MarkPlay,
 };
+use crate::i18n;
 use crate::icons::{icon, IconName};
 use crate::login::{countdown, IdentityLoader, KeySaved, LoginFlow, LoginMachine, Phase, Session};
 use crate::motion::{self, Entrance};
@@ -304,91 +305,105 @@ impl LoginScreen {
         let column = div().w_full().flex().flex_col().items_center();
         match self.machine.phase() {
             Phase::Start => column
-                .child(heading(&format!("Welcome to {PRODUCT_NAME}")))
-                .child(body(
-                    "It reaches WhatsApp through your wuapi account. You approve this \
-                     computer in the browser; no password or API key is typed here.",
-                    palette,
-                ))
+                .child(heading(&i18n::tr(
+                    "accounts.login.welcome",
+                    &[("name", &PRODUCT_NAME)],
+                )))
+                .child(body(i18n::t("accounts.login.start_text"), palette))
                 .child(
-                    text_button("connect", "Connect your wuapi account", None, true, palette)
-                        .mt_6()
-                        .on_click(cx.listener(|this, _, _, cx| this.connect(cx))),
+                    text_button(
+                        "connect",
+                        i18n::t("accounts.login.connect"),
+                        None,
+                        true,
+                        palette,
+                    )
+                    .mt_6()
+                    .on_click(cx.listener(|this, _, _, cx| this.connect(cx))),
                 ),
             Phase::Requesting => column
-                .child(heading("Connecting to wuapi"))
-                .child(body("Asking for a sign-in code.", palette))
+                .child(heading(i18n::t("accounts.login.requesting_title")))
+                .child(body(i18n::t("accounts.login.requesting_text"), palette))
                 .child(
                     div()
                         .pt_6()
                         .h(metrics::BUTTON() + px(24.))
                         .flex()
                         .items_center()
-                        .child(tag("Requesting a code", Some(palette.warning), palette)),
+                        .child(tag(
+                            i18n::t("accounts.login.requesting_tag"),
+                            Some(palette.warning),
+                            palette,
+                        )),
                 ),
             Phase::Waiting { code, unreachable } => {
                 self.render_waiting(column, code, *unreachable, palette, cx)
             }
             Phase::Approved { organization } => column
-                .child(heading(&format!("Signed in to {organization}")))
-                .child(body("Loading your accounts.", palette))
+                .child(heading(&i18n::tr(
+                    "accounts.login.signed_in_to",
+                    &[("organization", organization)],
+                )))
+                .child(body(i18n::t("accounts.login.approved_text"), palette))
                 .child(
                     div()
                         .pt_6()
                         .h(metrics::BUTTON() + px(24.))
                         .flex()
                         .items_center()
-                        .child(tag("Approved", Some(palette.accent), palette)),
+                        .child(tag(
+                            i18n::t("accounts.login.approved_tag"),
+                            Some(palette.accent),
+                            palette,
+                        )),
                 ),
             Phase::KeyNotSaved { .. } => column
-                .child(heading("Signed in"))
-                .child(body(
-                    "This session works. The API key could not be saved, so you will be \
-                     asked to sign in again the next time you start.",
-                    palette,
-                ))
+                .child(heading(i18n::t("accounts.login.signed_in")))
+                .child(body(i18n::t("accounts.login.key_not_saved_text"), palette))
                 .child(
-                    text_button("continue", "Continue to your chats", None, true, palette)
-                        .mt_6()
-                        .on_click(cx.listener(|this, _, _, cx| this.proceed(cx))),
+                    text_button(
+                        "continue",
+                        i18n::t("accounts.login.continue"),
+                        None,
+                        true,
+                        palette,
+                    )
+                    .mt_6()
+                    .on_click(cx.listener(|this, _, _, cx| this.proceed(cx))),
                 ),
             Phase::Expired => self.render_stopped(
                 column,
                 (IconName::Clock3, palette.text_muted),
-                "The code expired",
-                "Nobody approved it in time. A new code takes a second.".into(),
-                "Get a new code",
+                i18n::t("accounts.login.expired_title"),
+                i18n::t("accounts.login.expired_text").into(),
+                i18n::t("accounts.login.new_code"),
                 palette,
                 cx,
             ),
             Phase::Denied => self.render_stopped(
                 column,
                 (IconName::CircleX, palette.danger),
-                "Sign-in denied",
-                "The request was denied in the browser. If that was not you, there is \
-                 nothing else to do: no key was issued."
-                    .into(),
-                "Try again",
+                i18n::t("accounts.login.denied_title"),
+                i18n::t("accounts.login.denied_text").into(),
+                i18n::t("accounts.login.try_again"),
                 palette,
                 cx,
             ),
             Phase::Offline => self.render_stopped(
                 column,
                 (IconName::WifiOff, palette.warning),
-                "Can't reach wuapi",
-                "Check your connection. Nothing was lost; try again when you are back \
-                 online."
-                    .into(),
-                "Try again",
+                i18n::t("accounts.login.offline_title"),
+                i18n::t("accounts.login.offline_text").into(),
+                i18n::t("accounts.login.try_again"),
                 palette,
                 cx,
             ),
             Phase::Failed { reason } => self.render_stopped(
                 column,
                 (IconName::CircleAlert, palette.danger),
-                "Sign-in failed",
+                i18n::t("accounts.login.failed_title"),
                 reason.clone().into(),
-                "Try again",
+                i18n::t("accounts.login.try_again"),
                 palette,
                 cx,
             ),
@@ -408,16 +423,13 @@ impl LoginScreen {
             .remaining(cx.background_executor().now())
             .unwrap_or_default();
         let (copy_icon, copy_label) = if self.copied {
-            (IconName::Check, "Copied")
+            (IconName::Check, i18n::t("accounts.login.copied"))
         } else {
-            (IconName::Copy, "Copy code")
+            (IconName::Copy, i18n::t("accounts.login.copy_code"))
         };
         column
-            .child(heading("Approve this computer"))
-            .child(body(
-                "Open wuapi in the browser and confirm that it shows this code.",
-                palette,
-            ))
+            .child(heading(i18n::t("accounts.login.approve_title")))
+            .child(body(i18n::t("accounts.login.approve_text"), palette))
             .child(
                 div()
                     .mt_5()
@@ -439,9 +451,12 @@ impl LoginScreen {
                             .flex()
                             .items_center()
                             .justify_between()
-                            .child(label("Your code", palette))
+                            .child(label(i18n::t("accounts.login.your_code"), palette))
                             .child(div().debug_selector(|| "countdown".into()).child(label(
-                                &format!("expires in {}", countdown(remaining)),
+                                &i18n::tr(
+                                    "accounts.login.expires_in",
+                                    &[("time", &countdown(remaining))],
+                                ),
                                 palette,
                             ))),
                     )
@@ -465,7 +480,7 @@ impl LoginScreen {
                     .child(
                         text_button(
                             "open-browser",
-                            "Open wuapi in the browser",
+                            i18n::t("accounts.login.open_browser"),
                             Some(IconName::ExternalLink),
                             true,
                             palette,
@@ -489,12 +504,16 @@ impl LoginScreen {
                         // Weather, not a verdict: the code is still good and
                         // the question is asked again.
                         tag(
-                            "Connection lost. Still trying",
+                            i18n::t("accounts.login.connection_lost"),
                             Some(palette.danger),
                             palette,
                         )
                     } else {
-                        tag("Waiting for approval", Some(palette.warning), palette)
+                        tag(
+                            i18n::t("accounts.login.waiting"),
+                            Some(palette.warning),
+                            palette,
+                        )
                     })
                     .child(
                         div()
@@ -505,7 +524,7 @@ impl LoginScreen {
                             .text_color(palette.text_muted)
                             .hover(|style| style.opacity(0.7))
                             .on_click(cx.listener(|this, _, _, cx| this.cancel(cx)))
-                            .child(mono("CANCEL")),
+                            .child(mono(i18n::t("accounts.login.cancel"))),
                     ),
             )
             .child(
@@ -515,9 +534,9 @@ impl LoginScreen {
                     .text_size(metrics::TEXT_SMALL())
                     .line_height(px(19.))
                     .text_color(palette.text_muted)
-                    .child(SharedString::from(format!(
-                        "No browser on this computer? Open {} on any device and type the code.",
-                        code.verification_uri
+                    .child(SharedString::from(i18n::tr(
+                        "accounts.login.no_browser",
+                        &[("uri", &code.verification_uri)],
                     ))),
             )
     }
@@ -565,7 +584,14 @@ impl LoginScreen {
             Phase::KeyNotSaved { .. } => (2, palette.accent),
         };
         let mut row = div().flex();
-        for (index, name) in ["Connect", "Approve", "Chats"].into_iter().enumerate() {
+        for (index, name) in [
+            i18n::t("accounts.login.step_connect"),
+            i18n::t("accounts.login.step_approve"),
+            i18n::t("accounts.login.step_chats"),
+        ]
+        .into_iter()
+        .enumerate()
+        {
             let colour = match index.cmp(&current) {
                 std::cmp::Ordering::Less => palette.accent,
                 std::cmp::Ordering::Equal => light,
@@ -605,14 +631,9 @@ impl LoginScreen {
             _ => return None,
         };
         let advice = if cfg!(target_os = "linux") {
-            "You can still sign in, but the API key cannot be saved and you will be asked \
-             again at every start. To fix it, install and unlock a Secret Service keyring \
-             (GNOME Keyring or KWallet), then restart. On a machine without one, start with \
-             WUAPI_API_KEY set instead."
+            i18n::t("accounts.login.keychain_advice_linux")
         } else {
-            "You can still sign in, but the API key cannot be saved and you will be asked \
-             again at every start. Unlock the system keychain and restart, or start with \
-             WUAPI_API_KEY set instead."
+            i18n::t("accounts.login.keychain_advice_other")
         };
         Some(
             div()
@@ -638,7 +659,7 @@ impl LoginScreen {
                                 .text_size(metrics::TEXT_SMALL())
                                 .font_weight(FontWeight::SEMIBOLD)
                                 .text_color(palette.text)
-                                .child("The system keychain is not available"),
+                                .child(i18n::t("accounts.login.keychain_title")),
                         )
                         .child(
                             div()
@@ -708,7 +729,11 @@ impl Render for LoginScreen {
                     .h_full()
                     .flex()
                     .flex_col()
-                    .child(screen_header("Sign in", step(4), &palette))
+                    .child(screen_header(
+                        i18n::t("accounts.login.sign_in"),
+                        step(4),
+                        &palette,
+                    ))
                     .child(
                         div()
                             .id("login-scroll")

@@ -14,6 +14,7 @@ use super::social::{
 };
 use super::widgets::{avatar_or, icon_button, mono, tag, text_button, AvatarKind};
 use crate::format;
+use crate::i18n;
 use crate::icons::IconName;
 use crate::theme::px;
 use crate::theme::{metrics, Palette};
@@ -37,14 +38,18 @@ impl Shell {
     ) -> Option<Stateful<Div>> {
         let in_gallery = self.social.gallery.is_some();
         let (title, body) = match self.social.target()? {
-            _ if in_gallery => ("Media, files and links", self.render_gallery(palette, cx)),
+            _ if in_gallery => (
+                i18n::t("accounts.profile.media"),
+                self.render_gallery(palette, cx),
+            ),
             Target::Contact { account, contact } => (
-                "Contact info",
+                i18n::t("accounts.profile.contact_info"),
                 self.render_contact(account, contact, palette, cx),
             ),
-            Target::Group { account, group } => {
-                ("Group info", self.render_group(account, group, palette, cx))
-            }
+            Target::Group { account, group } => (
+                i18n::t("accounts.profile.group_info"),
+                self.render_group(account, group, palette, cx),
+            ),
         };
         let header = panel_header(
             title,
@@ -154,12 +159,16 @@ impl Shell {
             lines.push(mono(format!("@{username}")).text_color(palette.text_muted));
         }
         if known.business_name.is_some() {
-            lines.push(tag("Business", None, palette));
+            lines.push(tag(i18n::t("accounts.profile.business"), None, palette));
         }
         if blocked {
             lines.push(
-                tag("Blocked", Some(palette.danger), palette)
-                    .debug_selector(|| "profile-blocked".into()),
+                tag(
+                    i18n::t("accounts.profile.blocked"),
+                    Some(palette.danger),
+                    palette,
+                )
+                .debug_selector(|| "profile-blocked".into()),
             );
         }
         let picture = super::senders::person_avatar(
@@ -178,12 +187,13 @@ impl Shell {
         // About: what WhatsApp answered when asked.
         let about = match (&known.about, caps.contact_lookup) {
             (Some(about), _) => Some(paragraph(about.clone(), palette)),
-            (None, true) => Some(hint("Not shown to this number, or not set.", palette)),
+            (None, true) => Some(hint(i18n::t("accounts.profile.about_empty"), palette)),
             (None, false) => None,
         };
         if let Some(about) = about {
             panel = panel.child(
-                block("About", palette).child(about.debug_selector(|| "profile-about".into())),
+                block(i18n::t("accounts.profile.about"), palette)
+                    .child(about.debug_selector(|| "profile-about".into())),
             );
         }
         if let Some(business) = &business {
@@ -198,7 +208,7 @@ impl Shell {
                 action_row(
                     "profile-message",
                     IconName::MessageCircle,
-                    "Message",
+                    i18n::t("accounts.profile.message"),
                     false,
                     palette,
                 )
@@ -219,9 +229,9 @@ impl Shell {
                         IconName::BellOff
                     },
                     if muted {
-                        "Unmute notifications"
+                        i18n::t("accounts.profile.unmute")
                     } else {
-                        "Mute notifications"
+                        i18n::t("accounts.profile.mute")
                     },
                     false,
                     palette,
@@ -240,7 +250,7 @@ impl Shell {
                 action_row(
                     "profile-search",
                     IconName::Search,
-                    "Search in chat",
+                    i18n::t("accounts.profile.search"),
                     false,
                     palette,
                 )
@@ -255,13 +265,17 @@ impl Shell {
                 action_row(
                     "profile-copy",
                     IconName::Copy,
-                    "Copy number",
+                    i18n::t("accounts.profile.copy_number"),
                     false,
                     palette,
                 )
                 .on_click(cx.listener(move |this, _, _, cx| {
                     cx.stop_propagation();
-                    this.copy_from_panel(number.clone(), "Number copied.", cx);
+                    this.copy_from_panel(
+                        number.clone(),
+                        i18n::t("accounts.profile.number_copied"),
+                        cx,
+                    );
                 })),
             );
         }
@@ -270,7 +284,11 @@ impl Shell {
                 action_row(
                     "profile-block",
                     IconName::Ban,
-                    if blocked { "Unblock" } else { "Block" },
+                    if blocked {
+                        i18n::t("accounts.profile.unblock")
+                    } else {
+                        i18n::t("accounts.profile.block")
+                    },
                     !blocked,
                     palette,
                 )
@@ -294,9 +312,9 @@ impl Shell {
                         IconName::BellOff
                     },
                     if muted {
-                        "Unmute their status"
+                        i18n::t("accounts.profile.unmute_status")
                     } else {
-                        "Mute their status"
+                        i18n::t("accounts.profile.mute_status")
                     },
                     false,
                     palette,
@@ -312,12 +330,9 @@ impl Shell {
 
         if let Some(Confirm::Block(block)) = &self.social.confirm {
             let words = if *block {
-                format!(
-                    "Block {name}? They will no longer be able to message or call this number, \
-                     and will not be told."
-                )
+                i18n::tr("accounts.profile.block_question", &[("name", &name)])
             } else {
-                format!("Unblock {name}? They will be able to message and call this number again.")
+                i18n::tr("accounts.profile.unblock_question", &[("name", &name)])
             };
             panel = panel.child(
                 question("profile-block-question", words, palette).child(
@@ -326,16 +341,28 @@ impl Shell {
                         .justify_end()
                         .gap_2()
                         .child(
-                            text_button("profile-block-cancel", "Cancel", None, false, palette)
-                                .on_click(cx.listener(|this, _, window, cx| {
+                            text_button(
+                                "profile-block-cancel",
+                                i18n::t("accounts.profile.cancel"),
+                                None,
+                                false,
+                                palette,
+                            )
+                            .on_click(cx.listener(
+                                |this, _, window, cx| {
                                     cx.stop_propagation();
                                     this.info_back(window, cx);
-                                })),
+                                },
+                            )),
                         )
                         .child(
                             text_button(
                                 "profile-block-confirm",
-                                if *block { "Block" } else { "Unblock" },
+                                if *block {
+                                    i18n::t("accounts.profile.block")
+                                } else {
+                                    i18n::t("accounts.profile.unblock")
+                                },
                                 Some(IconName::Ban),
                                 false,
                                 palette,
@@ -353,9 +380,12 @@ impl Shell {
         let mut names = div().px_4().py_1().flex().flex_col();
         let mut any = false;
         for (title, value) in [
-            ("Saved as", &known.saved_name),
-            ("Business", &known.business_name),
-            ("Name on WhatsApp", &known.profile_name),
+            (i18n::t("accounts.profile.saved_as"), &known.saved_name),
+            (i18n::t("accounts.profile.business"), &known.business_name),
+            (
+                i18n::t("accounts.profile.whatsapp_name"),
+                &known.profile_name,
+            ),
         ] {
             if let Some(value) = value.as_ref().filter(|value| !value.trim().is_empty()) {
                 any = true;
@@ -390,7 +420,7 @@ impl Shell {
             action_row(
                 "profile-gallery",
                 IconName::Image,
-                "Media, files and links",
+                i18n::t("accounts.profile.media"),
                 false,
                 palette,
             )
@@ -417,14 +447,14 @@ impl Shell {
             .store()
             .groups_in_common(account, contact)
             .unwrap_or_default();
-        let mut list = block("Groups in common", palette);
+        let mut list = block(i18n::t("accounts.profile.common_groups"), palette);
         if common.is_empty() {
             return list.child(
                 hint(
                     if self.engine.groups_listed(account) {
-                        "None."
+                        i18n::t("accounts.profile.common_none")
                     } else {
-                        "Reading this number's groups…"
+                        i18n::t("accounts.profile.common_reading")
                     },
                     palette,
                 )
@@ -485,7 +515,10 @@ impl Shell {
             palette,
         );
         let mut lines = vec![hint(
-            format!("{} on WhatsApp", number.display_name),
+            i18n::tr(
+                "accounts.profile.on_whatsapp",
+                &[("name", &number.display_name)],
+            ),
             palette,
         )];
         if let Some(phone) = &number.phone {
@@ -515,7 +548,7 @@ impl Shell {
                 .child(
                     text_button(
                         "own-picture-change",
-                        "Change picture",
+                        i18n::t("accounts.profile.picture_change"),
                         Some(IconName::Camera),
                         false,
                         palette,
@@ -529,7 +562,7 @@ impl Shell {
                     this.child(
                         text_button(
                             "own-picture-remove",
-                            "Remove",
+                            i18n::t("accounts.profile.picture_remove"),
                             Some(IconName::Trash),
                             false,
                             palette,
@@ -545,7 +578,7 @@ impl Shell {
             body = body.child(
                 question(
                     "own-picture-question",
-                    "Remove this number's profile picture on WhatsApp?",
+                    i18n::t("accounts.profile.picture_question"),
                     palette,
                 )
                 .child(
@@ -554,16 +587,24 @@ impl Shell {
                         .justify_end()
                         .gap_2()
                         .child(
-                            text_button("own-picture-keep", "Keep it", None, false, palette)
-                                .on_click(cx.listener(|this, _, window, cx| {
+                            text_button(
+                                "own-picture-keep",
+                                i18n::t("accounts.profile.picture_keep"),
+                                None,
+                                false,
+                                palette,
+                            )
+                            .on_click(cx.listener(
+                                |this, _, window, cx| {
                                     cx.stop_propagation();
                                     this.leave_own_profile(window, cx);
-                                })),
+                                },
+                            )),
                         )
                         .child(
                             text_button(
                                 "own-picture-remove-confirm",
-                                "Remove",
+                                i18n::t("accounts.profile.picture_remove"),
                                 Some(IconName::Trash),
                                 false,
                                 palette,
@@ -580,29 +621,26 @@ impl Shell {
         body = body
             .child(self.render_own_field(
                 EditWhat::OwnName,
-                "Name",
+                i18n::t("accounts.profile.name"),
                 profile.name.clone(),
-                "The name on the phone is not known here yet. What you set here replaces it.",
+                i18n::t("accounts.profile.name_unknown"),
                 palette,
                 cx,
             ))
             .child(self.render_own_field(
                 EditWhat::OwnAbout,
-                "About",
+                i18n::t("accounts.profile.about"),
                 profile.about.clone(),
                 // TODO(wuapi-api): no route reads the own About text.
-                "WhatsApp did not say what the About text is. What you set here replaces it.",
+                i18n::t("accounts.profile.about_unknown"),
                 palette,
                 cx,
             ));
         if !connected {
             body = body.child(
                 div().px_4().py_3().child(
-                    hint(
-                        "This number is not connected. Changes are sent when it is back.",
-                        palette,
-                    )
-                    .debug_selector(|| "own-offline".into()),
+                    hint(i18n::t("accounts.profile.offline"), palette)
+                        .debug_selector(|| "own-offline".into()),
                 ),
             );
         }
@@ -613,7 +651,7 @@ impl Shell {
                 .flex()
                 .flex_col()
                 .child(panel_header(
-                    "WhatsApp profile",
+                    i18n::t("accounts.profile.own_title"),
                     palette,
                     cx.listener(|this, _, window, cx| {
                         cx.stop_propagation();
@@ -682,11 +720,17 @@ impl Shell {
                         }),
                 )
                 .child(
-                    text_button(edit_button, "Edit", Some(IconName::Pencil), false, palette)
-                        .on_click(cx.listener(move |this, _, window, cx| {
-                            cx.stop_propagation();
-                            this.begin_edit(what, current.clone(), window, cx);
-                        })),
+                    text_button(
+                        edit_button,
+                        i18n::t("accounts.profile.edit"),
+                        Some(IconName::Pencil),
+                        false,
+                        palette,
+                    )
+                    .on_click(cx.listener(move |this, _, window, cx| {
+                        cx.stop_propagation();
+                        this.begin_edit(what, current.clone(), window, cx);
+                    })),
                 ),
         )
     }
@@ -700,47 +744,69 @@ pub(super) fn edit_buttons(palette: &Palette, cx: &mut Context<Shell>) -> Div {
         .justify_end()
         .gap_2()
         .child(
-            text_button("edit-cancel", "Cancel", None, false, palette).on_click(cx.listener(
-                |this, _, window, cx| {
-                    cx.stop_propagation();
-                    this.social.edit = None;
-                    this.overlay_focus.focus(window, cx);
-                    cx.notify();
-                },
-            )),
+            text_button(
+                "edit-cancel",
+                i18n::t("accounts.profile.cancel"),
+                None,
+                false,
+                palette,
+            )
+            .on_click(cx.listener(|this, _, window, cx| {
+                cx.stop_propagation();
+                this.social.edit = None;
+                this.overlay_focus.focus(window, cx);
+                cx.notify();
+            })),
         )
         .child(
-            text_button("edit-save", "Save", None, true, palette).on_click(cx.listener(
-                |this, _, window, cx| {
-                    cx.stop_propagation();
-                    this.save_edit(window, cx);
-                },
-            )),
+            text_button(
+                "edit-save",
+                i18n::t("accounts.profile.save"),
+                None,
+                true,
+                palette,
+            )
+            .on_click(cx.listener(|this, _, window, cx| {
+                cx.stop_propagation();
+                this.save_edit(window, cx);
+            })),
         )
 }
 
 /// What a business says about itself.
 fn business_block(profile: &BusinessProfile, palette: &Palette) -> Div {
-    let mut shown = block("Business", palette).debug_selector(|| "profile-business".into());
+    let mut shown = block(i18n::t("accounts.profile.business"), palette)
+        .debug_selector(|| "profile-business".into());
     if let Some(description) = &profile.description {
         shown = shown.child(paragraph(description.clone(), palette));
     }
     if !profile.categories.is_empty() {
         shown = shown.child(hint(profile.categories.join(" · "), palette));
     }
-    for (title, value) in [("Address", &profile.address), ("E-mail", &profile.email)] {
+    for (title, value) in [
+        (i18n::t("accounts.profile.address"), &profile.address),
+        (i18n::t("accounts.profile.email"), &profile.email),
+    ] {
         if let Some(value) = value {
             shown = shown.child(fact(title, value.clone().into(), palette));
         }
     }
     for site in &profile.websites {
-        shown = shown.child(fact("Web", site.clone().into(), palette));
+        shown = shown.child(fact(
+            i18n::t("accounts.profile.web"),
+            site.clone().into(),
+            palette,
+        ));
     }
     if !profile.hours.is_empty() {
         let mut hours = div().pt_1().flex().flex_col();
         for day in &profile.hours {
             let when: SharedString = match (&day.open, &day.close) {
-                (Some(open), Some(close)) => format!("{open} to {close}").into(),
+                (Some(open), Some(close)) => i18n::tr(
+                    "accounts.profile.hours_range",
+                    &[("open", open), ("close", close)],
+                )
+                .into(),
                 _ => day.mode.replace('_', " ").into(),
             };
             hours = hours.child(

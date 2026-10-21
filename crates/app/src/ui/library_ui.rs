@@ -12,6 +12,7 @@ use super::picker::{Source, Tab};
 use super::shell::{Overlay, PickKind, SettingsSection, Shell};
 use super::widgets::{mono, switch, text_button};
 use crate::gifs::MemorySecret;
+use crate::i18n;
 use crate::keys::Command;
 use crate::settings;
 use crate::theme::{metrics, px, Palette};
@@ -67,7 +68,7 @@ impl LibraryUi {
         Self {
             key_input: cx.new(|cx| {
                 InputState::new(window, cx)
-                    .placeholder("Paste your API key")
+                    .placeholder(i18n::t("accounts.library.key_placeholder"))
                     .masked(true)
             }),
             confirm_clear: None,
@@ -106,7 +107,7 @@ fn import_files(
                 .and_then(|folder| folder.file_name())
                 .map(|name| name.to_string_lossy().into_owned())
                 .filter(|name| !name.trim().is_empty())
-                .unwrap_or_else(|| "Imported".to_owned());
+                .unwrap_or_else(|| i18n::t("accounts.library.imported").to_owned());
             let id = format!(
                 "import-{}",
                 &client_core::content_id(
@@ -137,7 +138,8 @@ fn import_files(
         };
         let bytes = match std::fs::metadata(&path) {
             Ok(meta) if meta.len() > limit => {
-                done.failed.push((shown, "The file is too large.".into()));
+                done.failed
+                    .push((shown, i18n::t("accounts.library.too_large").into()));
                 continue;
             }
             Ok(_) => match std::fs::read(&path) {
@@ -367,11 +369,17 @@ impl Shell {
             this.update(cx, |this, cx| match saved {
                 Ok((item, created)) => {
                     let text = match (keep.kind, created, keep.favorite) {
-                        (LibraryKind::Sticker, _, true) => "Added to your favorite stickers",
-                        (LibraryKind::Sticker, true, false) => "Saved to your stickers",
-                        (LibraryKind::Sticker, false, false) => "Already in your stickers",
-                        (LibraryKind::Gif, true, _) => "Saved to your GIFs",
-                        (LibraryKind::Gif, false, _) => "Already in your GIFs",
+                        (LibraryKind::Sticker, _, true) => {
+                            i18n::t("accounts.library.saved_favorite")
+                        }
+                        (LibraryKind::Sticker, true, false) => {
+                            i18n::t("accounts.library.saved_sticker")
+                        }
+                        (LibraryKind::Sticker, false, false) => {
+                            i18n::t("accounts.library.already_sticker")
+                        }
+                        (LibraryKind::Gif, true, _) => i18n::t("accounts.library.saved_gif"),
+                        (LibraryKind::Gif, false, _) => i18n::t("accounts.library.already_gif"),
                     };
                     let _ = item;
                     this.show_notice(text, None, cx);
@@ -410,7 +418,7 @@ impl Shell {
                 })
                 .await;
             this.update(cx, |this, cx| match kept {
-                Ok(_) => this.picker_say("Saved to your GIFs", cx),
+                Ok(_) => this.picker_say(i18n::t("accounts.library.saved_gif"), cx),
                 Err(error) => this.picker_say(error.to_string(), cx),
             })
             .ok();
@@ -449,18 +457,17 @@ impl Shell {
     }
 
     fn imported(&mut self, kind: LibraryKind, done: Imported, cx: &mut Context<Self>) {
-        let what = if kind == LibraryKind::Sticker {
-            "sticker"
+        let key = if kind == LibraryKind::Sticker {
+            "accounts.library.added_stickers"
         } else {
-            "GIF"
+            "accounts.library.added_gifs"
         };
         let mut said = match done.added.len() {
             0 => String::new(),
-            1 => format!("Added 1 {what}"),
-            n => format!("Added {n} {what}s"),
+            n => i18n::plural(key, n as u64, &[]),
         };
         if let Some(note) = done.notes.first() {
-            said.push_str(&format!(". {note}"));
+            said.push_str(&i18n::tr("accounts.library.note", &[("note", note)]));
         }
         if !said.is_empty() {
             if self.overlay == Overlay::EmojiPicker {
@@ -471,11 +478,17 @@ impl Shell {
         if let Some((name, why)) = done.failed.first() {
             let more = done.failed.len() - 1;
             let tail = if more > 0 {
-                format!(" ({more} more did not work)")
+                i18n::plural("accounts.library.more_failed", more as u64, &[])
             } else {
                 String::new()
             };
-            self.show_problem(format!("{name}: {why}{tail}"), cx);
+            self.show_problem(
+                i18n::tr(
+                    "accounts.library.failed",
+                    &[("name", name), ("why", why), ("tail", &tail)],
+                ),
+                cx,
+            );
         }
         self.picker_library_changed(cx);
         cx.notify();
@@ -503,10 +516,15 @@ impl Shell {
             format!("{} KB", stats.bytes.div_ceil(1024))
         };
         let budget = client_core::LIBRARY_BUDGET / (1024 * 1024);
-        let summary: SharedString = format!(
-            "{stickers} stickers and {gifs} GIFs, {size} of {budget} MB. {} favorites are never \
-             removed; when the library is full, what was used longest ago goes first.",
-            stats.favorites
+        let summary: SharedString = i18n::tr(
+            "accounts.library.summary",
+            &[
+                ("stickers", &stickers),
+                ("gifs", &gifs),
+                ("size", &size),
+                ("budget", &budget),
+                ("favorites", &stats.favorites),
+            ],
         )
         .into();
         let confirm = self.library.confirm_clear;
@@ -515,7 +533,11 @@ impl Shell {
                 let asked = confirm == Some(everything);
                 text_button(
                     id,
-                    if asked { "Click again to clear" } else { label },
+                    if asked {
+                        i18n::t("accounts.library.click_again")
+                    } else {
+                        label
+                    },
                     None,
                     asked,
                     palette,
@@ -528,9 +550,9 @@ impl Shell {
         let key_set = self.picker.services.key().is_some();
         let online = chosen.gif_online;
         let key_state: SharedString = if key_set {
-            "A key is saved in the system keychain.".into()
+            i18n::t("accounts.library.key_saved_state").into()
         } else {
-            "No key yet.".into()
+            i18n::t("accounts.library.no_key").into()
         };
         let key_row = div()
             .debug_selector(|| "stickers-key-row".into())
@@ -559,19 +581,31 @@ impl Shell {
                             .child(super::widgets::field(&self.library.key_input)),
                     )
                     .child(
-                        text_button("stickers-key-save", "Save key", None, false, palette)
-                            .on_click(cx.listener(|this, _, window, cx| {
-                                cx.stop_propagation();
-                                this.save_gif_key(window, cx);
-                            })),
+                        text_button(
+                            "stickers-key-save",
+                            i18n::t("accounts.library.save_key"),
+                            None,
+                            false,
+                            palette,
+                        )
+                        .on_click(cx.listener(|this, _, window, cx| {
+                            cx.stop_propagation();
+                            this.save_gif_key(window, cx);
+                        })),
                     )
                     .when(key_set, |this| {
                         this.child(
-                            text_button("stickers-key-remove", "Remove", None, false, palette)
-                                .on_click(cx.listener(|this, _, _, cx| {
-                                    cx.stop_propagation();
-                                    this.remove_gif_key(cx);
-                                })),
+                            text_button(
+                                "stickers-key-remove",
+                                i18n::t("accounts.library.remove"),
+                                None,
+                                false,
+                                palette,
+                            )
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                cx.stop_propagation();
+                                this.remove_gif_key(cx);
+                            })),
                         )
                     }),
             )
@@ -582,18 +616,27 @@ impl Shell {
                     .text_color(palette.text_muted)
                     .child(self.library.said.clone().unwrap_or(key_state)),
             );
-        section("Stickers and GIFs", palette)
+        section(i18n::t("accounts.settings.section.stickers"), palette)
             .child(choice_row(
-                "Your library",
-                "Stickers and GIFs you keep, in the encrypted database on this computer. \
-                 Signing out deletes them with the rest.",
+                i18n::t("accounts.library.your_library"),
+                i18n::t("accounts.library.your_library_text"),
                 div()
                     .debug_selector(|| "stickers-clear".into())
                     .flex_none()
                     .flex()
                     .gap_2()
-                    .child(clear("stickers-clear-keep", "Clear", false, cx))
-                    .child(clear("stickers-clear-all", "Clear all", true, cx)),
+                    .child(clear(
+                        "stickers-clear-keep",
+                        i18n::t("accounts.library.clear"),
+                        false,
+                        cx,
+                    ))
+                    .child(clear(
+                        "stickers-clear-all",
+                        i18n::t("accounts.library.clear_all"),
+                        true,
+                        cx,
+                    )),
                 palette,
             ))
             .child(
@@ -606,9 +649,8 @@ impl Shell {
                     .child(summary),
             )
             .child(choice_row(
-                "Animate stickers and GIFs on hover",
-                "In the picker, the one tile the pointer or the keyboard is on moves; the rest \
-                 stay still. Reduced motion (Appearance) keeps everything still.",
+                i18n::t("accounts.library.animate"),
+                i18n::t("accounts.library.animate_text"),
                 switch("stickers-animate", chosen.sticker_hover_animation, palette).on_click(
                     |_, _, cx| {
                         cx.stop_propagation();
@@ -619,17 +661,12 @@ impl Shell {
                 ),
                 palette,
             ))
-            .child(
-                div()
-                    .pt_4()
-                    .pb_2()
-                    .child(mono("[ ONLINE GIF SEARCH ]").text_color(palette.text_muted)),
-            )
+            .child(div().pt_4().pb_2().child(
+                mono(i18n::t("accounts.library.online_heading")).text_color(palette.text_muted),
+            ))
             .child(choice_row(
-                "Search GIFs online with Giphy",
-                "Off by default. Searches are sent to Giphy (api.giphy.com), a third party, \
-                 with your own API key and the words you type, and the GIFs you pick are \
-                 downloaded from it. Nothing is sent to anyone while this is off.",
+                i18n::t("accounts.library.online"),
+                i18n::t("accounts.library.online_text"),
                 switch("stickers-online", online, palette).on_click(|_, _, cx| {
                     cx.stop_propagation();
                     settings::update(cx, |settings| settings.gif_online = !settings.gif_online);
@@ -642,10 +679,7 @@ impl Shell {
                     .text_size(metrics::TEXT_SMALL())
                     .line_height(px(18.))
                     .text_color(palette.text_muted)
-                    .child(
-                        "Get a key at developers.giphy.com. It is kept in the system keychain, \
-                         never in the settings file, and no key comes with this application.",
-                    ),
+                    .child(i18n::t("accounts.library.key_help")),
             )
             .child(key_row)
     }
@@ -657,7 +691,10 @@ impl Shell {
         }
         self.library.confirm_clear = None;
         match self.store.library_clear(!everything) {
-            Ok(removed) => self.library.said = Some(format!("{removed} items removed.").into()),
+            Ok(removed) => {
+                self.library.said =
+                    Some(i18n::tr("accounts.library.removed", &[("removed", &removed)]).into())
+            }
             Err(error) => self.show_problem(error.to_string(), cx),
         }
         self.picker_library_changed(cx);
@@ -667,19 +704,19 @@ impl Shell {
     fn save_gif_key(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let typed = self.library.key_input.read(cx).value().trim().to_owned();
         if typed.is_empty() {
-            self.library.said = Some("Paste a key first.".into());
+            self.library.said = Some(i18n::t("accounts.library.paste_first").into());
             return cx.notify();
         }
         match self.picker.services.secrets.set(&typed) {
             Ok(()) => {
-                self.library.said = Some("Key saved in the system keychain.".into());
+                self.library.said = Some(i18n::t("accounts.library.key_saved").into());
                 self.library
                     .key_input
                     .update(cx, |field, cx| field.set_value("", window, cx));
             }
             Err(error) => {
                 self.library.said =
-                    Some(format!("The keychain did not take the key: {error}").into())
+                    Some(i18n::tr("accounts.library.key_refused", &[("error", &error)]).into())
             }
         }
         self.picker.services.forget_key();
@@ -688,9 +725,10 @@ impl Shell {
 
     fn remove_gif_key(&mut self, cx: &mut Context<Self>) {
         match self.picker.services.secrets.delete() {
-            Ok(()) => self.library.said = Some("Key removed.".into()),
+            Ok(()) => self.library.said = Some(i18n::t("accounts.library.key_removed").into()),
             Err(error) => {
-                self.library.said = Some(format!("The keychain did not answer: {error}").into())
+                self.library.said =
+                    Some(i18n::tr("accounts.library.key_unanswered", &[("error", &error)]).into())
             }
         }
         self.picker.services.forget_key();
