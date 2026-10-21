@@ -119,6 +119,7 @@
   "common.shell.no_match": "Ningún contacto coincide. Para escribirle a un número, escríbelo con su código de país.",
   "common.shell.no_number": "Todavía no hay un número desde el cual escribir.",
   "common.shell.not_here": "No disponible con este proveedor",
+  "common.shell.not_queued": "No se pudo enviar el mensaje. Inténtalo de nuevo.",
   "common.shell.not_yet": "Aún no disponible",
   "common.shell.participants.one": "{n} participante",
   "common.shell.participants.other": "{n} participantes",

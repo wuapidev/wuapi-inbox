@@ -194,8 +194,9 @@ impl Shell {
                 return cx.notify();
             }
         };
-        // Into the outbox: the bubble appears now, the network comes later.
-        let queued = self.engine.send(OutgoingMessage {
+        // Into the outbox, off this thread: the bubble appears as soon as
+        // it is queued, the network comes later.
+        self.queue_send(super::shell::Outgoing::Message(OutgoingMessage {
             client_id: new_client_id(),
             account_id: open.chat.account_id.clone(),
             chat_id: open.chat.id.clone(),
@@ -207,20 +208,10 @@ impl Shell {
             reply_to: None,
             mentions: Vec::new(),
             forwarded: false,
-        });
-        match queued {
-            Ok(_) => {
-                open.list.scroll_to_end();
-                self.poll_form = None;
-                self.close_overlay(window, cx);
-            }
-            Err(error) => {
-                tracing::error!(%error, "could not queue the poll");
-                if let Some(form) = &mut self.poll_form {
-                    form.error = Some(crate::i18n::t("chat.poll_form.save_failed").into());
-                }
-            }
-        }
+        }));
+        open.list.scroll_to_end();
+        self.poll_form = None;
+        self.close_overlay(window, cx);
         cx.notify();
     }
 

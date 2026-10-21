@@ -119,6 +119,7 @@
   "common.shell.no_match": "No contact matches. To write to a number, type it with its country code.",
   "common.shell.no_number": "There is no number to write from yet.",
   "common.shell.not_here": "Not available with this provider",
+  "common.shell.not_queued": "The message could not be sent. Try again.",
   "common.shell.not_yet": "Not available yet",
   "common.shell.participants.one": "{n} participant",
   "common.shell.participants.other": "{n} participants",
