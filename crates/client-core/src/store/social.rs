@@ -339,7 +339,7 @@ impl Store {
         limit: usize,
     ) -> StoreResult<Vec<StoredParticipant>> {
         let typed = query
-            .map(|q| q.trim().to_lowercase())
+            .map(|q| crate::fold(q.trim()))
             .filter(|q| !q.is_empty());
         let pattern = typed.map(|q| {
             format!(
@@ -375,7 +375,7 @@ impl Store {
                       LIMIT 1))
                  WHERE p.account_id = ?1 AND p.group_id = ?2
                    AND (?3 IS NULL
-                        OR lower(COALESCE(k.saved_name, '') || ' ' || COALESCE(k.business_name, '')
+                        OR fold(COALESCE(k.saved_name, '') || ' ' || COALESCE(k.business_name, '')
                                  || ' ' || COALESCE(p.name, '') || ' '
                                  || COALESCE(k.profile_name, '') || ' ' || COALESCE(k.phone, '')
                                  || ' ' || p.contact_id) LIKE ?3 ESCAPE '\\')
