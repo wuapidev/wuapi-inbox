@@ -62,6 +62,7 @@ mod error;
 mod events;
 mod follow;
 mod forward;
+mod hooks;
 mod http;
 mod identity;
 mod keychain;

@@ -77,6 +77,7 @@ icon_assets!(
         Video,
         Volume2,
         VolumeX,
+        Webhook,
         WifiOff,
         X,
         ZoomIn,

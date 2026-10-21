@@ -990,6 +990,55 @@ pub trait Provider: Send + Sync + 'static {
         Err(ProviderError::Unsupported("changing who sees stories"))
     }
 
+    // ----- incoming webhooks --------------------------------------------
+
+    /// The account's incoming webhooks that send to `chat`, with their
+    /// URLs.
+    ///
+    /// Only called when [`Capabilities::incoming_webhooks`] is set; the
+    /// default answers [`ProviderError::Unsupported`]. Read-only, and asked
+    /// for when the user opens them: the client keeps none of it.
+    async fn list_incoming_webhooks(
+        &self,
+        account: &AccountId,
+        chat: &ChatId,
+    ) -> ProviderResult<Vec<crate::IncomingWebhook>> {
+        let _ = (account, chat);
+        Err(ProviderError::Unsupported("incoming webhooks"))
+    }
+
+    /// Makes a new incoming webhook that sends from `account` to `chat`.
+    /// A refusal the user can act on (too many hooks) is
+    /// [`ProviderError::Rejected`] with a message that says so.
+    async fn create_incoming_webhook(
+        &self,
+        account: &AccountId,
+        chat: &ChatId,
+        name: &str,
+    ) -> ProviderResult<crate::IncomingWebhook> {
+        let _ = (account, chat, name);
+        Err(ProviderError::Unsupported("incoming webhooks"))
+    }
+
+    /// Renames, pauses, resumes or gives a new URL to a hook, and answers
+    /// it as it is now.
+    async fn update_incoming_webhook(
+        &self,
+        account: &AccountId,
+        id: &str,
+        change: crate::IncomingWebhookChange,
+    ) -> ProviderResult<crate::IncomingWebhook> {
+        let _ = (account, id, change);
+        Err(ProviderError::Unsupported("incoming webhooks"))
+    }
+
+    /// Deletes a hook: its URL stops working. Deleting what is not there
+    /// is a success.
+    async fn delete_incoming_webhook(&self, account: &AccountId, id: &str) -> ProviderResult<()> {
+        let _ = (account, id);
+        Err(ProviderError::Unsupported("incoming webhooks"))
+    }
+
     // ----- numbers ------------------------------------------------------
 
     /// The places a new number can connect from, when the provider lets

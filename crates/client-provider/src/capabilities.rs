@@ -215,6 +215,11 @@ pub struct Capabilities {
     pub calls: bool,
     /// A call can carry video. Only looked at with [`calls`](Self::calls).
     pub video_calls: bool,
+    /// A chat can be given incoming webhooks: URLs that send a message to
+    /// it when something posts to them
+    /// ([`Provider::list_incoming_webhooks`](crate::Provider::list_incoming_webhooks)).
+    #[serde(default)]
+    pub incoming_webhooks: bool,
 }
 
 impl Capabilities {
@@ -283,6 +288,7 @@ impl Capabilities {
             story_delete: false,
             calls: false,
             video_calls: false,
+            incoming_webhooks: false,
         }
     }
 
@@ -351,6 +357,7 @@ impl Capabilities {
             story_delete: true,
             calls: true,
             video_calls: true,
+            incoming_webhooks: true,
         }
     }
 
@@ -421,6 +428,7 @@ impl Capabilities {
             story_delete: self.story_delete || other.story_delete,
             calls: self.calls || other.calls,
             video_calls: self.video_calls || other.video_calls,
+            incoming_webhooks: self.incoming_webhooks || other.incoming_webhooks,
         }
     }
 }

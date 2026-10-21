@@ -16,6 +16,7 @@
 mod calls;
 mod community;
 mod forward;
+mod hooks;
 mod seed;
 mod showcase;
 mod social;
@@ -228,6 +229,7 @@ struct State {
     social: social::Social,
     /// Favorite stickers.
     stickers: stickers::Stickers,
+    hooks: hooks::Hooks,
     forwards: forward::Forwards,
     /// Stories.
     stories: stories::MockStories,
@@ -377,6 +379,7 @@ impl MockProvider {
                     deleted: Vec::new(),
                     social: social::Social::seeded(),
                     stickers: stickers::Stickers::default(),
+                    hooks: hooks::Hooks::default(),
                     forwards: forward::Forwards::default(),
                     stories: story_state,
                     rng: Rng::new(config.seed ^ 0xA5A5),
@@ -1939,6 +1942,37 @@ impl Provider for MockProvider {
 
     async fn remove_favorite_sticker(&self, account: &AccountId, id: &str) -> ProviderResult<()> {
         self.favorite_removed(account, id)
+    }
+
+    async fn list_incoming_webhooks(
+        &self,
+        account: &AccountId,
+        chat: &ChatId,
+    ) -> ProviderResult<Vec<client_provider::IncomingWebhook>> {
+        Ok(self.hooks_of(account, chat))
+    }
+
+    async fn create_incoming_webhook(
+        &self,
+        account: &AccountId,
+        chat: &ChatId,
+        name: &str,
+    ) -> ProviderResult<client_provider::IncomingWebhook> {
+        self.hook_made(account, chat, name)
+    }
+
+    async fn update_incoming_webhook(
+        &self,
+        _account: &AccountId,
+        id: &str,
+        change: client_provider::IncomingWebhookChange,
+    ) -> ProviderResult<client_provider::IncomingWebhook> {
+        self.hook_changed(id, change)
+    }
+
+    async fn delete_incoming_webhook(&self, _account: &AccountId, id: &str) -> ProviderResult<()> {
+        self.hook_deleted(id);
+        Ok(())
     }
 
     async fn download_media(

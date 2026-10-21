@@ -103,7 +103,8 @@ fn pictures_sent_together_are_one_album_and_one_sent_later_is_not(cx: &mut TestA
     assert!(shows(harness.window, "album", cx));
     assert!(shows(harness.window, "album-more", cx), "five: four and +1");
 
-    assert!(shows(harness.window, "media-image", cx));
+    // The pictures decode on other threads: a slow machine takes a while.
+    until_shown(&harness, cx, "media-image");
 
     // Two minutes later: a picture of its own.
     let late = photo(&harness, "late");

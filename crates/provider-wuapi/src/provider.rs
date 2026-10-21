@@ -346,6 +346,9 @@ impl Provider for WuapiProvider {
             // no sound.
             calls: false,
             video_calls: false,
+            // `/v1/incoming-webhooks`, what the dashboard makes under
+            // Integrations.
+            incoming_webhooks: true,
             story_delete: true,
             story_privacy: true,
             // `GET …/stories`, for a number that has stories turned on in
@@ -585,6 +588,40 @@ impl Provider for WuapiProvider {
 
     async fn remove_favorite_sticker(&self, account: &AccountId, id: &str) -> ProviderResult<()> {
         self.client.unstar_sticker(account.as_str(), id).await
+    }
+
+    async fn list_incoming_webhooks(
+        &self,
+        account: &AccountId,
+        chat: &ChatId,
+    ) -> ProviderResult<Vec<client_provider::IncomingWebhook>> {
+        self.client
+            .incoming_webhooks(account.as_str(), chat.as_str())
+            .await
+    }
+
+    async fn create_incoming_webhook(
+        &self,
+        account: &AccountId,
+        chat: &ChatId,
+        name: &str,
+    ) -> ProviderResult<client_provider::IncomingWebhook> {
+        self.client
+            .create_incoming_webhook(account.as_str(), chat.as_str(), name)
+            .await
+    }
+
+    async fn update_incoming_webhook(
+        &self,
+        _account: &AccountId,
+        id: &str,
+        change: client_provider::IncomingWebhookChange,
+    ) -> ProviderResult<client_provider::IncomingWebhook> {
+        self.client.update_incoming_webhook(id, change).await
+    }
+
+    async fn delete_incoming_webhook(&self, _account: &AccountId, id: &str) -> ProviderResult<()> {
+        self.client.delete_incoming_webhook(id).await
     }
 
     async fn vote_poll(

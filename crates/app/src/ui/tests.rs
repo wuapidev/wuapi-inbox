@@ -5184,6 +5184,7 @@ mod design;
 mod emoji;
 mod forward;
 mod gallery;
+mod hooks;
 mod keyboard;
 mod link_dialog;
 mod links;
@@ -5934,13 +5935,15 @@ fn a_download_says_its_size_shows_its_progress_and_can_be_stopped(cx: &mut TestA
     ));
 
     // A slow download: the button becomes a ring, with what has arrived.
-    harness.mock.set_media_latency(Duration::from_millis(400));
+    // Slow enough that a slow machine still sees it under way.
+    harness.mock.set_media_latency(Duration::from_secs(2));
     click(harness.window, "media-download", cx);
     until_shown(&harness, cx, "media-progress");
     assert!(!shows(harness.window, "media-download", cx));
     assert_eq!(bounds(harness.window, "media-box", cx), placeholder);
     let key = client_core::thumbnail_key(url);
-    for _ in 0..100 {
+    let deadline = std::time::Instant::now() + Duration::from_millis(1500);
+    while std::time::Instant::now() < deadline {
         harness.settle(cx);
         if harness.engine.media_progress(&key).is_some() {
             break;
@@ -5953,7 +5956,8 @@ fn a_download_says_its_size_shows_its_progress_and_can_be_stopped(cx: &mut TestA
     click(harness.window, "media-progress", cx);
     harness.settle(cx);
     assert!(shows(harness.window, "media-download", cx));
-    std::thread::sleep(Duration::from_millis(500));
+    // Past the time the download would have taken.
+    std::thread::sleep(Duration::from_millis(2500));
     harness.settle(cx);
     assert!(
         !shows(harness.window, "media-image", cx),
@@ -6088,6 +6092,8 @@ fn what_loads_by_itself_shows_a_ring_and_a_file_tile_shows_the_button(cx: &mut T
     assert!(shows(harness.window, "media-open", cx));
 }
 
+// The numbers of this computer are not in a build without them.
+#[cfg(feature = "provider-native")]
 #[gpui_kit::test]
 fn media_downloads_by_itself_with_the_numbers_of_this_computer(cx: &mut TestAppContext) {
     let everything = |session: SessionKind, cx: &mut TestAppContext| {

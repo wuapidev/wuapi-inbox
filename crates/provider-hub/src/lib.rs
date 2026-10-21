@@ -26,11 +26,12 @@ use async_trait::async_trait;
 use client_provider::{
     Account, AccountChange, AccountId, AvatarAnswer, BusinessProfile, CallCamera, CallDevices,
     CallVideo, Capabilities, Chat, ChatChange, ChatId, Contact, ContactId, Cursor, EventStream,
-    FavoriteSticker, Feature, ForwardItem, Group, GroupChange, JoinRequest, LinkPlace, LinkStatus,
-    LiveUpdates, MediaData, MediaLimit, MediaRef, MediaUpload, Message, MessageId, NewAccount,
-    NewGroup, NewStory, NumberCheck, OutgoingMessage, OwnProfile, Page, ParticipantChange,
-    ParticipantOutcome, ProfileChange, Provider, ProviderError, ProviderResult, SendReceipt,
-    StickerFile, Story, StoryPrivacy, StoryViewer, UploadProgress,
+    FavoriteSticker, Feature, ForwardItem, Group, GroupChange, IncomingWebhook,
+    IncomingWebhookChange, JoinRequest, LinkPlace, LinkStatus, LiveUpdates, MediaData, MediaLimit,
+    MediaRef, MediaUpload, Message, MessageId, NewAccount, NewGroup, NewStory, NumberCheck,
+    OutgoingMessage, OwnProfile, Page, ParticipantChange, ParticipantOutcome, ProfileChange,
+    Provider, ProviderError, ProviderResult, SendReceipt, StickerFile, Story, StoryPrivacy,
+    StoryViewer, UploadProgress,
 };
 use futures::StreamExt;
 use std::collections::HashMap;
@@ -895,6 +896,38 @@ impl Provider for HubProvider {
         privacy: &StoryPrivacy,
     ) -> ProviderResult<()> {
         route!(self, account, |p| p.set_story_privacy(account, privacy))
+    }
+
+    async fn list_incoming_webhooks(
+        &self,
+        account: &AccountId,
+        chat: &ChatId,
+    ) -> ProviderResult<Vec<IncomingWebhook>> {
+        route!(self, account, |p| p.list_incoming_webhooks(account, chat))
+    }
+
+    async fn create_incoming_webhook(
+        &self,
+        account: &AccountId,
+        chat: &ChatId,
+        name: &str,
+    ) -> ProviderResult<IncomingWebhook> {
+        route!(self, account, |p| p
+            .create_incoming_webhook(account, chat, name))
+    }
+
+    async fn update_incoming_webhook(
+        &self,
+        account: &AccountId,
+        id: &str,
+        change: IncomingWebhookChange,
+    ) -> ProviderResult<IncomingWebhook> {
+        route!(self, account, |p| p
+            .update_incoming_webhook(account, id, change))
+    }
+
+    async fn delete_incoming_webhook(&self, account: &AccountId, id: &str) -> ProviderResult<()> {
+        route!(self, account, |p| p.delete_incoming_webhook(account, id))
     }
 
     /// The places of every member that asks for one. A member that cannot

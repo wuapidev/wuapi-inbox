@@ -537,6 +537,12 @@ impl Shell {
                 Some(chat) => self.open_chat_info(&chat, window, cx),
                 None => return false,
             },
+            C::IncomingWebhooks => match self.open_summary() {
+                Some(chat) if super::hooks::hooks_offered(self, &chat) => {
+                    self.open_hooks(&chat, window, cx)
+                }
+                _ => return false,
+            },
             C::MuteChat | C::ArchiveChat | C::PinChat | C::MarkUnread if caps.chat_state => {
                 let Some(chat) = self.open_summary() else {
                     return false;

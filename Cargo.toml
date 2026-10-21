@@ -73,7 +73,7 @@ wiremock = "0.6"
 
 # The wuapi Rust SDK, generated from the OpenAPI spec.
 # Source: https://github.com/wuapidev/wuapi-rust
-wuapi = "0.14.0"
+wuapi = "0.15.0"
 base64 = "0.22"
 
 # The WhatsApp Web protocol itself, spoken from this machine (provider-native).
