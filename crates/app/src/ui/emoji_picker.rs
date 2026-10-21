@@ -561,7 +561,7 @@ impl Shell {
                     layout.fill(used);
                 }
                 for (at, group) in loaded.set.groups.iter().enumerate() {
-                    layout.section(&group.name, GROUP_GLYPHS.get(at).copied().unwrap_or("•"));
+                    layout.section(group.title(), GROUP_GLYPHS.get(at).copied().unwrap_or("•"));
                     layout.fill(group.range.clone().filter_map(&cell).collect());
                     layout.drop_empty_section();
                 }

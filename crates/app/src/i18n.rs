@@ -393,6 +393,13 @@ mod tests {
                 assert_eq!(mine, theirs, "{}: the holes of {key}", lang.code());
             }
         }
+        // Spanish is finished: a new English text comes with its Spanish.
+        let spanish = catalog(Language::Es);
+        let untranslated: Vec<_> = english
+            .keys()
+            .filter(|key| !spanish.contains_key(*key))
+            .collect();
+        assert!(untranslated.is_empty(), "no Spanish for {untranslated:?}");
         // A count has the form every count falls back to.
         for key in english.keys().filter(|key| key.ends_with(".one")) {
             let base = key.trim_end_matches(".one");

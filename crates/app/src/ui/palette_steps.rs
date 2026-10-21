@@ -369,14 +369,14 @@ impl Shell {
                     Hidden
                 }
             }
-            C::Attach | C::Paste if !self.can_attach() => Disabled(super::attach::NOT_AVAILABLE),
+            C::Attach | C::Paste if !self.can_attach() => Disabled(super::attach::not_available()),
             C::StickerPicker | C::GifPicker if !self.can_attach() => {
-                Disabled(super::attach::NOT_AVAILABLE)
+                Disabled(super::attach::not_available())
             }
             C::FavoriteSticker if !self.sticker_in_hand() => {
                 Disabled(crate::i18n::t("commands.why.no_sticker"))
             }
-            C::RecordVoice if !self.can_record() => Disabled(super::voice_record::NOT_AVAILABLE),
+            C::RecordVoice if !self.can_record() => Disabled(super::voice_record::not_available()),
             C::MuteChat
             | C::ArchiveChat
             | C::PinChat
@@ -387,7 +387,7 @@ impl Shell {
             | C::MuteAChat
             | C::MarkAChat => state(caps.chat_state),
             // In the menus too, as an entry that says the same.
-            C::DeleteChat => Disabled(super::shell::NOT_YET),
+            C::DeleteChat => Disabled(super::shell::not_yet()),
             // Only where the chat's number has them: a cloud feature is
             // not listed as missing everywhere else.
             C::IncomingWebhooks => {

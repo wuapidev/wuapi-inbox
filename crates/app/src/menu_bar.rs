@@ -184,7 +184,6 @@ pub fn install(cx: &mut App) {
 /// Builds the menu bar again, in the language in use. On macOS only, like
 /// [`install`]; the settings call it when the language changes.
 // Nothing calls it until the settings do.
-#[allow(dead_code)]
 pub fn refresh(cx: &mut App) {
     if !cfg!(target_os = "macos") {
         return;

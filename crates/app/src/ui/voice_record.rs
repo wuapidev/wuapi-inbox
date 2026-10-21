@@ -36,10 +36,6 @@ const TICK: Duration = Duration::from_millis(50);
 /// Bars of the live meter.
 const METER: usize = 40;
 /// Why the microphone button does nothing where files cannot be sent.
-pub(super) const NOT_AVAILABLE: &str =
-    "Voice notes cannot be sent: sending files is not available yet";
-
-/// [`NOT_AVAILABLE`] in the language in use.
 pub(super) fn not_available() -> &'static str {
     crate::i18n::t("chat.voice_record.not_available")
 }

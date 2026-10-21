@@ -344,6 +344,7 @@ pub fn update(cx: &mut App, change: impl FnOnce(&mut Settings)) {
     }
     if after.language != before.language {
         apply_language(after.language);
+        crate::menu_bar::refresh(cx);
     }
     apply_theme(cx);
     cx.refresh_windows();

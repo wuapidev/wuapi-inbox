@@ -87,8 +87,6 @@ impl Group {
     /// Its name in the language of the interface: the data names the
     /// groups in English, and a group the catalog does not know keeps that
     /// name.
-    // The picker draws `name` today; it asks for this where it draws.
-    #[allow(dead_code)]
     pub fn title(&self) -> &str {
         match &*self.name {
             "Smileys & Emotion" => crate::i18n::t("commands.emoji_groups.smileys"),

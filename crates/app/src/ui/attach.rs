@@ -41,9 +41,6 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 /// Why the attach button and the paste of a file say no.
-pub(in crate::ui) const NOT_AVAILABLE: &str = "Sending files is not available yet";
-
-/// [`NOT_AVAILABLE`] in the language in use.
 pub(in crate::ui) fn not_available() -> &'static str {
     crate::i18n::t("chat.attach_sheet.not_available")
 }

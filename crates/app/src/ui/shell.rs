@@ -418,11 +418,6 @@ pub(super) struct MenuItem {
     pub(super) keys: Option<crate::keys::Command>,
 }
 
-/// Why an entry is disabled. English only: the text in the language in
-/// use is [`not_yet`].
-#[allow(dead_code)]
-pub(super) const NOT_YET: &str = "Not available yet";
-
 /// Why an entry that is not here yet is disabled.
 pub(super) fn not_yet() -> &'static str {
     i18n::t("common.shell.not_yet")
