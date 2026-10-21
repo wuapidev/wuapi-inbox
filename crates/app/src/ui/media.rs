@@ -971,18 +971,26 @@ impl MediaShelf {
         if self.file_state(url) != FileState::Ready {
             return None;
         }
-        let Some((bytes, _)) = self.file(url) else {
-            return None;
-        };
         self.covers
             .borrow_mut()
             .insert(url.to_owned(), Covering::Drawing);
         let (store, runtime) = (self.store.clone(), self.engine.runtime().clone());
-        let work = runtime.spawn_blocking(move || draw_cover(bytes, COVER_WIDTH));
+        // The file is read there too: a PDF can be large.
+        let (reading, file) = (store.clone(), file_key(url));
+        let work = runtime.spawn_blocking(move || {
+            let cached = reading.media(&file, Timestamp::now()).ok().flatten()?;
+            Some(draw_cover(cached.bytes, COVER_WIDTH))
+        });
         // Kept and announced from the runtime: the store's change is what
         // brings it to the views (`forget_media`).
         runtime.spawn(async move {
-            let drawn = work.await.ok().flatten();
+            let drawn = match work.await {
+                Ok(Some(drawn)) => drawn,
+                // The file went from the cache meanwhile: nothing to say
+                // about it until it is here again.
+                Ok(None) => return,
+                Err(_) => None,
+            };
             let kept = match drawn {
                 Some((jpeg, size, pages)) => client_core::CachedMedia {
                     bytes: jpeg,
@@ -1049,12 +1057,9 @@ impl MediaShelf {
     /// Where the whole file at `url` stands.
     pub fn file_state(&self, url: &str) -> FileState {
         let key = file_key(url);
-        if matches!(self.store.media_size(&key), Ok(Some(_)))
-            || self
-                .store
-                .media(&key, Timestamp::now())
-                .is_ok_and(|cached| cached.is_some())
-        {
+        // Asked every time a bubble is drawn: whether it is there, never
+        // the file itself.
+        if self.store.has_media(&key).unwrap_or(false) {
             return FileState::Ready;
         }
         match self.engine.media_state(&key) {

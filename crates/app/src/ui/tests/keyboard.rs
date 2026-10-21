@@ -1479,6 +1479,7 @@ fn the_search_in_a_conversation_steps_through_its_matches(cx: &mut TestAppContex
     press(harness.window, "ctrl-f", cx);
     assert!(shows(harness.window, "thread-search", cx));
     type_text(harness.window, "walrus", cx);
+    settle_search(&harness, cx);
 
     let state = |cx: &mut TestAppContext| {
         cx.update(|cx| {

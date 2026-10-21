@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 
+* Scrolling up a long chat no longer freezes the window. Reaching the top shows the window of older messages before it and the view stays on the message it was on; it jumped to the top of what was added, which asked for more again, until the whole history was read, once per wheel event.
+* The search in a conversation is asked off the interface's thread, a moment after typing stops, and only in that chat; going to a match reads the history down to it, not the whole chat.
+* The chat list's search reads the chats once per letter, not three times.
+* A large file no longer stalls the window. A bubble of a document, a video or a voice note read its whole file from the database each time it was drawn, to know whether it was there; while a file was being sent, the conversation was read again several times a second for its progress; and the interface waited for the engine's reads, such as the file being read to upload it. The interface now has its own connection to the database, and the first page of a PDF is read off its thread too.
+* The open chat's messages and the chat list are read off the interface's thread: a long history or a long list no longer holds up the window while it is read, at every message that arrives. A chat opens with its newest messages at once and the rest of what it shows follows; what changes during a read is read after it. The chat list asks who each person is once per read, not once per chat.
+* `Store::has_media`, `Store::search_chat_messages`, `Store::messages_since`, `Store::has_communities` and `Store::reserve_reader`; `StoreChange::Upload`: how far a file going up is, with nothing stored changed.
+
 ## [0.5.3]
 
 * A PDF in a chat shows the top of its first page over its name, and how many pages it has. Before its file is here it is the small picture the message brings; once it is here (with the numbers of this computer it downloads by itself), its own first page is drawn sharp and kept. A click on it reads it in the window.
