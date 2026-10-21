@@ -237,6 +237,8 @@ pub enum Inbound {
         chat: Jid,
         /// Read now.
         read: bool,
+        /// When, in milliseconds.
+        at_ms: i64,
     },
     /// A chat was deleted on another device.
     ChatDeleted {
