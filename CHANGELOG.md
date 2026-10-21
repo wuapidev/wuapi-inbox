@@ -2,9 +2,20 @@
 
 ## [Unreleased]
 
+## [0.6.0]
+
+* The interface is in English and Spanish. Settings > Appearance > Language picks System (the language of the computer, which is what it was until now), English or Español, and the palette has "Interface language…". It changes at once, with no restart, in every window, and on macOS in the menu bar too. Every text of the interface comes from a catalog, the conversations, the palette, settings, sign-in, accounts, groups, communities, calls, tasks and status among them, and so do the dates (weekdays and months of the calendar and the tasks), the names of the emoji groups and languages, and the sizes.
+* The language of the emoji search stays its own setting.
+* A language is added with files, not code: `crates/app/assets/locales/<code>/<area>.json`, one per area (common, commands, chat, accounts, status, groups), and a line in `i18n.rs`. A missing text falls back to English, and tests keep the catalogs in step (same keys, same `{holes}`, plural forms, every key asked for exists). `docs/ARCHITECTURE.md` says how.
+* The Spanish was written without a native review; wrong or awkward texts are fixes to the catalogs. Texts that come from the providers and the engine, such as the reasons a forward is refused or the previews in the chat list, are still in English.
+* `i18n` (`t`, `tr`, `plural`) and `locale` modules; `Settings::language`.
+
+
 * Incoming webhooks, as the Wuapi dashboard makes them under Integrations: "Incoming webhooks" in a chat's menu (right click on it in the list, or the conversation's menu) opens the chat's webhooks. Each is a URL that sends a WhatsApp message to that chat when something posts JSON `{"text": "…"}` or plain text to it, with no key. The sheet makes a new one by name, renames one, copies a URL, pauses and resumes one, gives one a new URL (the old one stops working at once) and deletes one. Only for numbers of Wuapi Cloud; a number of this computer has nowhere to receive the URL. The URLs are read when the sheet opens and kept nowhere here.
 * `Capabilities` has `incoming_webhooks`, and `Provider` has `list_incoming_webhooks`, `create_incoming_webhook`, `update_incoming_webhook` and `delete_incoming_webhook` (`IncomingWebhook`, `IncomingWebhookChange`). They answer `Unsupported` unless a provider has them.
 * The wuapi SDK is 0.15, the first with incoming webhooks.
+* A community made here is created. WhatsApp answered "400 bad request" to the native numbers' request because it carried a plain group's settings and lacked the community's; it now sends what WhatsApp Web sends.
+* A community's announcement group and its general chat show under Communities as soon as the community is made. They had no chat until somebody wrote in them, so a new community did not show at all. They are made when the community is created, when WhatsApp says a group was made and when the groups are listed, which also brings back communities made before this version.
 * Scrolling up a long chat no longer freezes the window. Reaching the top shows the window of older messages before it and the view stays on the message it was on; it jumped to the top of what was added, which asked for more again, until the whole history was read, once per wheel event.
 * The search in a conversation is asked off the interface's thread, a moment after typing stops, and only in that chat; going to a match reads the history down to it, not the whole chat.
 * The chat list's search reads the chats once per letter, not three times.
