@@ -1887,15 +1887,19 @@ impl Store {
             }
             messages.reverse();
 
-            // Reactions for the whole chat, by target and emoji, with who
-            // made each: the first to react first.
+            // Reactions to the messages read, by target and emoji, with who
+            // made each: the first to react first. Looked up by target, so
+            // a chat with years of reactions costs what its window costs.
             let mut reactions: HashMap<String, Vec<ReactionSummary>> = HashMap::new();
             let mut stmt = conn.prepare_cached(
                 "SELECT target_id, emoji, sender, from_me FROM reactions
-                 WHERE account_id = ?1 AND chat_id = ?2
+                 WHERE account_id = ?1 AND chat_id = ?2 AND target_id IN (
+                     SELECT id FROM messages
+                     WHERE account_id = ?1 AND chat_id = ?2
+                     ORDER BY ts DESC, pk DESC LIMIT ?3)
                  ORDER BY ts, sender",
             )?;
-            let mut rows = stmt.query(params![account.as_str(), chat.as_str()])?;
+            let mut rows = stmt.query(params![account.as_str(), chat.as_str(), limit as i64])?;
             while let Some(row) = rows.next()? {
                 let of_target = reactions.entry(row.get(0)?).or_default();
                 let emoji: String = row.get(1)?;

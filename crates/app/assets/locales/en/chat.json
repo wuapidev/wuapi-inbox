@@ -358,7 +358,6 @@
   "chat.poll_form.option_n": "Option {n}",
   "chat.poll_form.options": "Options",
   "chat.poll_form.question_max": "The question takes {max} characters at most.",
-  "chat.poll_form.save_failed": "The poll could not be saved. Try again.",
   "chat.poll_form.send": "Send poll",
   "chat.poll_form.title": "New poll",
   "chat.poll_form.twice": "“{option}” is there twice.",

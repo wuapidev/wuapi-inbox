@@ -65,10 +65,13 @@ type Stuck = Arc<dyn Fn() + Send + Sync>;
 /// How long a camera has to give its first picture.
 const CAMERA_READY: Duration = Duration::from_secs(6);
 
+/// Whether `ffmpeg` was found, once it has been looked for.
+static FOUND: OnceLock<bool> = OnceLock::new();
+
 /// Whether video can be carried here at all: `ffmpeg` was found. Asked
-/// once.
+/// once, and waited for: starting `ffmpeg` to ask takes tens of
+/// milliseconds.
 pub fn available() -> bool {
-    static FOUND: OnceLock<bool> = OnceLock::new();
     // Only where a camera can be opened: see `Input::args`.
     cfg!(any(target_os = "linux", target_os = "macos"))
         && *FOUND.get_or_init(|| {
@@ -80,6 +83,24 @@ pub fn available() -> bool {
                 .status()
                 .is_ok_and(|status| status.success())
         })
+}
+
+/// [`available`] without waiting: false until the answer is in. What is
+/// drawn asks again at every frame, so the answer shows when it comes.
+pub fn available_now() -> bool {
+    cfg!(any(target_os = "linux", target_os = "macos")) && FOUND.get().copied().unwrap_or(false)
+}
+
+/// Looks for `ffmpeg` on a thread of its own, so that the answer is there
+/// before anybody asks and nobody waits for it.
+pub fn look_ahead() {
+    if FOUND.get().is_none() {
+        let _ = std::thread::Builder::new()
+            .name("ffmpeg-check".into())
+            .spawn(|| {
+                available();
+            });
+    }
 }
 
 /// The cameras of this machine. On Linux, the capture nodes of

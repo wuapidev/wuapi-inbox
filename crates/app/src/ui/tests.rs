@@ -233,6 +233,57 @@ fn the_window_shows_the_store_without_any_network(cx: &mut TestAppContext) {
 }
 
 #[gpui_kit::test]
+fn messages_sent_one_after_the_other_are_queued_in_that_order_without_the_window_waiting(
+    cx: &mut TestAppContext,
+) {
+    let harness = open(
+        cx,
+        ShellOptions {
+            open_chat: Some(1),
+            ..Default::default()
+        },
+    );
+    let composer = cx.update(|cx| harness.shell.read(cx).composer.clone());
+    let field: ElementId = ("input", composer.entity_id()).into();
+
+    // Three sends in a row, nothing run in between: the field is empty at
+    // once, before anything is written.
+    cx.update_window(harness.window.into(), |_, window, cx| {
+        window.click(field, cx)
+    })
+    .unwrap();
+    for text in ["one", "two", "three"] {
+        cx.update_window(harness.window.into(), |_, window, cx| {
+            window.input(text, cx);
+            window.press("enter", cx);
+        })
+        .unwrap();
+        cx.update(|cx| assert_eq!(composer.read(cx).value().as_ref(), "", "{text}"));
+    }
+
+    // Written off the window's thread, one after the other.
+    cx.run_until_parked();
+    let queued: Vec<OutgoingContent> = harness
+        .engine
+        .store()
+        .outbox_pending()
+        .unwrap()
+        .into_iter()
+        .map(|pending| pending.message.content)
+        .collect();
+    assert_eq!(
+        queued,
+        ["one", "two", "three"].map(|body| OutgoingContent::Text { body: body.into() })
+    );
+    cx.update(|cx| {
+        assert_eq!(
+            newest_message(harness.shell.read(cx)),
+            Some(("three".to_owned(), DeliveryStatus::Pending, true))
+        );
+    });
+}
+
+#[gpui_kit::test]
 fn typing_and_pressing_enter_sends_through_the_outbox(cx: &mut TestAppContext) {
     let harness = open(
         cx,
@@ -3855,7 +3906,9 @@ fn every_interface_size_keeps_the_rows_and_bubbles_in_proportion(cx: &mut TestAp
             None,
         )
         .unwrap();
-    cx.run_until_parked();
+    // Opening it read it, which is written in the background: done
+    // before it is made unread again.
+    harness.settle(cx);
     // Back to the list with that chat unread again, so its badge shows.
     harness
         .mock
@@ -3943,6 +3996,9 @@ fn every_interface_size_keeps_the_rows_and_bubbles_in_proportion(cx: &mut TestAp
             "{step}%: the long text wrapped"
         );
         press(harness.window, "ctrl-w", cx);
+        // Reading it is written in the background: done before it is
+        // made unread again.
+        harness.settle(cx);
         harness
             .mock
             .set_unread(&account, &client_provider::ChatId::new(row_id.clone()), 7);

@@ -918,7 +918,7 @@ impl Shell {
             C::PinAChat => ChatChange::Pinned(!chat.pinned),
             C::ArchiveAChat => ChatChange::Archived(!chat.archived),
             C::MarkAChat if chat.unread_count > 0 => {
-                self.engine.mark_read(&chat.account_id, &chat.id);
+                self.mark_read(&chat.account_id, &chat.id);
                 return None;
             }
             C::MarkAChat => ChatChange::MarkedUnread,
@@ -963,7 +963,8 @@ impl Shell {
             C::FocusRail => self.focus_rail(window, cx),
             C::MarkRead => match &self.open {
                 Some(open) => {
-                    self.engine.mark_read(&open.chat.account_id, &open.chat.id);
+                    let (account, chat) = (open.chat.account_id.clone(), open.chat.id.clone());
+                    self.mark_read(&account, &chat);
                     true
                 }
                 None => false,

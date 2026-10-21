@@ -1317,16 +1317,23 @@ async fn live_events_update_the_store_and_notify() {
     }
     assert!(saw_message_change);
 
-    // Reading clears the badge at once, before the provider hears of it.
+    // Reading clears the badge, written in the background so that the
+    // window never waits for it.
     engine.mark_read(&account, &chat.id);
-    assert_eq!(
+    let unread = || {
         store
             .chat(&account, &chat.id)
             .unwrap()
             .unwrap()
-            .unread_count,
-        0
-    );
+            .unread_count
+    };
+    for _ in 0..200 {
+        if unread() == 0 {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(5)).await;
+    }
+    assert_eq!(unread(), 0);
 }
 
 #[tokio::test]
@@ -3317,10 +3324,10 @@ async fn the_providers_unread_count_is_shown_and_nothing_here_zeroes_it() {
         )))
         .unwrap();
     assert_eq!(unread_of(&store, &account, &chat), 4);
-    // Reading clears it here at once and tells the provider.
+    // Reading clears it here and tells the provider.
     engine.mark_read(&account, &chat);
-    assert_eq!(unread_of(&store, &account, &chat), 0);
     settle().await;
+    assert_eq!(unread_of(&store, &account, &chat), 0);
     assert_eq!(mock.chat(&account, &chat).unwrap().unread_count, 0);
     assert_eq!(mock.receipts_sent().last(), Some(&chat));
 }
@@ -3379,6 +3386,7 @@ async fn a_count_the_provider_does_not_know_is_kept_here() {
     assert_eq!(unread_of(&store, &account, &chat), 2);
     // Opening the chat clears it.
     engine.mark_read(&account, &chat);
+    settle().await;
     assert_eq!(unread_of(&store, &account, &chat), 0);
 }
 
@@ -3399,12 +3407,8 @@ async fn with_read_receipts_off_a_chat_is_marked_read_quietly() {
     assert!(engine.read_receipts(), "on unless turned off");
     engine.set_read_receipts(false);
     engine.mark_read(&account, &chat);
-    assert_eq!(
-        unread_of(&store, &account, &chat),
-        0,
-        "cleared here at once"
-    );
     settle().await;
+    assert_eq!(unread_of(&store, &account, &chat), 0, "cleared here");
     // The provider cleared its count too, and sent no receipt.
     assert_eq!(mock.marked_read(), vec![chat.clone()]);
     assert!(mock.receipts_sent().is_empty());

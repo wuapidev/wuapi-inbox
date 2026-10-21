@@ -924,6 +924,30 @@ pub struct Shell {
     pending_open: Option<usize>,
     _subscriptions: Vec<Subscription>,
     _changes: Task<()>,
+    /// What was sent from here, on its way into the outbox: see
+    /// [`Outgoing`].
+    outgoing: futures::channel::mpsc::UnboundedSender<Outgoing>,
+    _sending: Task<()>,
+}
+
+/// A message sent from the window, to be queued. Queuing writes to the
+/// database, which waits for whatever the engine is writing (a catch-up
+/// holds the writer for a while): it is done off the window's thread, one
+/// message after the other, so that they go out in the order they were
+/// sent.
+pub(super) enum Outgoing {
+    /// Typed in the composer; `typed` goes back there if it could not be
+    /// queued.
+    Text {
+        account: AccountId,
+        chat: ChatId,
+        body: String,
+        reply_to: Option<client_provider::MessageId>,
+        mentions: Vec<client_provider::ContactId>,
+        typed: String,
+    },
+    /// Anything else, ready to queue: a poll.
+    Message(client_provider::OutgoingMessage),
 }
 
 /// A round of the store's changes that took longer than this to show is
@@ -1136,6 +1160,44 @@ impl Shell {
             }
         });
 
+        let (outgoing, mut queue) = futures::channel::mpsc::unbounded::<Outgoing>();
+        let sending = cx.spawn_in(window, {
+            let engine = engine.clone();
+            async move |this, cx| {
+                use futures::StreamExt as _;
+                while let Some(message) = queue.next().await {
+                    let engine = engine.clone();
+                    let (queued, typed) = cx
+                        .background_spawn(async move {
+                            match message {
+                                Outgoing::Text {
+                                    account,
+                                    chat,
+                                    body,
+                                    reply_to,
+                                    mentions,
+                                    typed,
+                                } => (
+                                    engine.send_text_mentioning(
+                                        &account, &chat, body, reply_to, mentions,
+                                    ),
+                                    Some(typed),
+                                ),
+                                Outgoing::Message(message) => (engine.send(message), None),
+                            }
+                        })
+                        .await;
+                    let Err(error) = queued else { continue };
+                    tracing::error!(%error, "could not queue the message");
+                    let alive =
+                        this.update_in(cx, |this, window, cx| this.not_queued(typed, window, cx));
+                    if alive.is_err() {
+                        break;
+                    }
+                }
+            }
+        });
+
         let mut this = Self {
             media: Rc::new(MediaShelf::new(engine.clone())),
             senders: Rc::new(Senders::new(store.clone())),
@@ -1255,10 +1317,12 @@ impl Shell {
             pending_open: options.open_chat,
             _subscriptions: subscriptions,
             _changes: changes,
+            outgoing,
+            _sending: sending,
         };
         // Whatever is already in the store shows up in the first frame:
-        // the chat list is read at once this time.
-        this.reload_accounts(cx);
+        // the chat list is read at once this time, and only once.
+        this.load_accounts();
         this.reload_chats_now(cx);
         this.reload_tasks();
         // The stories the store holds too: the rings, the strip above the
@@ -1345,6 +1409,13 @@ impl Shell {
     }
 
     pub(super) fn reload_accounts(&mut self, cx: &mut Context<Self>) {
+        self.load_accounts();
+        self.reload_chats(cx);
+    }
+
+    /// Reads the numbers again, and which one is on screen, without the
+    /// chat list that goes with them.
+    fn load_accounts(&mut self) {
         self.accounts = self.store.accounts().unwrap_or_else(|error| {
             tracing::error!(%error, "could not read accounts");
             Vec::new()
@@ -1370,7 +1441,6 @@ impl Shell {
         if self.rail.reconcile(provider, &keys) {
             self.save_rail();
         }
-        self.reload_chats(cx);
     }
 
     /// The search text changed: the list is filtered again, and the chats
@@ -1473,7 +1543,13 @@ impl Shell {
             if self.filter == ChatFilter::Communities {
                 rows.extend(community_rows(chats));
             } else {
-                for chat in chats {
+                for mut chat in chats {
+                    // Read here a moment ago: the badge stays gone while
+                    // that is being written.
+                    if chat.unread_count > 0 && self.engine.marking_read(&chat.account_id, &chat.id)
+                    {
+                        chat.unread_count = 0;
+                    }
                     let keep = match self.filter {
                         ChatFilter::All | ChatFilter::Archived => true,
                         ChatFilter::Unread => chat.unread_count > 0,
@@ -1518,10 +1594,12 @@ impl Shell {
         // the user is looking at it.
         if let (Some(open), Some(chat)) = (&mut self.open, read.open) {
             if chat.account_id == open.chat.account_id && chat.id == open.chat.id {
-                if chat.unread_count > 0 {
-                    self.engine.mark_read(&chat.account_id, &chat.id);
-                }
+                let unread = chat.unread_count > 0;
                 open.chat = chat;
+                if unread {
+                    let (account, chat) = (open.chat.account_id.clone(), open.chat.id.clone());
+                    self.mark_read(&account, &chat);
+                }
             }
         }
 
@@ -2766,15 +2844,7 @@ impl Shell {
                     None => self.close_overlay(window, cx),
                 }
             }
-            MenuAction::MarkAllRead => {
-                for row in &self.list_rows {
-                    if let ListRow::Chat(chat) = row {
-                        if chat.unread_count > 0 {
-                            self.engine.mark_read(&chat.account_id, &chat.id);
-                        }
-                    }
-                }
-            }
+            MenuAction::MarkAllRead => self.mark_listed_read(),
             MenuAction::ShowArchived => self.set_filter(ChatFilter::Archived, cx),
             MenuAction::SearchThread => {
                 self.overlay = Overlay::None;
@@ -2782,7 +2852,7 @@ impl Shell {
             }
             MenuAction::MarkRead => {
                 if let Some(chat) = self.menu_chat() {
-                    self.engine.mark_read(&chat.account_id, &chat.id);
+                    self.mark_read(&chat.account_id, &chat.id);
                 }
             }
             MenuAction::Change(change) => {
@@ -3429,9 +3499,13 @@ impl Shell {
         {
             return;
         }
-        let Ok(Some(chat)) = self.store.chat(&account, &chat_id) else {
+        let Ok(Some(mut chat)) = self.store.chat(&account, &chat_id) else {
             return;
         };
+        // Read a moment ago and not yet written so: nothing is unread.
+        if self.engine.marking_read(&account, &chat_id) {
+            chat.unread_count = 0;
+        }
 
         let list = ListState::new(0, ListAlignment::Bottom, px(1200.));
         list.set_follow_mode(FollowMode::Tail);
@@ -3502,12 +3576,54 @@ impl Shell {
             }
         }
         self.engine.open_chat(&account, &chat_id);
-        self.engine.mark_read(&account, &chat_id);
+        self.mark_read(&account, &chat_id);
         if let Some(window) = window {
             self.composer
                 .update(cx, |composer, cx| composer.focus(window, cx));
         }
         cx.notify();
+    }
+
+    /// Marks a chat as read. Its badge, and the rail's count, go at once;
+    /// the store and the provider are told in the background.
+    pub(super) fn mark_read(&mut self, account: &AccountId, chat: &ChatId) {
+        let mut cleared = 0;
+        for row in &mut self.list_rows {
+            if let ListRow::Chat(row) = row {
+                if row.account_id == *account && row.id == *chat {
+                    cleared += std::mem::take(&mut row.unread_count);
+                }
+            }
+        }
+        if let Some(total) = self.unread.get_mut(account) {
+            *total = total.saturating_sub(cleared);
+            if *total == 0 {
+                self.unread.remove(account);
+            }
+        }
+        if let Some(open) = &mut self.open {
+            if open.chat.account_id == *account && open.chat.id == *chat {
+                open.chat.unread_count = 0;
+            }
+        }
+        self.engine.mark_read(account, chat);
+    }
+
+    /// Every chat of the list that has unread messages, marked as read.
+    pub(super) fn mark_listed_read(&mut self) {
+        let unread: Vec<(AccountId, ChatId)> = self
+            .list_rows
+            .iter()
+            .filter_map(|row| match row {
+                ListRow::Chat(chat) if chat.unread_count > 0 => {
+                    Some((chat.account_id.clone(), chat.id.clone()))
+                }
+                _ => None,
+            })
+            .collect();
+        for (account, chat) in unread {
+            self.mark_read(&account, &chat);
+        }
     }
 
     /// Shows one more window of older messages: from disk when they are
@@ -3559,22 +3675,42 @@ impl Shell {
             super::message_actions::Compose::Reply(message) => Some(message.id.clone()),
             _ => None,
         };
-        // Into the outbox: the bubble appears now, the network comes later.
-        match self.engine.send_text_mentioning(
-            &open.chat.account_id,
-            &open.chat.id,
-            text,
+        let typed = self.composer.read(cx).value().to_string();
+        // Into the outbox, off this thread: the bubble appears as soon as
+        // it is queued, the network comes later.
+        self.queue_send(Outgoing::Text {
+            account: open.chat.account_id.clone(),
+            chat: open.chat.id.clone(),
+            body: text,
             reply_to,
             mentions,
-        ) {
-            Ok(_) => {
-                self.acting.compose = super::message_actions::Compose::New;
-                self.mentioning.clear();
+            typed,
+        });
+        open.list.scroll_to_end();
+        self.acting.compose = super::message_actions::Compose::New;
+        self.mentioning.clear();
+        self.composer
+            .update(cx, |composer, cx| composer.set_value("", window, cx));
+        cx.notify();
+    }
+
+    /// Hands a message to the queue of what is sent from here.
+    pub(super) fn queue_send(&self, message: Outgoing) {
+        if self.outgoing.unbounded_send(message).is_err() {
+            tracing::error!("the window's outbox queue is gone");
+        }
+    }
+
+    /// A message sent from here could not be queued: said, and what was
+    /// typed goes back into the composer unless something else was typed
+    /// since.
+    fn not_queued(&mut self, typed: Option<String>, window: &mut Window, cx: &mut Context<Self>) {
+        self.show_problem(i18n::t("common.shell.not_queued").to_owned(), cx);
+        if let Some(typed) = typed {
+            if self.composer.read(cx).value().is_empty() {
                 self.composer
-                    .update(cx, |composer, cx| composer.set_value("", window, cx));
-                open.list.scroll_to_end();
+                    .update(cx, |composer, cx| composer.set_value(typed, window, cx));
             }
-            Err(error) => tracing::error!(%error, "could not queue the message"),
         }
         cx.notify();
     }

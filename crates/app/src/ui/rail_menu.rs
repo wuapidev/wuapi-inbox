@@ -417,7 +417,7 @@ impl Shell {
     fn mark_account_read(&mut self, account: &AccountId) {
         if let Ok(chats) = self.engine.store().chats(account, None) {
             for chat in chats.iter().filter(|chat| chat.unread_count > 0) {
-                self.engine.mark_read(account, &chat.id);
+                self.mark_read(account, &chat.id);
             }
         }
     }
