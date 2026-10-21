@@ -274,16 +274,16 @@ fn message_row(row: &MessageRow, palette: &Palette, in_group: bool, context: &Ro
         bubble = bubble.child(tiles::forwarded_label(&side, extras.forwarded_many));
     }
 
-    if let Some(reply) = &message.reply_to {
-        if !message.deleted {
-            // An answer to a status says which one, and shows it while it
-            // is there; anything else quotes a message.
-            bubble = match &extras.story_reply {
-                Some(story) => bubble.child(super::story_quote::story_quote(
-                    story, message, &side, context,
-                )),
-                None => bubble.child(quote(reply, row.quoted, message, &side, context)),
-            };
+    if !message.deleted {
+        // An answer to a status says which one, and shows it while it is
+        // there; anything else quotes a message. A provider may mark the
+        // status without naming it as the message answered.
+        if let Some(story) = &extras.story_reply {
+            bubble = bubble.child(super::story_quote::story_quote(
+                story, message, &side, context,
+            ));
+        } else if let Some(reply) = &message.reply_to {
+            bubble = bubble.child(quote(reply, row.quoted, message, &side, context));
         }
     }
 
@@ -888,15 +888,18 @@ fn sticker_row(
             }
         })
         // The message it answers, above it, as on a bubble.
-        .when_some(message.reply_to.as_ref(), |this, reply| {
-            this.child(match &message.extras.story_reply {
-                Some(story) => super::story_quote::story_quote(story, message, &side, context)
-                    .into_any_element(),
-                None => quote(reply, row.quoted, message, &side, context)
-                    .debug_selector(|| "sticker-quote".into())
-                    .into_any_element(),
-            })
-        })
+        .map(
+            |this| match (&message.extras.story_reply, &message.reply_to) {
+                (Some(story), _) => this.child(super::story_quote::story_quote(
+                    story, message, &side, context,
+                )),
+                (None, Some(reply)) => this.child(
+                    quote(reply, row.quoted, message, &side, context)
+                        .debug_selector(|| "sticker-quote".into()),
+                ),
+                (None, None) => this,
+            },
+        )
         .child(image_block(media, message, &side, context, false))
         .child(meta_line(row, &side, palette))
         .when(!row.stored.reactions.is_empty(), |this| {
