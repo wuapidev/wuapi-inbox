@@ -34,10 +34,10 @@ impl Handler {
     /// One line for the settings.
     pub fn line(&self) -> String {
         match self {
-            Handler::Us => "WhatsApp links open here.".into(),
-            Handler::Other(name) => format!("WhatsApp links open with {name}."),
-            Handler::Nobody => "Nothing opens WhatsApp links on this computer.".into(),
-            Handler::Unknown(why) => format!("Could not tell what opens WhatsApp links: {why}."),
+            Handler::Us => crate::i18n::t("chat.link_handler.us").into(),
+            Handler::Other(name) => crate::i18n::tr("chat.link_handler.other", &[("name", name)]),
+            Handler::Nobody => crate::i18n::t("chat.link_handler.nobody").into(),
+            Handler::Unknown(why) => crate::i18n::tr("chat.link_handler.unknown", &[("why", why)]),
         }
     }
 }
@@ -97,7 +97,7 @@ mod platform {
     }
 
     pub fn make_default() -> Result<String, String> {
-        let dir = applications().ok_or("there is no home directory")?;
+        let dir = applications().ok_or(crate::i18n::t("chat.link_handler.no_home"))?;
         let file = dir.join(entry_name());
         let installed = std::fs::read_to_string(&file).ok();
         let system = ["/usr/share/applications", "/usr/local/share/applications"]
@@ -122,10 +122,10 @@ mod platform {
             .status()
             .map_err(|error| format!("xdg-mime: {error}"))?;
         if !status.success() {
-            return Err("xdg-mime could not set it".into());
+            return Err(crate::i18n::t("chat.link_handler.xdg_failed").into());
         }
         match current() {
-            Handler::Us => Ok("WhatsApp links open here now.".into()),
+            Handler::Us => Ok(crate::i18n::t("chat.link_handler.made_default").into()),
             other => Err(other.line()),
         }
     }
@@ -266,7 +266,7 @@ mod platform {
                 let text = String::from_utf8_lossy(&out.stdout).to_lowercase();
                 match program() {
                     Ok(me) if text.contains(&me.to_lowercase()) => Handler::Us,
-                    _ => Handler::Other("another application".into()),
+                    _ => Handler::Other(crate::i18n::t("chat.link_handler.another_app").into()),
                 }
             }
             Ok(_) => Handler::Nobody,
@@ -294,19 +294,18 @@ mod platform {
         ] {
             let out = reg(args).map_err(|error| format!("reg: {error}"))?;
             if !out.status.success() {
-                return Err("Windows did not keep the setting".into());
+                return Err(crate::i18n::t("chat.link_handler.windows_kept").into());
             }
         }
         match current() {
-            Handler::Us => Ok("WhatsApp links open here now.".into()),
+            Handler::Us => Ok(crate::i18n::t("chat.link_handler.made_default").into()),
             Handler::Other(_) => {
                 // A choice made in Windows' settings is changed there.
                 let _ = Command::new("cmd")
                     .args(["/C", "start", "", "ms-settings:defaultapps"])
                     .creation_flags(NO_WINDOW)
                     .status();
-                Ok("Windows keeps another choice: pick Wuapi for WHATSAPP in the settings just opened."
-                    .into())
+                Ok(crate::i18n::t("chat.link_handler.windows_other").into())
             }
             other => Err(other.line()),
         }
@@ -375,7 +374,7 @@ mod platform {
 
     pub fn current() -> Handler {
         let Some(scheme) = Cf::new(SCHEME) else {
-            return Handler::Unknown("the scheme".into());
+            return Handler::Unknown(crate::i18n::t("chat.link_handler.the_scheme").into());
         };
         let found = unsafe { LSCopyDefaultHandlerForURLScheme(scheme.0) };
         if found.is_null() {
@@ -385,19 +384,22 @@ mod platform {
         match found.text() {
             Some(id) if id.eq_ignore_ascii_case(APP_ID) => Handler::Us,
             Some(id) => Handler::Other(id),
-            None => Handler::Unknown("its name".into()),
+            None => Handler::Unknown(crate::i18n::t("chat.link_handler.its_name").into()),
         }
     }
 
     pub fn make_default() -> Result<String, String> {
         let (Some(scheme), Some(bundle)) = (Cf::new(SCHEME), Cf::new(APP_ID)) else {
-            return Err("the scheme".into());
+            return Err(crate::i18n::t("chat.link_handler.the_scheme").into());
         };
         let code = unsafe { LSSetDefaultHandlerForURLScheme(scheme.0, bundle.0) };
         if code != 0 {
-            return Err(format!("macOS did not keep the setting ({code})"));
+            return Err(crate::i18n::tr(
+                "chat.link_handler.macos_kept",
+                &[("code", &code)],
+            ));
         }
-        Ok("WhatsApp links open here now. macOS may ask you to confirm.".into())
+        Ok(crate::i18n::t("chat.link_handler.made_default_macos").into())
     }
 }
 
@@ -406,11 +408,11 @@ mod platform {
     use super::Handler;
 
     pub fn current() -> Handler {
-        Handler::Unknown("not on this system".into())
+        Handler::Unknown(crate::i18n::t("chat.link_handler.not_here").into())
     }
 
     pub fn make_default() -> Result<String, String> {
-        Err("Not on this system.".into())
+        Err(crate::i18n::t("chat.link_handler.not_here_sentence").into())
     }
 }
 

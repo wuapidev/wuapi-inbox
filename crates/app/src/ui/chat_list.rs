@@ -22,9 +22,8 @@ use gpui_kit::{
 /// that is known.
 pub(super) fn community_subtitle(groups: Option<usize>) -> String {
     match groups {
-        Some(1) => "Community · 1 group".to_owned(),
-        Some(count) => format!("Community · {count} groups"),
-        None => "Community".to_owned(),
+        Some(count) => crate::i18n::plural("chat.chat_list.community_groups", count as u64, &[]),
+        None => crate::i18n::t("chat.chat_list.community").to_owned(),
     }
 }
 
@@ -131,7 +130,7 @@ impl Shell {
                                 .text_color(palette.accent)
                                 .hover(|style| style.opacity(0.75))
                                 .on_click(cx.listener(|this, _, _, cx| this.reveal_saved(cx)))
-                                .child(mono("SHOW IN FOLDER")),
+                                .child(mono(crate::i18n::t("chat.chat_list.show_in_folder"))),
                         )
                     })
             }))
@@ -237,7 +236,7 @@ impl Shell {
                         unavailable_button(
                             "new-chat",
                             IconName::SquarePen,
-                            "Starting a chat is not available with this provider",
+                            crate::i18n::t("chat.chat_list.cannot_start"),
                             palette,
                         )
                     })
@@ -319,23 +318,43 @@ impl Shell {
             .flex()
             .items_center()
             .gap_1();
-        for (index, (filter, name)) in [
-            (ChatFilter::All, "All"),
-            (ChatFilter::Unread, "Unread"),
-            (ChatFilter::Groups, "Groups"),
-            (ChatFilter::Communities, "Communities"),
-            (ChatFilter::Archived, "Archived"),
+        for (index, (filter, slug, name)) in [
+            (
+                ChatFilter::All,
+                "all",
+                crate::i18n::t("chat.chat_list.filter_all"),
+            ),
+            (
+                ChatFilter::Unread,
+                "unread",
+                crate::i18n::t("chat.chat_list.filter_unread"),
+            ),
+            (
+                ChatFilter::Groups,
+                "groups",
+                crate::i18n::t("chat.chat_list.filter_groups"),
+            ),
+            (
+                ChatFilter::Communities,
+                "communities",
+                crate::i18n::t("chat.chat_list.filter_communities"),
+            ),
+            (
+                ChatFilter::Archived,
+                "archived",
+                crate::i18n::t("chat.chat_list.filter_archived"),
+            ),
         ]
         .into_iter()
         .enumerate()
-        .filter(|(_, (filter, _))| *filter != ChatFilter::Communities || self.has_communities)
+        .filter(|(_, (filter, _, _))| *filter != ChatFilter::Communities || self.has_communities)
         {
             let active = self.filter == filter;
             let (hover, hover_text) = (palette.hover, palette.text);
             chips = chips.child(
                 div()
                     .id(("filter", index))
-                    .debug_selector(move || format!("filter-{}", name.to_lowercase()))
+                    .debug_selector(move || format!("filter-{slug}"))
                     .h(px(28.))
                     .px(px(10.))
                     .rounded(metrics::RADIUS())
@@ -362,19 +381,40 @@ impl Shell {
 
     fn render_empty_list(&self, palette: &Palette) -> impl IntoElement {
         let (title, detail): (&str, &str) = if self.found.searching {
-            ("Searching", "Looking through your messages.")
+            (
+                crate::i18n::t("chat.chat_list.empty_searching_title"),
+                crate::i18n::t("chat.chat_list.empty_searching_detail"),
+            )
         } else if !self.query.is_empty() {
-            ("No results", "No chats or messages match your search.")
+            (
+                crate::i18n::t("chat.chat_list.empty_no_results_title"),
+                crate::i18n::t("chat.chat_list.empty_no_results_detail"),
+            )
         } else if self.filter == ChatFilter::Archived {
-            ("No archived chats", "Chats you archive are kept here.")
+            (
+                crate::i18n::t("chat.chat_list.empty_no_archived_title"),
+                crate::i18n::t("chat.chat_list.empty_no_archived_detail"),
+            )
         } else if self.filter != ChatFilter::All {
-            ("Nothing here", "No chats match this filter.")
+            (
+                crate::i18n::t("chat.chat_list.empty_nothing_here_title"),
+                crate::i18n::t("chat.chat_list.empty_nothing_here_detail"),
+            )
         } else if self.no_numbers() {
-            ("No numbers yet", "Link a WhatsApp number to see its chats.")
+            (
+                crate::i18n::t("chat.chat_list.empty_no_numbers_title"),
+                crate::i18n::t("chat.chat_list.empty_no_numbers_detail"),
+            )
         } else if self.accounts.is_empty() {
-            ("Getting things ready", "Your chats will appear here.")
+            (
+                crate::i18n::t("chat.chat_list.empty_getting_ready_title"),
+                crate::i18n::t("chat.chat_list.empty_getting_ready_detail"),
+            )
         } else {
-            ("No chats yet", "New conversations will appear here.")
+            (
+                crate::i18n::t("chat.chat_list.empty_no_chats_title"),
+                crate::i18n::t("chat.chat_list.empty_no_chats_detail"),
+            )
         };
         div()
             .size_full()
@@ -582,18 +622,22 @@ impl Shell {
         let preview = match presence {
             Some(PresenceState::Typing) => div()
                 .text_color(palette.accent)
-                .child("typing…")
+                .child(crate::i18n::t("chat.chat_list.typing"))
                 .into_any_element(),
             Some(PresenceState::Recording) => div()
                 .text_color(palette.accent)
-                .child("recording audio…")
+                .child(crate::i18n::t("chat.chat_list.recording"))
                 .into_any_element(),
             _ => match &chat.last_message {
                 Some(message) => {
                     let text: SharedString = match (&chat.kind, &message.sender_name) {
                         (ChatKind::Group, Some(name)) if !message.outgoing => {
                             let first = name.split_whitespace().next().unwrap_or(name);
-                            format!("{first}: {}", message.text).into()
+                            crate::i18n::tr(
+                                "chat.chat_list.sender_text",
+                                &[("name", &first), ("text", &message.text)],
+                            )
+                            .into()
                         }
                         _ => message.text.clone().into(),
                     };
@@ -619,7 +663,7 @@ impl Shell {
                     .debug_selector(|| "row-empty".into())
                     .italic()
                     .text_color(palette.text_faint)
-                    .child("No messages yet")
+                    .child(crate::i18n::t("chat.chat_list.no_messages"))
                     .into_any_element(),
             },
         };
@@ -764,7 +808,10 @@ impl Shell {
                                                 format!("row-announcements-{index}")
                                             })
                                             .flex_none()
-                                            .child(label("Announcements", palette)),
+                                            .child(label(
+                                                crate::i18n::t("chat.chat_list.announcements"),
+                                                palette,
+                                            )),
                                     )
                                 },
                             )
@@ -905,10 +952,17 @@ impl Shell {
         let chat_id = message.chat_id.clone();
         let body = message_preview(message);
         let text: SharedString = match (&message.direction, &message.sender_name) {
-            (Direction::Outgoing, _) => format!("You: {body}").into(),
-            (Direction::Incoming, Some(name)) if name != &hit.chat_title => {
-                format!("{}: {body}", name.split_whitespace().next().unwrap_or(name)).into()
+            (Direction::Outgoing, _) => {
+                crate::i18n::tr("chat.chat_list.you_text", &[("text", &body)]).into()
             }
+            (Direction::Incoming, Some(name)) if name != &hit.chat_title => crate::i18n::tr(
+                "chat.chat_list.sender_text",
+                &[
+                    ("name", &name.split_whitespace().next().unwrap_or(name)),
+                    ("text", &body),
+                ],
+            )
+            .into(),
             _ => body.into(),
         };
         let hover = palette.hover;

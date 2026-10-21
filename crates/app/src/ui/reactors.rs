@@ -62,9 +62,15 @@ pub(super) fn names_line(names: &[String]) -> String {
     match names {
         [] => String::new(),
         [one] => one.clone(),
-        [one, two] => format!("{one} and {two}"),
-        [one, two, three] => format!("{one}, {two} and {three}"),
-        [one, two, rest @ ..] => format!("{one}, {two} and {} more", rest.len()),
+        [one, two] => crate::i18n::tr("chat.reactors.two", &[("one", one), ("two", two)]),
+        [one, two, three] => crate::i18n::tr(
+            "chat.reactors.three",
+            &[("one", one), ("two", two), ("three", three)],
+        ),
+        [one, two, rest @ ..] => crate::i18n::tr(
+            "chat.reactors.more",
+            &[("one", one), ("two", two), ("more", &rest.len())],
+        ),
     }
 }
 
@@ -80,14 +86,14 @@ impl Shell {
     /// What somebody who reacted is called.
     fn reactor_name(&self, account: &AccountId, chat: &ChatId, reactor: &Reactor) -> String {
         if reactor.from_me {
-            return "You".to_owned();
+            return crate::i18n::t("chat.you").to_owned();
         }
         let person = self
             .store
             .person(account, Some(chat), &reactor.sender)
             .unwrap_or_default();
         if person.me {
-            return "You".to_owned();
+            return crate::i18n::t("chat.you").to_owned();
         }
         // In a chat of two, whoever is not the account is the other one,
         // under whichever id the reaction came: the chat is named after
@@ -243,9 +249,8 @@ impl Shell {
         let account = &message.account_id;
         let can_react = self.caps_here().reactions;
         let heading = match asked.lines.len() {
-            0 => "No reactions".to_owned(),
-            1 => "1 reaction".to_owned(),
-            count => format!("{count} reactions"),
+            0 => crate::i18n::t("chat.reactors.none").to_owned(),
+            count => crate::i18n::plural("chat.reactors.count", count as u64, &[]),
         };
         let mut list = div()
             .id("reactors-list")
@@ -265,7 +270,7 @@ impl Shell {
                     account,
                     &ChatId::new(line.sender.as_str()),
                     &line.name,
-                    removable.then(|| "Click to remove".to_owned()),
+                    removable.then(|| crate::i18n::t("chat.reactors.remove").to_owned()),
                     AvatarKind::Person,
                     palette,
                 )

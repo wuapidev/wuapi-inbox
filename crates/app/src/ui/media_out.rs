@@ -332,14 +332,17 @@ impl Shell {
         match self.media.file_state(source.as_str()) {
             FileState::Ready => self.do_out(&media, out, cx),
             FileState::Unavailable(reason) if self.media.file_expired(source.as_str()) => {
-                self.show_problem(format!("The file is no longer available: {reason}"), cx);
+                self.show_problem(
+                    crate::i18n::tr("chat.media_out.expired", &[("reason", &reason)]),
+                    cx,
+                );
             }
             _ => {
                 self.media.retry_file(&account, source.as_str());
                 let what = match out {
-                    Out::Copy => "Downloading the original to copy it…",
-                    Out::Keep(_) => "Downloading the original to keep it…",
-                    _ => "Downloading the original to save it…",
+                    Out::Copy => crate::i18n::t("chat.media_out.downloading_copy"),
+                    Out::Keep(_) => crate::i18n::t("chat.media_out.downloading_keep"),
+                    _ => crate::i18n::t("chat.media_out.downloading_save"),
                 };
                 self.leaving.waiting.push((media, out));
                 self.show_notice(what, None, cx);
@@ -371,7 +374,10 @@ impl Shell {
                 FileState::Ready => self.do_out(&media, out, cx),
                 FileState::Unavailable(reason) => {
                     self.leaving.notice = None;
-                    self.show_problem(format!("The file could not be downloaded: {reason}"), cx);
+                    self.show_problem(
+                        crate::i18n::tr("chat.media_out.download_failed", &[("reason", &reason)]),
+                        cx,
+                    );
                 }
                 // Stopped, or still on its way: it waits on.
                 _ => self.leaving.waiting.push((media, out)),
@@ -386,7 +392,7 @@ impl Shell {
             .as_ref()
             .and_then(|source| self.media.file(source.as_str()))
         else {
-            return self.show_problem("The file is not here.".into(), cx);
+            return self.show_problem(crate::i18n::t("chat.media_out.not_here").into(), cx);
         };
         match out {
             Out::Keep(keep) => self.keep_in_library(keep, bytes, mime, media.source.clone(), cx),
@@ -410,12 +416,16 @@ impl Shell {
                             if toolkit {
                                 clipboard::copy_on_toolkit(&offer, cx);
                             }
-                            this.show_notice("Image copied", None, cx);
+                            this.show_notice(
+                                crate::i18n::t("chat.media_out.image_copied"),
+                                None,
+                                cx,
+                            );
                         }
                         Err(error) => {
                             this.leaving.notice = None;
                             this.show_problem(
-                                format!("The image could not be copied: {error}"),
+                                crate::i18n::tr("chat.media_out.copy_failed", &[("error", &error)]),
                                 cx,
                             );
                         }
@@ -446,11 +456,18 @@ impl Shell {
                                 .file_name()
                                 .map(|name| name.to_string_lossy().into_owned())
                                 .unwrap_or_default();
-                            this.show_notice(format!("Saved {name}"), Some(path), cx);
+                            this.show_notice(
+                                crate::i18n::tr("chat.media_out.saved", &[("name", &name)]),
+                                Some(path),
+                                cx,
+                            );
                         }
                         Err(error) => {
                             this.leaving.notice = None;
-                            this.show_problem(format!("The file could not be saved: {error}"), cx);
+                            this.show_problem(
+                                crate::i18n::tr("chat.media_out.save_failed", &[("error", &error)]),
+                                cx,
+                            );
                         }
                     })
                     .ok();

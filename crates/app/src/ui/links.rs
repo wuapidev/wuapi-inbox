@@ -122,12 +122,10 @@ impl Shell {
         cx: &mut Context<Self>,
     ) {
         match wa_link::parse(link) {
-            None => self.show_problem("This WhatsApp link can't be opened here.".into(), cx),
-            Some(WaLink::Invite(_)) => self.show_problem(
-                "Joining a group from its invite link isn't possible here yet: open it on your phone."
-                    .into(),
-                cx,
-            ),
+            None => self.show_problem(crate::i18n::t("chat.links.cannot_open").into(), cx),
+            Some(WaLink::Invite(_)) => {
+                self.show_problem(crate::i18n::t("chat.links.invite").into(), cx)
+            }
             Some(WaLink::Chat { phone, text }) => {
                 self.open_overlay(Overlay::NewChat, window, cx);
                 self.links.text = text.map(|text| (text, self.links.chats_opened));
@@ -204,14 +202,17 @@ impl Shell {
     /// Settings > About: who opens WhatsApp links, and the button.
     pub(super) fn render_link_setting(&self, palette: &Palette, cx: &mut Context<Self>) -> Div {
         let line: SharedString = match &self.links.handler {
-            _ if self.links.asking => "Asking the system…".into(),
+            _ if self.links.asking => crate::i18n::t("chat.links.asking").into(),
             Some(handler) => handler.line().into(),
-            None => "Asking the system…".into(),
+            None => crate::i18n::t("chat.links.asking").into(),
         };
         let ours = self.links.handler == Some(Handler::Us);
-        let mut part = section("WhatsApp links", palette)
+        let mut part = section(crate::i18n::t("chat.links.section"), palette)
             .debug_selector(|| "links-setting".into())
-            .child(fact("Opened with", line, palette).debug_selector(|| "links-handler".into()));
+            .child(
+                fact(crate::i18n::t("chat.links.opened_with"), line, palette)
+                    .debug_selector(|| "links-handler".into()),
+            );
         if let Some(said) = &self.links.said {
             let (text, colour) = match said {
                 Ok(text) => (text.clone(), palette.text_muted),
@@ -230,7 +231,7 @@ impl Shell {
                 div().pt_3().flex().child(
                     text_button(
                         "links-make-default",
-                        "Open WhatsApp links with Wuapi",
+                        crate::i18n::t("chat.links.make_default"),
                         None,
                         false,
                         palette,

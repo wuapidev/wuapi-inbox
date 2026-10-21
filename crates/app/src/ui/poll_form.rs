@@ -37,11 +37,12 @@ pub(super) struct PollForm {
 pub(super) fn checked(question: &str, options: &[String]) -> Result<(String, Vec<String>), String> {
     let question = question.trim();
     if question.is_empty() {
-        return Err("Write the question.".into());
+        return Err(crate::i18n::t("chat.poll_form.write_question").into());
     }
     if question.chars().count() > MAX_QUESTION_LENGTH {
-        return Err(format!(
-            "The question takes {MAX_QUESTION_LENGTH} characters at most."
+        return Err(crate::i18n::tr(
+            "chat.poll_form.question_max",
+            &[("max", &MAX_QUESTION_LENGTH)],
         ));
     }
     let mut kept: Vec<String> = Vec::new();
@@ -50,17 +51,21 @@ pub(super) fn checked(question: &str, options: &[String]) -> Result<(String, Vec
             continue;
         }
         if option.chars().count() > MAX_OPTION_LENGTH {
-            return Err(format!(
-                "An option takes {MAX_OPTION_LENGTH} characters at most."
+            return Err(crate::i18n::tr(
+                "chat.poll_form.option_max",
+                &[("max", &MAX_OPTION_LENGTH)],
             ));
         }
         if kept.iter().any(|known| known == option) {
-            return Err(format!("“{option}” is there twice."));
+            return Err(crate::i18n::tr(
+                "chat.poll_form.twice",
+                &[("option", &option)],
+            ));
         }
         kept.push(option.to_owned());
     }
     if kept.len() < MIN_OPTIONS {
-        return Err("A poll needs at least two options.".into());
+        return Err(crate::i18n::t("chat.poll_form.two_options").into());
     }
     Ok((question.to_owned(), kept))
 }
@@ -68,7 +73,9 @@ pub(super) fn checked(question: &str, options: &[String]) -> Result<(String, Vec
 impl Shell {
     /// Opens an empty form, with the keyboard in the question.
     pub(super) fn begin_poll(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let question = cx.new(|cx| InputState::new(window, cx).placeholder("Ask a question"));
+        let question = cx.new(|cx| {
+            InputState::new(window, cx).placeholder(crate::i18n::t("chat.poll_form.ask"))
+        });
         let mut form = PollForm {
             question: question.clone(),
             options: Vec::new(),
@@ -108,8 +115,12 @@ impl Shell {
         if count >= MAX_OPTIONS {
             return;
         }
-        let field =
-            cx.new(|cx| InputState::new(window, cx).placeholder(format!("Option {}", count + 1)));
+        let field = cx.new(|cx| {
+            InputState::new(window, cx).placeholder(crate::i18n::tr(
+                "chat.poll_form.option_n",
+                &[("n", &(count + 1))],
+            ))
+        });
         // Enter goes on to the next option, adding one after the last.
         let subscription = cx.subscribe_in(
             &field,
@@ -206,7 +217,7 @@ impl Shell {
             Err(error) => {
                 tracing::error!(%error, "could not queue the poll");
                 if let Some(form) = &mut self.poll_form {
-                    form.error = Some("The poll could not be saved. Try again.".into());
+                    form.error = Some(crate::i18n::t("chat.poll_form.save_failed").into());
                 }
             }
         }
@@ -248,16 +259,16 @@ impl Shell {
                 .gap_3()
                 // A click inside the card is not a click outside it.
                 .on_click(|_, _, cx| cx.stop_propagation())
-                .child(label("New poll", palette))
+                .child(label(crate::i18n::t("chat.poll_form.title"), palette))
                 .child(field(&form.question).debug_selector(|| "poll-form-question".into()))
-                .child(label("Options", palette))
+                .child(label(crate::i18n::t("chat.poll_form.options"), palette))
                 .child(options)
                 .when(can_add, |this| {
                     this.child(
                         div().flex().child(
                             text_button(
                                 "poll-form-add",
-                                "Add option",
+                                crate::i18n::t("chat.poll_form.add_option"),
                                 Some(IconName::Plus),
                                 false,
                                 palette,
@@ -281,7 +292,7 @@ impl Shell {
                             div()
                                 .min_w_0()
                                 .text_size(metrics::TEXT_BODY())
-                                .child("Allow several answers"),
+                                .child(crate::i18n::t("chat.poll_form.multiple")),
                         )
                         .child(
                             switch("poll-form-multiple", form.multiple, palette).on_click(
@@ -306,16 +317,24 @@ impl Shell {
                         .justify_end()
                         .gap_2()
                         .child(
-                            text_button("poll-form-cancel", "Cancel", None, false, palette)
-                                .on_click(cx.listener(|this, _, window, cx| {
+                            text_button(
+                                "poll-form-cancel",
+                                crate::i18n::t("chat.poll_form.cancel"),
+                                None,
+                                false,
+                                palette,
+                            )
+                            .on_click(cx.listener(
+                                |this, _, window, cx| {
                                     cx.stop_propagation();
                                     this.close_overlay(window, cx);
-                                })),
+                                },
+                            )),
                         )
                         .child(
                             text_button(
                                 "poll-form-send",
-                                "Send poll",
+                                crate::i18n::t("chat.poll_form.send"),
                                 Some(IconName::SendHorizontal),
                                 true,
                                 palette,

@@ -782,9 +782,7 @@ impl MediaShelf {
                 .as_deref()
                 .is_some_and(|mime| !mime.trim().to_ascii_lowercase().starts_with("image/"))
         {
-            return MediaVisual::Unsupported(
-                "An animated sticker of a kind this app cannot show".into(),
-            );
+            return MediaVisual::Unsupported(crate::i18n::t("chat.media.animated_sticker").into());
         }
         let url = source.as_str();
         if let Some(image) = self.thumbnail(url) {
@@ -1081,7 +1079,7 @@ impl MediaShelf {
             .store
             .media(&file_key(url), Timestamp::now())
             .map_err(|error| error.to_string())?
-            .ok_or("The file has not been downloaded.")?;
+            .ok_or(crate::i18n::t("chat.media.not_downloaded"))?;
         let name = export_name(media, cached.mime.as_deref());
         let dir = exports_dir().join(format!("{:016x}", fingerprint(url)));
         std::fs::create_dir_all(&dir).map_err(|error| error.to_string())?;

@@ -89,7 +89,10 @@ impl Acting {
             selecting: None,
             reaction_cursor: 0,
             reactors: None,
-            forward_input: cx.new(|cx| InputState::new(window, cx).placeholder("Search a chat")),
+            forward_input: cx.new(|cx| {
+                InputState::new(window, cx)
+                    .placeholder(crate::i18n::t("chat.message_actions.search_chat"))
+            }),
             forward_to: Vec::new(),
             forward_skipped: Vec::new(),
             forward_rows: Vec::new(),
@@ -122,9 +125,9 @@ pub(super) enum DeleteChoice {
 impl DeleteChoice {
     fn label(self) -> &'static str {
         match self {
-            DeleteChoice::ForEveryone => "Delete for everyone",
-            DeleteChoice::ForMe => "Delete for me",
-            DeleteChoice::Cancel => "Cancel",
+            DeleteChoice::ForEveryone => crate::i18n::t("chat.message_actions.delete_everyone"),
+            DeleteChoice::ForMe => crate::i18n::t("chat.message_actions.delete_me"),
+            DeleteChoice::Cancel => crate::i18n::t("chat.message_actions.cancel"),
         }
     }
 
@@ -337,16 +340,22 @@ impl Shell {
                     .as_ref()
                     .is_some_and(|open| open.chat.id != message.chat_id);
                 let who = match (&message.direction, &message.sender_name) {
-                    (Direction::Outgoing, _) => "Replying to yourself".to_owned(),
-                    (_, Some(name)) if private => format!("Replying privately to {name}"),
-                    (_, Some(name)) => format!("Replying to {name}"),
-                    _ if private => "Replying privately".to_owned(),
-                    _ => "Replying".to_owned(),
+                    (Direction::Outgoing, _) => {
+                        crate::i18n::t("chat.message_actions.reply_self").to_owned()
+                    }
+                    (_, Some(name)) if private => {
+                        crate::i18n::tr("chat.message_actions.reply_private_to", &[("name", name)])
+                    }
+                    (_, Some(name)) => {
+                        crate::i18n::tr("chat.message_actions.reply_to", &[("name", name)])
+                    }
+                    _ if private => crate::i18n::t("chat.message_actions.reply_private").to_owned(),
+                    _ => crate::i18n::t("chat.message_actions.reply").to_owned(),
                 };
                 (who, message, IconName::MessageSquareText, "compose-reply")
             }
             Compose::Edit(message) => (
-                "Editing message".to_owned(),
+                crate::i18n::t("chat.message_actions.editing").to_owned(),
                 message,
                 IconName::Pencil,
                 "compose-edit",
@@ -441,9 +450,9 @@ impl Shell {
             .filter_map(|message| {
                 let text = copy_text(message)?;
                 let who = match (&message.direction, &message.sender_name) {
-                    (Direction::Outgoing, _) => "You".to_owned(),
+                    (Direction::Outgoing, _) => crate::i18n::t("chat.you").to_owned(),
                     (_, Some(name)) => name.clone(),
-                    _ => "They".to_owned(),
+                    _ => crate::i18n::t("chat.message_actions.they").to_owned(),
                 };
                 Some(format!(
                     "[{} {}] {who}: {text}",
@@ -551,21 +560,22 @@ impl Shell {
                         .truncate()
                         .text_size(metrics::TEXT_BODY())
                         .font_weight(FontWeight::MEDIUM)
-                        .child(SharedString::from(match count {
-                            1 => "1 message selected".to_owned(),
-                            n => format!("{n} messages selected"),
-                        })),
+                        .child(SharedString::from(crate::i18n::plural(
+                            "chat.message_actions.selected",
+                            count as u64,
+                            &[],
+                        ))),
                 )
                 .child(action(
                     "selection-copy",
-                    "Copy",
+                    crate::i18n::t("chat.message_actions.copy"),
                     IconName::Copy,
                     Command::Copy,
                 ))
                 .when(caps.forwards, |this| {
                     this.child(action(
                         "selection-forward",
-                        "Forward",
+                        crate::i18n::t("chat.message_actions.forward"),
                         IconName::Forward,
                         Command::Forward,
                     ))
@@ -573,26 +583,32 @@ impl Shell {
                 .when(caps.stars, |this| {
                     this.child(action(
                         "selection-star",
-                        "Star",
+                        crate::i18n::t("chat.message_actions.star"),
                         IconName::Star,
                         Command::Star,
                     ))
                 })
                 .child(action(
                     "selection-save",
-                    "Save",
+                    crate::i18n::t("chat.message_actions.save"),
                     IconName::ArrowDownToLine,
                     Command::SaveAs,
                 ))
                 .child(action(
                     "selection-delete",
-                    "Delete",
+                    crate::i18n::t("chat.message_actions.delete"),
                     IconName::Trash,
                     Command::Delete,
                 ))
                 .child(
-                    text_button("selection-cancel", "Cancel", None, false, palette)
-                        .on_click(cx.listener(|this, _, _, cx| this.end_selecting(cx))),
+                    text_button(
+                        "selection-cancel",
+                        crate::i18n::t("chat.message_actions.cancel"),
+                        None,
+                        false,
+                        palette,
+                    )
+                    .on_click(cx.listener(|this, _, _, cx| this.end_selecting(cx))),
                 ),
         )
     }
@@ -714,11 +730,7 @@ impl Shell {
             .flex()
             .flex_col()
             .child(panel_header(
-                if count == 1 {
-                    "Delete message?"
-                } else {
-                    "Delete messages?"
-                },
+                &crate::i18n::plural("chat.message_actions.delete_title", count as u64, &[]),
                 palette,
                 cx.listener(|this, _, window, cx| this.close_overlay(window, cx)),
             ))
@@ -734,10 +746,11 @@ impl Shell {
                             .line_height(px(19.))
                             .text_color(palette.text_muted)
                             .child(SharedString::from(match count {
-                                1 => "For everyone takes it from the chat for all its \
-                                      members; for me, from your devices only."
-                                    .to_owned(),
-                                n => format!("{n} messages."),
+                                1 => crate::i18n::t("chat.message_actions.delete_one").to_owned(),
+                                n => crate::i18n::tr(
+                                    "chat.message_actions.delete_many",
+                                    &[("n", &n)],
+                                ),
                             })),
                     )
                     .child(buttons),
@@ -928,11 +941,19 @@ impl Shell {
                     .child(self.render_emoji_search("reaction-input", palette))
                     .when(mine.is_some(), |this| {
                         this.child(
-                            text_button("reaction-remove", "Remove", None, false, palette)
-                                .on_click(cx.listener(|this, _, window, cx| {
+                            text_button(
+                                "reaction-remove",
+                                crate::i18n::t("chat.message_actions.remove"),
+                                None,
+                                false,
+                                palette,
+                            )
+                            .on_click(cx.listener(
+                                |this, _, window, cx| {
                                     cx.stop_propagation();
                                     this.react_with("", window, cx);
-                                })),
+                                },
+                            )),
                         )
                     }),
             )
@@ -961,33 +982,43 @@ impl Shell {
         let message = self.acting.subjects.first()?;
         let own = message.direction == Direction::Outgoing;
         let status: SharedString = match &message.status {
-            DeliveryStatus::Pending => "Waiting to be sent".into(),
-            DeliveryStatus::Accepted => "With the provider, on its way to WhatsApp".into(),
-            DeliveryStatus::Sent => "Sent".into(),
-            DeliveryStatus::Delivered => "Delivered".into(),
-            DeliveryStatus::Read => "Read".into(),
-            DeliveryStatus::Failed { reason } if reason.is_empty() => "Not sent".into(),
-            DeliveryStatus::Failed { reason } => format!("Not sent: {reason}").into(),
+            DeliveryStatus::Pending => crate::i18n::t("chat.message_actions.status_pending").into(),
+            DeliveryStatus::Accepted => {
+                crate::i18n::t("chat.message_actions.status_accepted").into()
+            }
+            DeliveryStatus::Sent => crate::i18n::t("chat.message_actions.status_sent").into(),
+            DeliveryStatus::Delivered => {
+                crate::i18n::t("chat.message_actions.status_delivered").into()
+            }
+            DeliveryStatus::Read => crate::i18n::t("chat.message_actions.status_read").into(),
+            DeliveryStatus::Failed { reason } if reason.is_empty() => {
+                crate::i18n::t("chat.message_actions.status_failed").into()
+            }
+            DeliveryStatus::Failed { reason } => crate::i18n::tr(
+                "chat.message_actions.status_failed_reason",
+                &[("reason", reason)],
+            )
+            .into(),
         };
         let from: SharedString = match (&message.direction, &message.sender_name) {
-            (Direction::Outgoing, _) => "You".into(),
+            (Direction::Outgoing, _) => crate::i18n::t("chat.you").into(),
             (_, Some(name)) => name.clone().into(),
-            _ => "The other side".into(),
+            _ => crate::i18n::t("chat.message_actions.other_side").into(),
         };
         let mut marks = Vec::new();
         if message.edited {
-            marks.push("edited");
+            marks.push(crate::i18n::t("chat.message_actions.mark_edited"));
         }
         if message.extras.starred {
-            marks.push("starred");
+            marks.push(crate::i18n::t("chat.message_actions.mark_starred"));
         }
         if message.extras.forwarded_many {
-            marks.push("forwarded many times");
+            marks.push(crate::i18n::t("chat.message_actions.mark_forwarded_many"));
         } else if message.extras.forwarded {
-            marks.push("forwarded");
+            marks.push(crate::i18n::t("chat.message_actions.mark_forwarded"));
         }
         if message.deleted {
-            marks.push("deleted");
+            marks.push(crate::i18n::t("chat.message_actions.mark_deleted"));
         }
         Some(
             self.card("message-info", palette)
@@ -995,7 +1026,7 @@ impl Shell {
                 .flex()
                 .flex_col()
                 .child(panel_header(
-                    "Message info",
+                    crate::i18n::t("chat.message_actions.info_title"),
                     palette,
                     cx.listener(|this, _, window, cx| this.close_overlay(window, cx)),
                 ))
@@ -1005,18 +1036,40 @@ impl Shell {
                         .pb_3()
                         .flex()
                         .flex_col()
-                        .child(fact("From", from, palette))
                         .child(fact(
-                            if own { "Sent" } else { "Received" },
+                            crate::i18n::t("chat.message_actions.info_from"),
+                            from,
+                            palette,
+                        ))
+                        .child(fact(
+                            if own {
+                                crate::i18n::t("chat.message_actions.info_sent")
+                            } else {
+                                crate::i18n::t("chat.message_actions.info_received")
+                            },
                             format!("{}, {}", date(message.timestamp), clock(message.timestamp))
                                 .into(),
                             palette,
                         ))
-                        .when(own, |this| this.child(fact("Status", status, palette)))
-                        .when(!marks.is_empty(), |this| {
-                            this.child(fact("Marks", marks.join(", ").into(), palette))
+                        .when(own, |this| {
+                            this.child(fact(
+                                crate::i18n::t("chat.message_actions.info_status"),
+                                status,
+                                palette,
+                            ))
                         })
-                        .child(fact("Kind", message_kind(message).into(), palette)),
+                        .when(!marks.is_empty(), |this| {
+                            this.child(fact(
+                                crate::i18n::t("chat.message_actions.info_marks"),
+                                marks.join(", ").into(),
+                                palette,
+                            ))
+                        })
+                        .child(fact(
+                            crate::i18n::t("chat.message_actions.info_kind"),
+                            message_kind(message).into(),
+                            palette,
+                        )),
                 ),
         )
     }
@@ -1133,7 +1186,9 @@ impl Shell {
                     tracing::error!(%error, "could not queue the forward");
                     let why = match error {
                         client_core::ForwardError::Refused(refusal) => refusal.reason(),
-                        client_core::ForwardError::Store(_) => "It could not be saved here",
+                        client_core::ForwardError::Store(_) => {
+                            crate::i18n::t("chat.message_actions.forward_save_failed")
+                        }
                     };
                     if !refused.contains(&(message_kind(message), why)) {
                         refused.push((message_kind(message), why));
@@ -1242,11 +1297,7 @@ impl Shell {
             );
         }
         let count = self.acting.subjects.len();
-        let title = if count == 1 {
-            "Forward message".to_owned()
-        } else {
-            format!("Forward {count} messages")
-        };
+        let title = crate::i18n::plural("chat.message_actions.forward_title", count as u64, &[]);
         let skipped = (!self.acting.forward_skipped.is_empty())
             .then(|| not_forwarded(&self.acting.forward_skipped));
         self.card("forward-sheet", palette)
@@ -1300,14 +1351,17 @@ impl Shell {
                     .justify_between()
                     .gap_3()
                     .child(
-                        mono(format!("{} OF {FORWARD_LIMIT} CHATS", picked.len()))
-                            .debug_selector(|| "forward-count".into())
-                            .text_color(palette.text_muted),
+                        mono(crate::i18n::tr(
+                            "chat.message_actions.forward_count",
+                            &[("n", &picked.len()), ("limit", &FORWARD_LIMIT)],
+                        ))
+                        .debug_selector(|| "forward-count".into())
+                        .text_color(palette.text_muted),
                     )
                     .child(
                         text_button(
                             "forward-send",
-                            "Forward",
+                            crate::i18n::t("chat.message_actions.forward"),
                             Some(IconName::Forward),
                             true,
                             palette,
@@ -1327,11 +1381,22 @@ impl Shell {
 pub(super) fn not_forwarded(skipped: &[(&'static str, &'static str)]) -> String {
     let each: Vec<String> = skipped
         .iter()
-        .map(|(kind, why)| format!("{kind} ({})", why.to_lowercase()))
+        .map(|(kind, why)| {
+            crate::i18n::tr(
+                "chat.message_actions.not_forwarded_kind",
+                &[("kind", kind), ("why", &why.to_lowercase())],
+            )
+        })
         .collect();
     match skipped.len() {
-        1 => format!("Not forwarded: {}", each[0]),
-        n => format!("{n} messages not forwarded: {}", each.join(", ")),
+        1 => crate::i18n::tr(
+            "chat.message_actions.not_forwarded_one",
+            &[("each", &each[0])],
+        ),
+        n => crate::i18n::tr(
+            "chat.message_actions.not_forwarded_many",
+            &[("n", &n), ("each", &each.join(", "))],
+        ),
     }
 }
 
@@ -1350,23 +1415,25 @@ fn copy_raw_text(message: &Message) -> Option<String> {
 fn message_kind(message: &Message) -> &'static str {
     use client_provider::MediaKind as M;
     match &message.content {
-        _ if message.deleted => "Deleted message",
-        MessageContent::Text { .. } => "Text",
+        _ if message.deleted => crate::i18n::t("chat.message_actions.kind_deleted"),
+        MessageContent::Text { .. } => crate::i18n::t("chat.message_actions.kind_text"),
         MessageContent::Media(media) => match media.kind {
-            M::Image => "Photo",
-            M::Video if media.gif => "GIF",
-            M::Video => "Video",
-            M::Voice => "Voice note",
-            M::Audio => "Audio",
-            M::Document => "Document",
-            M::Sticker => "Sticker",
+            M::Image => crate::i18n::t("chat.message_actions.kind_photo"),
+            M::Video if media.gif => crate::i18n::t("chat.message_actions.kind_gif"),
+            M::Video => crate::i18n::t("chat.message_actions.kind_video"),
+            M::Voice => crate::i18n::t("chat.message_actions.kind_voice"),
+            M::Audio => crate::i18n::t("chat.message_actions.kind_audio"),
+            M::Document => crate::i18n::t("chat.message_actions.kind_document"),
+            M::Sticker => crate::i18n::t("chat.message_actions.kind_sticker"),
         },
-        MessageContent::Location(_) => "Location",
-        MessageContent::Contacts { .. } => "Contact card",
-        MessageContent::Poll(_) => "Poll",
-        MessageContent::Event(_) => "Event",
-        MessageContent::System(_) => "Notice",
-        MessageContent::Reaction { .. } => "Reaction",
-        MessageContent::Unsupported { .. } => "Unsupported message",
+        MessageContent::Location(_) => crate::i18n::t("chat.message_actions.kind_location"),
+        MessageContent::Contacts { .. } => crate::i18n::t("chat.message_actions.kind_contact"),
+        MessageContent::Poll(_) => crate::i18n::t("chat.message_actions.kind_poll"),
+        MessageContent::Event(_) => crate::i18n::t("chat.message_actions.kind_event"),
+        MessageContent::System(_) => crate::i18n::t("chat.message_actions.kind_notice"),
+        MessageContent::Reaction { .. } => crate::i18n::t("chat.message_actions.kind_reaction"),
+        MessageContent::Unsupported { .. } => {
+            crate::i18n::t("chat.message_actions.kind_unsupported")
+        }
     }
 }

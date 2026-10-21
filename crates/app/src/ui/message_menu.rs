@@ -83,8 +83,8 @@ impl Shell {
             MessageContent::Media(media) if !message.extras.view_once => Some(media),
             _ => None,
         };
-        const DELETED: &str = "The message was deleted";
-        const NOT_SENT: &str = "Not sent yet";
+        let deleted = crate::i18n::t("chat.message_menu.deleted");
+        let not_sent = crate::i18n::t("chat.message_menu.not_sent");
         if message.deleted
             && !matches!(
                 command,
@@ -93,13 +93,13 @@ impl Shell {
         {
             return match command {
                 C::CopyLink | C::CopyImage | C::Open | C::Download | C::Reactions => Hidden,
-                _ => Disabled(DELETED),
+                _ => Disabled(deleted),
             };
         }
         match command {
             C::Copy => match copy_text(message) {
                 Some(_) => Enabled,
-                None => Disabled("Nothing to copy"),
+                None => Disabled(crate::i18n::t("chat.message_menu.nothing_to_copy")),
             },
             C::CopyLink => match copy_link(message) {
                 Some(_) => Enabled,
@@ -118,7 +118,7 @@ impl Shell {
             },
             C::SaveAs | C::SaveToDownloads => match media {
                 Some(media) if media.source.is_some() => Enabled,
-                Some(_) => Disabled("The provider has no file for it"),
+                Some(_) => Disabled(crate::i18n::t("chat.message_menu.no_file")),
                 None => Hidden,
             },
             C::Download => match media {
@@ -130,7 +130,7 @@ impl Shell {
                     Enabled
                 }
                 Some(media) if media.kind == MediaKind::Sticker => {
-                    Disabled("The provider has no file for it")
+                    Disabled(crate::i18n::t("chat.message_menu.no_file"))
                 }
                 _ => Hidden,
             },
@@ -139,40 +139,40 @@ impl Shell {
                     Enabled
                 }
                 Some(media) if super::library_ui::is_gif(media) => {
-                    Disabled("The provider has no file for it")
+                    Disabled(crate::i18n::t("chat.message_menu.no_file"))
                 }
                 _ => Hidden,
             },
             C::SelectText | C::MessageMenu | C::Info | C::SelectMessages => Enabled,
             C::Reply if !caps.replies => Hidden,
-            C::Reply if !sent(message) => Disabled(NOT_SENT),
+            C::Reply if !sent(message) => Disabled(not_sent),
             C::Reply => Enabled,
             // Only what somebody else wrote in a group has a chat to be
             // answered in apart from this one.
             C::ReplyPrivately if !caps.replies || !caps.private_replies => Hidden,
             C::ReplyPrivately if own || !self.in_a_group() => Hidden,
-            C::ReplyPrivately if !sent(message) => Disabled(NOT_SENT),
+            C::ReplyPrivately if !sent(message) => Disabled(not_sent),
             C::ReplyPrivately => Enabled,
             C::React if !caps.reactions => Hidden,
-            C::React if !sent(message) => Disabled(NOT_SENT),
+            C::React if !sent(message) => Disabled(not_sent),
             C::React => Enabled,
             // Only where somebody did.
             C::Reactions if self.has_reactions(&message.id) => Enabled,
             C::Reactions => Hidden,
             C::Edit if !caps.edits => Hidden,
-            C::Edit if !own => Disabled("Only your own messages"),
+            C::Edit if !own => Disabled(crate::i18n::t("chat.message_menu.only_own")),
             C::Edit if !matches!(message.content, MessageContent::Text { .. }) => {
-                Disabled("Only text can be edited")
+                Disabled(crate::i18n::t("chat.message_menu.only_text"))
             }
             C::Edit if matches!(message.status, DeliveryStatus::Failed { .. }) => {
-                Disabled("It was not sent")
+                Disabled(crate::i18n::t("chat.message_menu.not_delivered"))
             }
             C::Edit => Enabled,
             C::Star if !caps.stars => Hidden,
-            C::Star if !sent(message) => Disabled(NOT_SENT),
+            C::Star if !sent(message) => Disabled(not_sent),
             C::Star => Enabled,
             C::Pin if !caps.pins => Hidden,
-            C::Pin if !sent(message) => Disabled(NOT_SENT),
+            C::Pin if !sent(message) => Disabled(not_sent),
             C::Pin if matches!(message.content, MessageContent::System(_)) => Hidden,
             C::Pin => Enabled,
             // Kept here, so anything with something to say will do,
@@ -180,13 +180,15 @@ impl Shell {
             C::CreateTask if matches!(message.content, MessageContent::System(_)) => Hidden,
             C::CreateTask => Enabled,
             C::Forward if !caps.forwards => Hidden,
-            C::Forward if !sent(message) => Disabled(NOT_SENT),
+            C::Forward if !sent(message) => Disabled(not_sent),
             C::Forward => match self.forwardable(message) {
                 Ok(()) => Enabled,
                 Err(why) => Disabled(why),
             },
             C::Delete if own && !caps.deletes && !caps.delete_for_me => Hidden,
-            C::Delete if !own && !caps.delete_received => Disabled("Only your own messages"),
+            C::Delete if !own && !caps.delete_received => {
+                Disabled(crate::i18n::t("chat.message_menu.only_own"))
+            }
             C::Delete => Enabled,
             _ => Hidden,
         }
@@ -195,24 +197,26 @@ impl Shell {
     /// What an entry of the menu is called for this message.
     fn menu_label(command: Command, message: &Message) -> &'static str {
         match command {
-            Command::SaveSticker => "Add to favorites",
-            Command::SaveGif => "Save GIF",
-            Command::Star if message.extras.starred => "Unstar",
-            Command::Star => "Star",
-            Command::Pin if message.extras.pinned_at(client_provider::Timestamp::now()) => "Unpin",
-            Command::Pin => "Pin",
+            Command::SaveSticker => crate::i18n::t("chat.message_menu.add_favorite"),
+            Command::SaveGif => crate::i18n::t("chat.message_menu.save_gif"),
+            Command::Star if message.extras.starred => crate::i18n::t("chat.message_menu.unstar"),
+            Command::Star => crate::i18n::t("chat.message_menu.star"),
+            Command::Pin if message.extras.pinned_at(client_provider::Timestamp::now()) => {
+                crate::i18n::t("chat.message_menu.unpin")
+            }
+            Command::Pin => crate::i18n::t("chat.message_menu.pin"),
             Command::CopyLink => match &message.content {
-                MessageContent::Contacts { .. } => "Copy number",
-                _ => "Copy link",
+                MessageContent::Contacts { .. } => crate::i18n::t("chat.message_menu.copy_number"),
+                _ => crate::i18n::t("chat.message_menu.copy_link"),
             },
             Command::Open => match &message.content {
                 MessageContent::Media(media)
                     if matches!(media.kind, MediaKind::Voice | MediaKind::Audio) =>
                 {
-                    "Play"
+                    crate::i18n::t("chat.message_menu.play")
                 }
-                MessageContent::Media(_) => "Open",
-                _ => "Open link",
+                MessageContent::Media(_) => crate::i18n::t("chat.message_menu.open"),
+                _ => crate::i18n::t("chat.message_menu.open_link"),
             },
             other => crate::keys::label(other),
         }

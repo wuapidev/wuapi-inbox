@@ -39,6 +39,11 @@ const METER: usize = 40;
 pub(super) const NOT_AVAILABLE: &str =
     "Voice notes cannot be sent: sending files is not available yet";
 
+/// [`NOT_AVAILABLE`] in the language in use.
+pub(super) fn not_available() -> &'static str {
+    crate::i18n::t("chat.voice_record.not_available")
+}
+
 /// The system's microphone. In the tests there is none: a test that has
 /// not brought its own can never open a real one.
 pub(super) fn system_input() -> Box<dyn record::AudioInput> {
@@ -159,7 +164,7 @@ impl Shell {
         }
         // Nothing is recorded that could not be sent.
         if !self.can_record() {
-            return self.show_problem(format!("{NOT_AVAILABLE}."), cx);
+            return self.show_problem(format!("{}.", not_available()), cx);
         }
         self.end_level_test();
         // What is playing would be recorded with the voice.
@@ -200,9 +205,9 @@ impl Shell {
                     if full && this.voice.phase == Phase::Recording {
                         this.stop_recording(cx);
                         this.voice.error = Some(
-                            format!(
-                                "A voice note can be {} minutes long: this one stopped there.",
-                                record::LONGEST.as_secs() / 60
+                            crate::i18n::tr(
+                                "chat.voice_record.too_long",
+                                &[("minutes", &(record::LONGEST.as_secs() / 60))],
                             )
                             .into(),
                         );
@@ -329,7 +334,7 @@ impl Shell {
         if take.duration() < record::SHORTEST {
             // A slip of the finger: nothing to send, and it is said.
             self.voice.phase = Phase::Idle;
-            self.voice.error = Some("Too short to send: nothing was sent.".into());
+            self.voice.error = Some(crate::i18n::t("chat.voice_record.too_short").into());
             self.composer
                 .update(cx, |composer, cx| composer.focus(window, cx));
             return cx.notify();
@@ -538,9 +543,7 @@ impl Shell {
         let line = if self.voice.asking {
             Some((
                 "record-ask",
-                SharedString::from(
-                    "Throw this recording away? Escape again does; anything else keeps it.",
-                ),
+                SharedString::from(crate::i18n::t("chat.voice_record.throw_away")),
                 palette.text,
             ))
         } else {
@@ -650,10 +653,22 @@ impl Shell {
             }));
 
         let (label, light) = match (&phase, paused) {
-            (Phase::Recording, false) => ("REC", palette.danger),
-            (Phase::Recording, true) => ("PAUSED", palette.text_faint),
-            (Phase::Sending, _) => ("SENDING", palette.text_faint),
-            _ => ("READY", palette.text_faint),
+            (Phase::Recording, false) => (
+                crate::i18n::t("chat.voice_record.state_rec"),
+                palette.danger,
+            ),
+            (Phase::Recording, true) => (
+                crate::i18n::t("chat.voice_record.state_paused"),
+                palette.text_faint,
+            ),
+            (Phase::Sending, _) => (
+                crate::i18n::t("chat.voice_record.state_sending"),
+                palette.text_faint,
+            ),
+            _ => (
+                crate::i18n::t("chat.voice_record.state_ready"),
+                palette.text_faint,
+            ),
         };
         let middle = match phase {
             Phase::Recording => tip(
@@ -668,7 +683,11 @@ impl Shell {
                 ),
                 hint(
                     Command::RecordPause,
-                    if paused { "Go on recording" } else { "Pause" },
+                    if paused {
+                        crate::i18n::t("chat.voice_record.resume")
+                    } else {
+                        crate::i18n::t("chat.voice_record.pause")
+                    },
                 ),
             )
             .on_click(cx.listener(|this, _, _, cx| this.pause_recording(cx))),
@@ -682,7 +701,10 @@ impl Shell {
                     },
                     palette,
                 ),
-                hint(Command::RecordPause, "Listen to it"),
+                hint(
+                    Command::RecordPause,
+                    crate::i18n::t("chat.voice_record.listen"),
+                ),
             )
             .on_click(cx.listener(|this, _, _, cx| this.play_take(cx))),
         };
@@ -716,7 +738,10 @@ impl Shell {
                         .child(
                             tip(
                                 icon_button("record-discard", IconName::Trash, palette),
-                                hint(Command::RecordDiscard, "Throw it away"),
+                                hint(
+                                    Command::RecordDiscard,
+                                    crate::i18n::t("chat.voice_record.discard"),
+                                ),
                             )
                             .on_click(cx.listener(
                                 |this, _, window, cx| this.discard_recording(false, window, cx),
@@ -751,7 +776,10 @@ impl Shell {
                         .child(if recording {
                             tip(
                                 icon_button("record-stop", IconName::Square, palette),
-                                hint(Command::RecordVoice, "Stop, and listen before sending"),
+                                hint(
+                                    Command::RecordVoice,
+                                    crate::i18n::t("chat.voice_record.stop"),
+                                ),
                             )
                             .on_click(cx.listener(|this, _, _, cx| this.stop_recording(cx)))
                             .into_any_element()
@@ -780,7 +808,10 @@ impl Shell {
                                         px(16.),
                                         palette.on_accent_fill,
                                     )),
-                                hint(Command::RecordSend, "Send"),
+                                hint(
+                                    Command::RecordSend,
+                                    crate::i18n::t("chat.voice_record.send"),
+                                ),
                             )
                             .on_click(
                                 cx.listener(|this, _, window, cx| this.send_recording(window, cx)),
@@ -929,7 +960,10 @@ impl Shell {
                        chosen: Option<&str>,
                        pick: Pick,
                        cx: &mut Context<Self>| {
-            let label: SharedString = chosen.unwrap_or("System default").to_owned().into();
+            let label: SharedString = chosen
+                .unwrap_or(crate::i18n::t("chat.voice_record.system_default"))
+                .to_owned()
+                .into();
             let step =
                 |id: &'static str, glyph: IconName, forward: bool, cx: &mut Context<Self>| {
                     icon_button(id, glyph, palette).on_click(cx.listener(move |this, _, _, cx| {
@@ -1062,7 +1096,11 @@ impl Shell {
                                 .bg(palette.danger),
                         )
                     })
-                    .child(mono(if testing { "STOP" } else { "TEST" }))
+                    .child(mono(if testing {
+                        crate::i18n::t("chat.voice_record.test_stop")
+                    } else {
+                        crate::i18n::t("chat.voice_record.test_start")
+                    }))
                     .on_click(cx.listener(|this, _, _, cx| {
                         cx.stop_propagation();
                         this.toggle_level_test(cx);
@@ -1092,24 +1130,21 @@ impl Shell {
             .pb_4()
             .flex()
             .flex_col()
-            .child(
-                div()
-                    .pb_2()
-                    .child(mono("[ AUDIO AND VIDEO ]").text_color(palette.text_muted)),
-            )
+            .child(div().pb_2().child(
+                mono(crate::i18n::t("chat.voice_record.heading")).text_color(palette.text_muted),
+            ))
             .child(row(
-                "Microphone",
+                crate::i18n::t("chat.voice_record.microphone"),
                 if calls {
-                    "What voice notes are recorded with, and what a call hears."
+                    crate::i18n::t("chat.voice_record.microphone_calls")
                 } else {
-                    "What voice notes are recorded with."
+                    crate::i18n::t("chat.voice_record.microphone_notes")
                 },
                 input,
             ))
             .child(row(
-                "Microphone test",
-                "Opens the microphone to show its level. Nothing is kept, and it closes by \
-                 itself after ten seconds.",
+                crate::i18n::t("chat.voice_record.microphone_test"),
+                crate::i18n::t("chat.voice_record.microphone_test_text"),
                 test,
             ))
             .children(
@@ -1128,18 +1163,18 @@ impl Shell {
                     }),
             )
             .child(row(
-                "Speakers",
+                crate::i18n::t("chat.voice_record.speakers"),
                 if calls {
-                    "What voice notes, audio and calls are played on."
+                    crate::i18n::t("chat.voice_record.speakers_calls")
                 } else {
-                    "What voice notes and audio are played on."
+                    crate::i18n::t("chat.voice_record.speakers_notes")
                 },
                 output,
             ))
             .children(camera.map(|camera| {
                 row(
-                    "Camera",
-                    "What a call with video shows. A change applies from the next call.",
+                    crate::i18n::t("chat.voice_record.camera"),
+                    crate::i18n::t("chat.voice_record.camera_text"),
                     camera,
                 )
             }))

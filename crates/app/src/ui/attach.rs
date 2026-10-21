@@ -43,6 +43,11 @@ use std::sync::Arc;
 /// Why the attach button and the paste of a file say no.
 pub(in crate::ui) const NOT_AVAILABLE: &str = "Sending files is not available yet";
 
+/// [`NOT_AVAILABLE`] in the language in use.
+pub(in crate::ui) fn not_available() -> &'static str {
+    crate::i18n::t("chat.attach_sheet.not_available")
+}
+
 /// The longest edge of the picture the sheet keeps of an image.
 const PREVIEW_EDGE: u32 = 480;
 
@@ -97,10 +102,10 @@ impl AttachItem {
     /// What it is, in a word.
     fn kind_label(&self) -> &'static str {
         match self.file.kind(self.as_document) {
-            MediaKind::Image => "IMAGE",
-            MediaKind::Video => "VIDEO",
-            MediaKind::Audio | MediaKind::Voice => "AUDIO",
-            _ => "DOCUMENT",
+            MediaKind::Image => crate::i18n::t("chat.attach_sheet.kind_image"),
+            MediaKind::Video => crate::i18n::t("chat.attach_sheet.kind_video"),
+            MediaKind::Audio | MediaKind::Voice => crate::i18n::t("chat.attach_sheet.kind_audio"),
+            _ => crate::i18n::t("chat.attach_sheet.kind_document"),
         }
     }
 }
@@ -222,7 +227,7 @@ impl Shell {
             return;
         }
         if !self.can_attach() {
-            return self.show_problem(format!("{NOT_AVAILABLE}."), cx);
+            return self.show_problem(format!("{}.", not_available()), cx);
         }
         let limit = self.engine.upload_limit();
         let runtime = self.engine.runtime().clone();
@@ -239,7 +244,10 @@ impl Shell {
             let read = work.await;
             this.update(cx, |this, cx| match read {
                 Ok(Ok((staged, refused))) => this.add_attachments(staged, refused, cx),
-                _ => this.show_problem("The files could not be read.".to_owned(), cx),
+                _ => this.show_problem(
+                    crate::i18n::t("chat.attach_sheet.unreadable").to_owned(),
+                    cx,
+                ),
             })
             .ok();
         })
@@ -332,7 +340,7 @@ impl Shell {
                 TextareaState::new(window, cx)
                     .auto_grow(1, 4)
                     .submit_on_enter(true)
-                    .placeholder("Add a caption")
+                    .placeholder(crate::i18n::t("chat.attach_sheet.caption_placeholder"))
             });
             let events =
                 cx.subscribe_in(&field, window, |this, _, event: &InputEvent, window, cx| {
@@ -397,7 +405,7 @@ impl Shell {
             _ if !self.can_attach() => {
                 // A file or a picture, and nowhere to send it: said,
                 // rather than pasting a path or nothing at all.
-                self.show_problem(format!("{NOT_AVAILABLE}."), cx);
+                self.show_problem(format!("{}.", not_available()), cx);
                 true
             }
             Pasted::Files(paths) => {
@@ -609,15 +617,17 @@ impl Shell {
                     Ok(Err(error)) => Some(error),
                     // The work itself broke: said, not passed over.
                     Err(_) => {
-                        errors.push(format!("{name} was not sent: it could not be prepared."));
+                        errors.push(crate::i18n::tr(
+                            "chat.attach_sheet.not_prepared",
+                            &[("name", &name)],
+                        ));
                         None
                     }
                 };
                 errors.extend(queued.map(|error| match error {
-                    SendMediaError::TooLarge { size, limit } => format!(
-                        "A file of {} was not sent: the most that can be sent is {}.",
-                        file_size(size),
-                        file_size(limit)
+                    SendMediaError::TooLarge { size, limit } => crate::i18n::tr(
+                        "chat.attach_sheet.too_large_sent",
+                        &[("size", &file_size(size)), ("limit", &file_size(limit))],
                     ),
                     other => other.to_string(),
                 }));
@@ -628,7 +638,7 @@ impl Shell {
         // was not sent is always said.
         cx.spawn(async move |this, cx| {
             let errors = work.await.unwrap_or_else(|_| {
-                vec!["The files were not sent: they could not be prepared.".to_owned()]
+                vec![crate::i18n::t("chat.attach_sheet.none_prepared").to_owned()]
             });
             this.update(cx, |this, cx| {
                 if let Some(message) = errors.into_iter().next() {
@@ -644,12 +654,10 @@ impl Shell {
         .detach();
         self.close_attach_sheet(window, cx);
         if left_out > 0 {
-            let which = if left_out == 1 {
-                "A file that is too large was".to_owned()
-            } else {
-                format!("{left_out} files that are too large were")
-            };
-            self.show_problem(format!("{which} not sent."), cx);
+            self.show_problem(
+                crate::i18n::plural("chat.attach_sheet.left_out", left_out as u64, &[]),
+                cx,
+            );
         }
     }
 
@@ -661,10 +669,9 @@ impl Shell {
     ) {
         match self.engine.cancel_send(&client_id) {
             Ok(true) => {}
-            Ok(false) => self.show_problem(
-                "Too late to cancel: the message is already on its way.".to_owned(),
-                cx,
-            ),
+            Ok(false) => {
+                self.show_problem(crate::i18n::t("chat.attach_sheet.too_late").to_owned(), cx)
+            }
             Err(error) => tracing::error!(%error, "could not cancel a send"),
         }
         cx.notify();
@@ -685,10 +692,7 @@ impl Shell {
             .collect();
         let total: u64 = sendable.iter().map(|item| item.size).sum();
         let blocked = draft.items.len() - sendable.len();
-        let title = match draft.items.len() {
-            1 => "Send 1 file".to_owned(),
-            count => format!("Send {count} files"),
-        };
+        let title = crate::i18n::plural("chat.attach_sheet.title", draft.items.len() as u64, &[]);
         let media = draft
             .items
             .iter()
@@ -791,8 +795,9 @@ impl Shell {
                         .text_size(metrics::TEXT_SMALL())
                         .line_height(px(18.))
                         .text_color(palette.danger)
-                        .child(format!(
-                            "{reason} This file will not be sent; the others will."
+                        .child(crate::i18n::tr(
+                            "chat.attach_sheet.blocked_note",
+                            &[("reason", reason)],
                         ))
                 }))
         });
@@ -816,7 +821,7 @@ impl Shell {
                             this.emoji_completion_escape(event, cx);
                         },
                     ))
-                    .child(label("Caption", palette))
+                    .child(label(crate::i18n::t("chat.attach_sheet.caption"), palette))
                     .children(self.render_mention_picker(palette, cx))
                     .children(self.render_emoji_completion(palette, cx))
                     .child(
@@ -879,10 +884,7 @@ impl Shell {
                             .text_size(metrics::TEXT_SMALL())
                             .line_height(px(18.))
                             .text_color(palette.text_muted)
-                            .child(
-                                "Send as a document: the file as it is, not as a \
-                                 picture in the chat.",
-                            ),
+                            .child(crate::i18n::t("chat.attach_sheet.as_document")),
                     )
                     .when(media > 1, |this| {
                         let ink = palette.accent;
@@ -899,7 +901,7 @@ impl Shell {
                                     cx.stop_propagation();
                                     this.apply_document_to_all(cx);
                                 }))
-                                .child("Apply to all"),
+                                .child(crate::i18n::t("chat.attach_sheet.apply_to_all")),
                         )
                     })
                     .child(
@@ -1029,7 +1031,10 @@ impl Shell {
                     ),
             );
         }
-        let add_hint = super::hints::with_keys("Add more files", Some(Command::Attach));
+        let add_hint = super::hints::with_keys(
+            crate::i18n::t("chat.attach_sheet.add_more"),
+            Some(Command::Attach),
+        );
         strip = strip.child(
             icon_button("attach-add", IconName::Plus, palette)
                 .size(px(56.))
@@ -1044,12 +1049,15 @@ impl Shell {
         let summary = {
             let files = sendable.len();
             let mut text = format!(
-                "{files} {} · {}",
-                if files == 1 { "file" } else { "files" },
+                "{} · {}",
+                crate::i18n::plural("chat.attach_sheet.summary_files", files as u64, &[]),
                 file_size(total)
             );
             if blocked > 0 {
-                text.push_str(&format!(" · {blocked} too large"));
+                text.push_str(&format!(
+                    " · {}",
+                    crate::i18n::plural("chat.attach_sheet.summary_blocked", blocked as u64, &[])
+                ));
             }
             text
         };
@@ -1073,13 +1081,12 @@ impl Shell {
                         .line_height(px(18.))
                         .text_color(palette.text)
                         .child(if draft.items.len() > 1 {
-                            format!(
-                                "Discard these {} files and what was written? \
-                                 Esc again discards.",
-                                draft.items.len()
+                            crate::i18n::tr(
+                                "chat.attach_sheet.discard_many",
+                                &[("n", &draft.items.len())],
                             )
                         } else {
-                            "Discard this file and its caption? Esc again discards.".to_owned()
+                            crate::i18n::t("chat.attach_sheet.discard_one").to_owned()
                         }),
                 )
                 .child(
@@ -1088,22 +1095,36 @@ impl Shell {
                         .flex()
                         .gap_2()
                         .child(
-                            text_button("attach-keep", "Keep editing", None, true, palette)
-                                .on_click(cx.listener(|this, _, _, cx| {
-                                    cx.stop_propagation();
-                                    if let Some(draft) = this.attach.as_mut() {
-                                        draft.confirm_discard = false;
-                                    }
-                                    this.attach_wants_focus = true;
-                                    cx.notify();
-                                })),
+                            text_button(
+                                "attach-keep",
+                                crate::i18n::t("chat.attach_sheet.keep_editing"),
+                                None,
+                                true,
+                                palette,
+                            )
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                cx.stop_propagation();
+                                if let Some(draft) = this.attach.as_mut() {
+                                    draft.confirm_discard = false;
+                                }
+                                this.attach_wants_focus = true;
+                                cx.notify();
+                            })),
                         )
                         .child(
-                            text_button("attach-discard", "Discard", None, false, palette)
-                                .on_click(cx.listener(|this, _, window, cx| {
+                            text_button(
+                                "attach-discard",
+                                crate::i18n::t("chat.attach_sheet.discard"),
+                                None,
+                                false,
+                                palette,
+                            )
+                            .on_click(cx.listener(
+                                |this, _, window, cx| {
                                     cx.stop_propagation();
                                     this.close_attach_sheet(window, cx);
-                                })),
+                                },
+                            )),
                         ),
                 )
         } else {
@@ -1123,17 +1144,24 @@ impl Shell {
                         .flex()
                         .gap_2()
                         .child(
-                            text_button("attach-cancel", "Cancel", None, false, palette).on_click(
-                                cx.listener(|this, _, window, cx| {
+                            text_button(
+                                "attach-cancel",
+                                crate::i18n::t("chat.attach_sheet.cancel"),
+                                None,
+                                false,
+                                palette,
+                            )
+                            .on_click(cx.listener(
+                                |this, _, window, cx| {
                                     cx.stop_propagation();
                                     this.dismiss_attach_sheet(window, cx);
-                                }),
-                            ),
+                                },
+                            )),
                         )
                         .child({
                             let send = text_button(
                                 "attach-send",
-                                "Send",
+                                crate::i18n::t("chat.attach_sheet.send"),
                                 Some(IconName::SendHorizontal),
                                 true,
                                 palette,
@@ -1161,7 +1189,10 @@ impl Shell {
                         .text_size(metrics::TEXT_SMALL())
                         .text_color(palette.text_muted)
                         .truncate()
-                        .child(format!("The reply goes with the first file, {name}.")),
+                        .child(crate::i18n::tr(
+                            "chat.attach_sheet.reply_note",
+                            &[("name", &name)],
+                        )),
                 )
             }
             _ => None,

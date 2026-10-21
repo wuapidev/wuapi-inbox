@@ -255,10 +255,12 @@ pub enum Read {
 
 /// Why a file of `size` cannot go, in words.
 pub fn too_large(size: u64, limit: u64) -> String {
-    format!(
-        "Too large: {}, and the most that can be sent is {}.",
-        crate::format::file_size(size),
-        crate::format::file_size(limit)
+    crate::i18n::tr(
+        "chat.attach.too_large",
+        &[
+            ("size", &crate::format::file_size(size)),
+            ("limit", &crate::format::file_size(limit)),
+        ],
     )
 }
 
@@ -274,20 +276,23 @@ pub fn read_files(paths: &[PathBuf], limit: Option<u64>) -> (Vec<Read>, Vec<Stri
         let name = path
             .file_name()
             .map(|name| name.to_string_lossy().into_owned())
-            .unwrap_or_else(|| "file".to_owned());
+            .unwrap_or_else(|| crate::i18n::t("chat.attach.file_name").to_owned());
         let size = match std::fs::metadata(path) {
             Ok(meta) if meta.is_file() => meta.len(),
             Ok(_) => {
-                refused.push(format!("{name} is a folder: only files can be sent."));
+                refused.push(crate::i18n::tr("chat.attach.is_folder", &[("name", &name)]));
                 continue;
             }
             Err(_) => {
-                refused.push(format!("{name} could not be read."));
+                refused.push(crate::i18n::tr(
+                    "chat.attach.unreadable",
+                    &[("name", &name)],
+                ));
                 continue;
             }
         };
         if size == 0 {
-            refused.push(format!("{name} is empty."));
+            refused.push(crate::i18n::tr("chat.attach.empty", &[("name", &name)]));
             continue;
         }
         if limit.is_some_and(|limit| size > limit) {
@@ -300,12 +305,16 @@ pub fn read_files(paths: &[PathBuf], limit: Option<u64>) -> (Vec<Read>, Vec<Stri
                 name,
                 bytes: Arc::new(bytes),
             })),
-            Err(_) => refused.push(format!("{name} could not be read.")),
+            Err(_) => refused.push(crate::i18n::tr(
+                "chat.attach.unreadable",
+                &[("name", &name)],
+            )),
         }
     }
     if paths.len() > MAX_FILES {
-        refused.push(format!(
-            "Only the first {MAX_FILES} files were taken: send the rest after these."
+        refused.push(crate::i18n::tr(
+            "chat.attach.too_many",
+            &[("max", &MAX_FILES)],
         ));
     }
     (files, refused)
