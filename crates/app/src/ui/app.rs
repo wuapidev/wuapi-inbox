@@ -7,6 +7,7 @@ use super::login::{LoginEvent, LoginScreen};
 use super::recovery::{RecoveryEvent, RecoveryScreen};
 use super::shell::{CloudOffer, SessionKind, Shell, ShellEvent, ShellOptions};
 use super::welcome::{WelcomeEvent, WelcomeScreen};
+use crate::i18n;
 use crate::login::{IdentityLoader, LoginFlow};
 use crate::providers::{Cloud, Launch};
 use crate::settings;
@@ -590,7 +591,7 @@ impl Render for AppView {
                             div().absolute().top_4().left_4().child(
                                 super::widgets::text_button(
                                     "login-back",
-                                    "Not now",
+                                    i18n::t("common.app.not_now"),
                                     None,
                                     false,
                                     &palette,

@@ -7,6 +7,7 @@
 //! drawing while it is open. It sits behind [`PicturePicker`] so that no
 //! test ever opens one.
 
+use crate::i18n;
 use gpui_kit::{App, PathPromptOptions};
 use std::future::Future;
 use std::path::{Path, PathBuf};
@@ -30,7 +31,7 @@ impl PicturePicker for SystemPicker {
             files: true,
             directories: false,
             multiple: false,
-            prompt: Some("Choose picture".into()),
+            prompt: Some(i18n::t("common.pictures.choose").into()),
         });
         Box::pin(async move {
             match asked.await {
@@ -51,12 +52,13 @@ impl PicturePicker for SystemPicker {
 /// thread. The error is a sentence for the user.
 pub fn load(path: &Path) -> Result<Vec<u8>, String> {
     let size = std::fs::metadata(path)
-        .map_err(|_| "The file could not be read.".to_owned())?
+        .map_err(|_| i18n::t("common.pictures.unreadable").to_owned())?
         .len();
     if size > client_core::PICTURE_MAX_FILE {
-        return Err("The file is larger than 25 MB.".to_owned());
+        return Err(i18n::t("common.pictures.too_large").to_owned());
     }
-    let bytes = std::fs::read(path).map_err(|_| "The file could not be read.".to_owned())?;
+    let bytes =
+        std::fs::read(path).map_err(|_| i18n::t("common.pictures.unreadable").to_owned())?;
     client_core::profile_picture(&bytes)
 }
 

@@ -11,6 +11,7 @@ use super::shell::{Overlay, Shell};
 use super::transfer::{transfer_button, Transfer};
 use super::widgets::{icon_button, mono, text_button};
 use crate::format::duration;
+use crate::i18n;
 use crate::icons::IconName;
 use crate::theme::px;
 use crate::theme::{metrics, Palette};
@@ -127,7 +128,7 @@ impl Shell {
             }
             Err(error) => {
                 tracing::warn!(%error, "a video could not be played in the app");
-                self.video.failure = Some("This video can't be played in the app.".into());
+                self.video.failure = Some(i18n::t("common.video.cannot_play").into());
             }
         }
     }
@@ -142,7 +143,7 @@ impl Shell {
             clip.poll(TICK);
             if let Some(failure) = clip.report().failure {
                 tracing::warn!(%failure, "a video stopped");
-                self.video.failure = Some("This video can't be played in the app.".into());
+                self.video.failure = Some(i18n::t("common.video.cannot_play").into());
             }
         }
         cx.notify();
@@ -250,7 +251,7 @@ impl Shell {
                     .child(
                         text_button(
                             "video-system",
-                            "Open with another application",
+                            i18n::t("common.video.open_other"),
                             Some(IconName::ExternalLink),
                             true,
                             palette,
@@ -444,9 +445,9 @@ impl Shell {
                 )
                 .tooltip({
                     let hint = if self.video.muted {
-                        "Sound on (M)"
+                        i18n::t("common.video.sound_on")
                     } else {
-                        "Mute (M)"
+                        i18n::t("common.video.mute")
                     };
                     move |window, cx| {
                         gpui_kit::component::tooltip::Tooltip::new(hint).build(window, cx)

@@ -15,6 +15,7 @@
 //! Speeds other than 1× keep the pitch of the voice: the clip is
 //! time-stretched on its way out (`stretch.rs`).
 
+use crate::i18n;
 use crate::stretch::{Shared, Voice};
 use std::sync::Arc;
 use std::time::Duration;
@@ -134,13 +135,13 @@ pub fn decode(bytes: Vec<u8>, mime: Option<&str>) -> Result<Clip, String> {
             &FormatOptions::default(),
             &MetadataOptions::default(),
         )
-        .map_err(|error| format!("not an audio file this app can play ({error})"))?;
+        .map_err(|error| i18n::tr("common.audio.not_audio", &[("error", &error)]))?;
     let mut format = probed.format;
     let track = format
         .tracks()
         .iter()
         .find(|track| track.codec_params.codec != CODEC_TYPE_NULL)
-        .ok_or("the file has no audio in it")?;
+        .ok_or_else(|| i18n::t("common.audio.empty").to_owned())?;
     let (track_id, params) = (track.id, track.codec_params.clone());
     let channels = params
         .channels
@@ -171,13 +172,13 @@ pub fn decode(bytes: Vec<u8>, mime: Option<&str>) -> Result<Clip, String> {
             skip -= dropped;
             samples.extend(produced[dropped..].iter().copied().map(to_i16));
             if samples.len() > MAX_SECONDS * rate as usize * channels {
-                return Err("too long to play here".to_owned());
+                return Err(i18n::t("common.audio.too_long").to_owned());
             }
         }
     } else {
         let mut decoder = symphonia::default::get_codecs()
             .make(&params, &DecoderOptions::default())
-            .map_err(|error| format!("this kind of audio cannot be played here ({error})"))?;
+            .map_err(|error| i18n::tr("common.audio.unsupported", &[("error", &error)]))?;
         let mut found_rate = params.sample_rate;
         let mut buffer: Option<SampleBuffer<i16>> = None;
         let mut source_channels = channels;
@@ -203,12 +204,12 @@ pub fn decode(bytes: Vec<u8>, mime: Option<&str>) -> Result<Clip, String> {
                 }
             }
             if samples.len() > MAX_SECONDS * 48_000 * 2 {
-                return Err("too long to play here".to_owned());
+                return Err(i18n::t("common.audio.too_long").to_owned());
             }
         }
-        rate = found_rate.ok_or("the file does not say how fast to play it")?;
+        rate = found_rate.ok_or_else(|| i18n::t("common.audio.no_rate").to_owned())?;
         if samples.is_empty() {
-            return Err("the file has no audio in it".to_owned());
+            return Err(i18n::t("common.audio.empty").to_owned());
         }
         return Ok(Clip {
             samples,
@@ -217,7 +218,7 @@ pub fn decode(bytes: Vec<u8>, mime: Option<&str>) -> Result<Clip, String> {
         });
     }
     if samples.is_empty() {
-        return Err("the file has no audio in it".to_owned());
+        return Err(i18n::t("common.audio.empty").to_owned());
     }
     Ok(Clip {
         samples,
@@ -501,10 +502,10 @@ impl AudioOutput for SystemOutput {
         });
         let device = named
             .or_else(|| host.default_output_device())
-            .ok_or("No audio output device")?;
+            .ok_or_else(|| i18n::t("common.audio.no_output").to_owned())?;
         let supported = device
             .default_output_config()
-            .map_err(|error| format!("No usable audio output ({error})"))?;
+            .map_err(|error| i18n::tr("common.audio.output_unusable", &[("error", &error)]))?;
         let config = supported.config();
         let out_channels = usize::from(config.channels);
         // Everything the device's thread needs is made here; it allocates
@@ -531,10 +532,10 @@ impl AudioOutput for SystemOutput {
                 None,
             ),
         }
-        .map_err(|error| format!("The audio output could not be opened ({error})"))?;
+        .map_err(|error| i18n::tr("common.audio.output_open", &[("error", &error)]))?;
         stream
             .play()
-            .map_err(|error| format!("The audio output could not be started ({error})"))?;
+            .map_err(|error| i18n::tr("common.audio.output_start", &[("error", &error)]))?;
         self.stream = Some(stream);
         self.shared = Some(shared);
         Ok(())

@@ -22,6 +22,7 @@
 //!   to delete it and sync again, which the person is asked to confirm
 //!   because messages still waiting to be sent go with it.
 
+use crate::i18n;
 use client_core::{FileState, Store, StoreKey};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -97,7 +98,7 @@ impl KeyVault for OsKeychain {
         match self.entry(name)?.get_password() {
             Ok(hex) => StoreKey::from_hex(&hex)
                 .map(Some)
-                .ok_or_else(|| "the stored database key is not readable".to_owned()),
+                .ok_or_else(|| i18n::t("common.storage.key_unreadable").to_owned()),
             Err(keyring::Error::NoEntry) => Ok(None),
             Err(error) => Err(error.to_string()),
         }
@@ -163,7 +164,7 @@ pub fn wipe(path: &Path, name: &str, vault: Option<&dyn KeyVault>) -> Result<(),
     }
     if let Some(vault) = vault {
         if let Err(error) = vault.delete(name) {
-            failures.push(format!("the database key: {error}"));
+            failures.push(i18n::tr("common.storage.wipe_key", &[("error", &error)]));
         }
     }
     if failures.is_empty() {
@@ -200,7 +201,7 @@ impl Storage {
         }
         .map_err(|error| match error {
             client_core::StoreError::NewerSchema { found, .. } => newer_database(found),
-            error => format!("cannot open the local database: {error}"),
+            error => i18n::tr("common.storage.cannot_open", &[("error", &error)]),
         })
     }
 
@@ -238,8 +239,9 @@ impl Recovery {
         for file in files_of(&self.path) {
             if let Err(error) = std::fs::remove_file(&file) {
                 if error.kind() != std::io::ErrorKind::NotFound {
-                    return memory(format!(
-                        "The old local database could not be removed ({error})."
+                    return memory(i18n::tr(
+                        "common.storage.old_not_removed",
+                        &[("error", &error)],
                     ));
                 }
             }
@@ -248,13 +250,11 @@ impl Recovery {
     }
 }
 
-/// Why nothing is saved without a keychain: the message under every such
-/// note.
-const NOT_SAVED: &str = "Chats are kept in memory for this session and not saved to disk";
-
+/// A session that keeps its chats in memory, and why: the note under it
+/// starts with the `common.storage.not_saved` text.
 fn memory(reason: String) -> Storage {
     Storage::Memory {
-        note: Some(format!("{NOT_SAVED}. {reason}")),
+        note: Some(format!("{}. {reason}", i18n::t("common.storage.not_saved"))),
     }
 }
 
@@ -279,12 +279,13 @@ fn new_key() -> Result<StoreKey, String> {
 fn with_new_key(path: &Path, name: &str, vault: &dyn KeyVault) -> Storage {
     let key = match new_key() {
         Ok(key) => key,
-        Err(error) => return memory(format!("No database key could be made ({error}).")),
+        Err(error) => return memory(i18n::tr("common.storage.no_key", &[("error", &error)])),
     };
     match vault.save(name, &key) {
         Ok(()) => with_key(path, key),
-        Err(error) => memory(format!(
-            "The system keychain could not hold the database key ({error})."
+        Err(error) => memory(i18n::tr(
+            "common.storage.keychain_hold",
+            &[("error", &error)],
         )),
     }
 }
@@ -295,8 +296,9 @@ fn with_key(path: &Path, key: StoreKey) -> Storage {
     if matches!(client_core::file_state(path), Ok(FileState::Plain)) {
         if let Err(error) = Store::encrypt_plain(path, &key) {
             tracing::warn!(%error, "the existing database could not be encrypted");
-            return memory(format!(
-                "The existing database could not be encrypted and was left untouched ({error})."
+            return memory(i18n::tr(
+                "common.storage.encrypt_failed",
+                &[("error", &error)],
             ));
         }
     }
@@ -324,12 +326,13 @@ fn with_key(path: &Path, key: StoreKey) -> Storage {
 /// What is said when the database on disk is from a newer version of the
 /// application than the one running.
 pub fn newer_database(found: u32) -> String {
-    format!(
-        "The chats saved on this computer were written by a newer version of {name} \
-         (database schema {found}; this version reads up to schema {supported}). They \
-         were left untouched: update {name} to open them.",
-        name = crate::product::PRODUCT_NAME,
-        supported = client_core::SCHEMA_VERSION,
+    i18n::tr(
+        "common.storage.newer",
+        &[
+            ("name", &crate::product::PRODUCT_NAME),
+            ("found", &found),
+            ("supported", &client_core::SCHEMA_VERSION),
+        ],
     )
 }
 
@@ -339,17 +342,14 @@ pub fn newer_database(found: u32) -> String {
 /// the keychain is not to be used (`--no-keychain`).
 pub fn prepare(path: &Path, name: &str, vault: Option<Arc<dyn KeyVault>>) -> Prepared {
     let Some(vault) = vault else {
-        return Prepared::Ready(memory(
-            "The keychain is turned off (--no-keychain), so there is nowhere to keep the \
-             database key."
-                .to_owned(),
-        ));
+        return Prepared::Ready(memory(i18n::t("common.storage.keychain_off").to_owned()));
     };
     let state = match client_core::file_state(path) {
         Ok(state) => state,
         Err(error) => {
-            return Prepared::Ready(memory(format!(
-                "The local database could not be read ({error})."
+            return Prepared::Ready(memory(i18n::tr(
+                "common.storage.unreadable",
+                &[("error", &error)],
             )))
         }
     };
@@ -361,8 +361,9 @@ pub fn prepare(path: &Path, name: &str, vault: Option<Arc<dyn KeyVault>>) -> Pre
         })
     };
     match (vault.load(name), state) {
-        (Err(error), _) => Prepared::Ready(memory(format!(
-            "The system keychain is not available ({error})."
+        (Err(error), _) => Prepared::Ready(memory(i18n::tr(
+            "common.storage.keychain_unavailable",
+            &[("error", &error)],
         ))),
         // Encrypted, and nothing (or the wrong thing) to open it with.
         (Ok(None), FileState::Encrypted) => lost(),
@@ -586,7 +587,10 @@ pub(crate) mod tests {
         for vault in [None, Some(broken as Arc<dyn KeyVault>)] {
             let storage = ready(prepare(&path, "wuapi:default", vault));
             let note = storage.note().expect("said on screen");
-            assert!(note.starts_with(NOT_SAVED), "{note}");
+            assert!(
+                note.starts_with(i18n::t("common.storage.not_saved")),
+                "{note}"
+            );
             fill(&storage.open().unwrap());
             assert!(!path.exists(), "no file, plain or otherwise");
         }

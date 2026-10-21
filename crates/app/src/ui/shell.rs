@@ -6,6 +6,7 @@ use super::senders::{Quoted, Senders};
 use super::widgets::{grid_mark, grid_mark_in};
 use crate::audio::{self, AudioOutput, Clip, Playback, Player, Shape, Speed, SystemOutput};
 use crate::format::{day_label, same_day};
+use crate::i18n;
 use crate::login::{Identity, IdentityLoader};
 use crate::motion::{self, Entrance};
 use crate::settings::{self, ThemeChoice};
@@ -226,7 +227,7 @@ impl Home {
     /// Its name on the screen.
     pub fn label(self) -> &'static str {
         match self {
-            Self::Local => "This computer",
+            Self::Local => i18n::t("common.shell.this_computer"),
             Self::Cloud => "Wuapi Cloud",
         }
     }
@@ -417,9 +418,20 @@ pub(super) struct MenuItem {
     pub(super) keys: Option<crate::keys::Command>,
 }
 
-/// Why an entry is disabled.
+/// Why an entry is disabled. English only: the text in the language in
+/// use is [`not_yet`].
+#[allow(dead_code)]
 pub(super) const NOT_YET: &str = "Not available yet";
-const NOT_HERE: &str = "Not available with this provider";
+
+/// Why an entry that is not here yet is disabled.
+pub(super) fn not_yet() -> &'static str {
+    i18n::t("common.shell.not_yet")
+}
+
+/// Why an entry the provider cannot do is disabled.
+fn not_here() -> &'static str {
+    i18n::t("common.shell.not_here")
+}
 
 /// Who is signed in, as far as the settings panel knows.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -618,7 +630,7 @@ fn community_rows(chats: Vec<ChatSummary>) -> Vec<ListRow> {
             Some(at) => at,
             None => {
                 let name = if community.name.is_empty() {
-                    "Community".into()
+                    i18n::t("common.shell.community").into()
                 } else {
                     community.name.clone().into()
                 };
@@ -671,14 +683,13 @@ pub(super) struct FoundMessages {
 /// Lists `hits` under the chats of `rows`, in place of what was there.
 fn list_found(rows: &mut Vec<ListRow>, hits: &[SearchHit]) {
     // The messages are the last section; the contacts above them stay.
-    if let Some(section) = rows
-        .iter()
-        .position(|row| matches!(row, ListRow::Section("Messages")))
-    {
+    if let Some(section) = rows.iter().position(
+        |row| matches!(row, ListRow::Section(name) if *name == i18n::t("common.shell.messages")),
+    ) {
         rows.truncate(section);
     }
     if !hits.is_empty() {
-        rows.push(ListRow::Section("Messages"));
+        rows.push(ListRow::Section(i18n::t("common.shell.messages")));
         rows.extend(hits.iter().cloned().map(|hit| ListRow::Hit(Box::new(hit))));
     }
 }
@@ -946,19 +957,20 @@ impl Shell {
 
         // The field says where the rest is.
         let search_hint = match crate::keys::keys_label(crate::keys::Command::Palette) {
-            Some(keys) => format!("Search  ·  {keys} for everything"),
-            None => "Search".to_owned(),
+            Some(keys) => i18n::tr("common.shell.search_keys", &[("keys", &keys)]),
+            None => i18n::t("common.shell.search").to_owned(),
         };
         let search = cx.new(|cx| InputState::new(window, cx).placeholder(search_hint));
         let composer = cx.new(|cx| {
             TextareaState::new(window, cx)
                 .auto_grow(1, 6)
                 .submit_on_enter(true)
-                .placeholder("Type a message")
+                .placeholder(i18n::t("common.shell.type_message"))
         });
 
-        let new_chat =
-            cx.new(|cx| InputState::new(window, cx).placeholder("Search a name, or type a number"));
+        let new_chat = cx.new(|cx| {
+            InputState::new(window, cx).placeholder(i18n::t("common.shell.search_name_number"))
+        });
 
         let acting = super::message_actions::Acting::new(window, cx);
         let palette = super::palette::PaletteState::new(window, cx);
@@ -1496,7 +1508,7 @@ impl Shell {
                 .filter(|contact| !listed.contains(&ChatId::new(contact.id.as_str())))
                 .collect();
             if !people.is_empty() {
-                rows.push(ListRow::Section("Contacts"));
+                rows.push(ListRow::Section(i18n::t("common.shell.contacts")));
                 rows.extend(people.into_iter().map(ListRow::Contact));
             }
         }
@@ -2492,51 +2504,51 @@ impl Shell {
                 vec![
                     item(
                         "menu-new-chat",
-                        "New chat",
+                        i18n::t("common.shell.menu_new_chat"),
                         I::SquarePen,
                         caps.start_chat.then_some(MenuAction::NewChat),
-                        NOT_HERE,
+                        not_here(),
                     ),
                     item(
                         "menu-new-group",
-                        "New group",
+                        i18n::t("common.shell.menu_new_group"),
                         I::Users,
                         (caps.group_create && self.account.is_some())
                             .then_some(MenuAction::NewGroup),
-                        NOT_HERE,
+                        not_here(),
                     ),
                     item(
                         "menu-new-community",
-                        "New community",
+                        i18n::t("common.shell.menu_new_community"),
                         I::Users,
                         (caps.group_create && caps.community_manage && self.account.is_some())
                             .then_some(MenuAction::NewCommunity),
-                        NOT_HERE,
+                        not_here(),
                     ),
                     item(
                         "menu-read-all",
-                        "Mark all as read",
+                        i18n::t("common.shell.menu_read_all"),
                         I::CheckCheck,
                         unread.then_some(MenuAction::MarkAllRead),
-                        "Nothing unread",
+                        i18n::t("common.shell.menu_nothing_unread"),
                     ),
                     item(
                         "menu-archived",
-                        "Archived chats",
+                        i18n::t("common.shell.menu_archived"),
                         I::Archive,
                         Some(MenuAction::ShowArchived),
                         "",
                     ),
                     item(
                         "menu-settings",
-                        "Settings",
+                        i18n::t("common.shell.menu_settings"),
                         I::Settings,
                         Some(MenuAction::OpenSettings),
                         "",
                     ),
                     item(
                         "menu-shortcuts",
-                        "Keyboard shortcuts",
+                        i18n::t("common.shell.menu_shortcuts"),
                         I::Keyboard,
                         Some(MenuAction::Run(crate::keys::Command::Shortcuts)),
                         "",
@@ -2553,7 +2565,7 @@ impl Shell {
                     if chat.unread_count > 0 {
                         item(
                             "menu-read",
-                            "Mark as read",
+                            i18n::t("common.shell.menu_mark_read"),
                             I::CheckCheck,
                             Some(MenuAction::MarkRead),
                             "",
@@ -2561,36 +2573,44 @@ impl Shell {
                     } else {
                         item(
                             "menu-unread",
-                            "Mark as unread",
+                            i18n::t("common.shell.menu_mark_unread"),
                             I::MessageCircle,
                             change(ChatChange::MarkedUnread),
-                            NOT_HERE,
+                            not_here(),
                         )
                     },
                     item(
                         "menu-pin",
-                        if chat.pinned { "Unpin" } else { "Pin to top" },
+                        if chat.pinned {
+                            i18n::t("common.shell.menu_unpin")
+                        } else {
+                            i18n::t("common.shell.menu_pin_top")
+                        },
                         I::Pin,
                         change(ChatChange::Pinned(!chat.pinned)),
-                        NOT_HERE,
+                        not_here(),
                     ),
                     item(
                         "menu-mute",
-                        if chat.muted { "Unmute" } else { "Mute" },
+                        if chat.muted {
+                            i18n::t("common.shell.menu_unmute")
+                        } else {
+                            i18n::t("common.shell.menu_mute")
+                        },
                         I::BellOff,
                         change(ChatChange::Muted(!chat.muted)),
-                        NOT_HERE,
+                        not_here(),
                     ),
                     item(
                         "menu-archive",
                         if chat.archived {
-                            "Unarchive"
+                            i18n::t("common.shell.menu_unarchive")
                         } else {
-                            "Archive"
+                            i18n::t("common.shell.menu_archive")
                         },
                         I::Archive,
                         change(ChatChange::Archived(!chat.archived)),
-                        NOT_HERE,
+                        not_here(),
                     ),
                 ];
                 // A cloud feature: offered where the number's provider
@@ -2598,13 +2618,19 @@ impl Shell {
                 if super::hooks::hooks_offered(self, chat) {
                     entries.push(item(
                         "menu-hooks",
-                        "Incoming webhooks",
+                        i18n::t("common.shell.menu_hooks"),
                         I::Webhook,
                         Some(MenuAction::IncomingWebhooks),
                         "",
                     ));
                 }
-                entries.push(item("menu-delete", "Delete chat", I::Trash, None, NOT_YET));
+                entries.push(item(
+                    "menu-delete",
+                    i18n::t("common.shell.menu_delete"),
+                    I::Trash,
+                    None,
+                    not_yet(),
+                ));
                 entries
             }
             Overlay::ChatMenu => {
@@ -2618,8 +2644,8 @@ impl Shell {
                     item(
                         "menu-info",
                         match chat.kind {
-                            ChatKind::Group => "Group info",
-                            ChatKind::Direct => "Contact info",
+                            ChatKind::Group => i18n::t("common.shell.menu_group_info"),
+                            ChatKind::Direct => i18n::t("common.shell.menu_contact_info"),
                         },
                         I::Info,
                         Some(MenuAction::ContactInfo),
@@ -2627,55 +2653,63 @@ impl Shell {
                     ),
                     item(
                         "menu-search",
-                        "Search in conversation",
+                        i18n::t("common.shell.menu_search"),
                         I::Search,
                         Some(MenuAction::SearchThread),
                         "",
                     ),
                     item(
                         "menu-unread",
-                        "Mark as unread",
+                        i18n::t("common.shell.menu_mark_unread"),
                         I::MessageCircle,
                         change(ChatChange::MarkedUnread),
-                        NOT_HERE,
+                        not_here(),
                     ),
                     item(
                         "menu-pin",
-                        if chat.pinned { "Unpin" } else { "Pin" },
+                        if chat.pinned {
+                            i18n::t("common.shell.menu_unpin")
+                        } else {
+                            i18n::t("common.shell.menu_pin")
+                        },
                         I::Pin,
                         change(ChatChange::Pinned(!chat.pinned)),
-                        NOT_HERE,
+                        not_here(),
                     ),
                     item(
                         "menu-mute",
-                        if chat.muted { "Unmute" } else { "Mute" },
+                        if chat.muted {
+                            i18n::t("common.shell.menu_unmute")
+                        } else {
+                            i18n::t("common.shell.menu_mute")
+                        },
                         I::BellOff,
                         change(ChatChange::Muted(!chat.muted)),
-                        NOT_HERE,
+                        not_here(),
                     ),
                     item(
                         "menu-archive",
                         if chat.archived {
-                            "Unarchive"
+                            i18n::t("common.shell.menu_unarchive")
                         } else {
-                            "Archive"
+                            i18n::t("common.shell.menu_archive")
                         },
                         I::Archive,
                         change(ChatChange::Archived(!chat.archived)),
-                        NOT_HERE,
+                        not_here(),
                     ),
                     item(
                         "menu-poll",
-                        "New poll",
+                        i18n::t("common.shell.menu_poll"),
                         I::ChartNoAxesColumn,
                         caps.polls.then_some(MenuAction::NewPoll),
-                        NOT_HERE,
+                        not_here(),
                     ),
                 ];
                 if super::hooks::hooks_offered(self, chat) {
                     entries.push(item(
                         "menu-hooks",
-                        "Incoming webhooks",
+                        i18n::t("common.shell.menu_hooks"),
                         I::Webhook,
                         Some(MenuAction::IncomingWebhooks),
                         "",
@@ -2684,15 +2718,21 @@ impl Shell {
                 entries.extend([
                     item(
                         "menu-close",
-                        "Close chat",
+                        i18n::t("common.shell.menu_close"),
                         I::X,
                         Some(MenuAction::CloseChat),
                         "",
                     ),
-                    item("menu-delete", "Delete chat", I::Trash, None, NOT_YET),
+                    item(
+                        "menu-delete",
+                        i18n::t("common.shell.menu_delete"),
+                        I::Trash,
+                        None,
+                        not_yet(),
+                    ),
                     item(
                         "menu-shortcuts",
-                        "Keyboard shortcuts",
+                        i18n::t("common.shell.menu_shortcuts"),
                         I::Keyboard,
                         Some(MenuAction::Run(crate::keys::Command::Shortcuts)),
                         "",
@@ -2818,9 +2858,9 @@ impl Shell {
         if rows == 0 {
             self.new_chat_error = Some(
                 if self.new_chat.read(cx).value().trim().is_empty() {
-                    "Choose a contact, or type a number with its country code."
+                    i18n::t("common.shell.choose_contact")
                 } else {
-                    "No contact matches. To write to a number, type it with its country code."
+                    i18n::t("common.shell.no_match")
                 }
                 .into(),
             );
@@ -2857,7 +2897,7 @@ impl Shell {
     /// said the number has WhatsApp. That runs off this thread.
     pub(super) fn open_number(&mut self, typed: String, cx: &mut Context<Self>) {
         let Some(account) = self.account.clone() else {
-            self.new_chat_error = Some("There is no number to write from yet.".into());
+            self.new_chat_error = Some(i18n::t("common.shell.no_number").into());
             return cx.notify();
         };
         if self.new_chat_checking {
@@ -2882,11 +2922,13 @@ impl Shell {
                         this.open_chat(chat, None, cx);
                     }
                     Ok(Ok(client_core::NewChat::NotOnWhatsApp(phone))) => {
-                        this.new_chat_error = Some(format!("{phone} is not on WhatsApp.").into());
+                        this.new_chat_error = Some(
+                            i18n::tr("common.chat_open.not_on_whatsapp", &[("phone", &phone)])
+                                .into(),
+                        );
                     }
                     Ok(Err(error)) if error.is_transient() => {
-                        this.new_chat_error =
-                            Some("Could not reach the provider. Try again.".into());
+                        this.new_chat_error = Some(i18n::t("common.chat_open.unreachable").into());
                     }
                     Ok(Err(error)) => this.new_chat_error = Some(error.to_string().into()),
                     Err(error) => this.new_chat_error = Some(error.to_string().into()),
@@ -2905,8 +2947,9 @@ impl Shell {
             return;
         }
         if self.thread_search.is_none() {
-            let input =
-                cx.new(|cx| InputState::new(window, cx).placeholder("Search in this conversation"));
+            let input = cx.new(|cx| {
+                InputState::new(window, cx).placeholder(i18n::t("common.shell.search_conversation"))
+            });
             let subscription =
                 cx.subscribe_in(&input, window, |this, state, event: &InputEvent, _, cx| {
                     match event {
@@ -3747,15 +3790,18 @@ fn chat_subtitle(store: &Store, senders: &Senders, chat: &ChatSummary) -> Option
                 .map(|person| person.name.as_str())
                 .collect();
             if people.iter().any(|person| person.me) {
-                names.push("You");
+                names.push(i18n::t("common.shell.you"));
             }
             match (names.len(), count) {
-                (0, 0) => Some("Group".into()),
-                (0, 1) => Some("1 participant".into()),
-                (0, count) => Some(format!("{count} participants").into()),
+                (0, 0) => Some(i18n::t("common.shell.group").into()),
+                (0, count) => {
+                    Some(i18n::plural("common.shell.participants", count as u64, &[]).into())
+                }
                 // Everybody at hand is named: the line is who they are.
                 (named, count) if named >= count.min(NAMED) => Some(names.join(", ").into()),
-                (_, count) => Some(format!("{count} participants").into()),
+                (_, count) => {
+                    Some(i18n::plural("common.shell.participants", count as u64, &[]).into())
+                }
             }
         }
         ChatKind::Direct => {
