@@ -11,6 +11,7 @@
 
 use super::shell::{ChatFilter, Overlay, Shell};
 use super::widgets::{avatar_or, label, mono, switch, AvatarKind};
+use crate::i18n;
 use crate::icons::{icon, IconName};
 use crate::pictures::{PicturePicker, SystemPicker};
 use crate::theme::px;
@@ -280,7 +281,8 @@ fn search_field(
 }
 
 fn people_picker(window: &mut Window, cx: &mut Context<Shell>) -> People {
-    let (search, _subscription) = search_field("Search your contacts", window, cx);
+    let (search, _subscription) =
+        search_field(i18n::t("status.social.search_contacts"), window, cx);
     People {
         search,
         chosen: Vec::new(),
@@ -339,7 +341,11 @@ impl Shell {
 
     fn show_target(&mut self, target: Target, window: &mut Window, cx: &mut Context<Self>) {
         self.social.member_search = match &target {
-            Target::Group { .. } => Some(search_field("Search participants", window, cx)),
+            Target::Group { .. } => Some(search_field(
+                i18n::t("status.social.search_participants"),
+                window,
+                cx,
+            )),
             Target::Contact { .. } => None,
         };
         self.social.stack.push(target);
@@ -639,7 +645,7 @@ impl Shell {
                     social.confirm = None;
                     social.request_id = new_request_id();
                     if reset {
-                        social.note = Some("The old link no longer works.".into());
+                        social.note = Some(i18n::t("status.social.old_link").into());
                     }
                 }
                 Err(sentence) => social.error = Some(sentence),
@@ -746,7 +752,7 @@ impl Shell {
             return;
         }
         if people.chosen.is_empty() {
-            self.social.error = Some("Choose who to add.".into());
+            self.social.error = Some(i18n::t("status.social.choose_to_add").into());
             return cx.notify();
         }
         let chosen = people.chosen.clone();
@@ -812,8 +818,8 @@ impl Shell {
         };
         let subject = cx.new(|cx| {
             InputState::new(window, cx).placeholder(match kind {
-                GroupKind::Community => "Community name",
-                _ => "Group name",
+                GroupKind::Community => i18n::t("status.social.community_name"),
+                _ => i18n::t("status.social.group_name"),
             })
         });
         subject.update(cx, |field, cx| field.focus(window, cx));
@@ -859,11 +865,11 @@ impl Shell {
             return;
         };
         form.error = if subject.is_empty() {
-            Some("Give the group a name.".into())
+            Some(i18n::t("status.social.name_missing").into())
         } else if subject.chars().count() > EditWhat::Subject.limit() {
-            Some("A group's name has at most 100 characters.".into())
+            Some(i18n::t("status.social.name_long").into())
         } else if form.people.chosen.is_empty() && form.kind != GroupKind::Community {
-            Some("Choose at least one participant.".into())
+            Some(i18n::t("status.social.participant_missing").into())
         } else {
             None
         };
@@ -995,7 +1001,7 @@ impl Shell {
                 Ok(()) => {
                     social.linking = false;
                     social.request_id = new_request_id();
-                    social.note = Some("The group is in the community now.".into());
+                    social.note = Some(i18n::t("status.social.group_in").into());
                 }
                 // The picker stays: another group can be chosen.
                 Err(sentence) => social.error = Some(sentence),
@@ -1026,7 +1032,7 @@ impl Shell {
             match outcome {
                 Ok(()) => {
                     social.confirm = None;
-                    social.note = Some("The group is out of the community.".into());
+                    social.note = Some(i18n::t("status.social.group_out").into());
                 }
                 // The question stays: its button is the way to try again.
                 Err(sentence) => social.error = Some(sentence),
@@ -1148,10 +1154,10 @@ impl Shell {
         cx: &mut Context<Self>,
     ) {
         let placeholder = match what {
-            EditWhat::Subject => "Group name",
-            EditWhat::Description => "What the group is for",
-            EditWhat::OwnName => "Your name on WhatsApp",
-            EditWhat::OwnAbout => "About",
+            EditWhat::Subject => i18n::t("status.social.group_name"),
+            EditWhat::Description => i18n::t("status.social.edit.description"),
+            EditWhat::OwnName => i18n::t("status.social.edit.own_name"),
+            EditWhat::OwnAbout => i18n::t("status.social.edit.about"),
         };
         let input = cx.new(|cx| InputState::new(window, cx).placeholder(placeholder));
         input.update(cx, |field, cx| {
@@ -1184,9 +1190,9 @@ impl Shell {
         let what = edit.what;
         let text = edit.input.read(cx).value().trim().to_owned();
         edit.error = if text.chars().count() > what.limit() {
-            Some(format!("At most {} characters.", what.limit()).into())
+            Some(i18n::tr("status.social.at_most", &[("limit", &what.limit())]).into())
         } else if text.is_empty() && what != EditWhat::Description {
-            Some("Type something first.".into())
+            Some(i18n::t("status.social.type_first").into())
         } else {
             None
         };

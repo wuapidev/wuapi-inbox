@@ -12,6 +12,7 @@ use super::shell::Shell;
 use super::social::hint;
 use super::widgets::{label, mono, segmented, text_button};
 use crate::format;
+use crate::i18n;
 use crate::icons::{icon, IconName};
 use crate::theme::px;
 use crate::theme::{metrics, Palette};
@@ -176,9 +177,9 @@ impl Shell {
         let tabs = segmented(
             "gallery-tab",
             &[
-                (GalleryKind::Media, "Media"),
-                (GalleryKind::Files, "Files"),
-                (GalleryKind::Links, "Links"),
+                (GalleryKind::Media, i18n::t("status.gallery.tab.media")),
+                (GalleryKind::Files, i18n::t("status.gallery.tab.files")),
+                (GalleryKind::Links, i18n::t("status.gallery.tab.links")),
             ],
             gallery.tab,
             palette,
@@ -186,15 +187,11 @@ impl Shell {
                 view.update(cx, |shell, cx| shell.gallery_tab(tab, cx)).ok();
             },
         );
-        let counted = |count: usize, one: &str, many: &str| match count {
-            1 => format!("1 {one}"),
-            count => format!("{count} {many}"),
-        };
         let summary = format!(
             "{} · {} · {}",
-            counted(gallery.totals[0], "photo or video", "photos and videos"),
-            counted(gallery.totals[1], "file", "files"),
-            counted(gallery.totals[2], "link", "links"),
+            i18n::plural("status.gallery.count.media", gallery.totals[0] as u64, &[]),
+            i18n::plural("status.gallery.count.files", gallery.totals[1] as u64, &[]),
+            i18n::plural("status.gallery.count.links", gallery.totals[2] as u64, &[]),
         );
         let head = div()
             .px_4()
@@ -213,9 +210,9 @@ impl Shell {
             .child(head);
         if gallery.entries.is_empty() {
             let nothing = match gallery.tab {
-                GalleryKind::Media => "No photos or videos in this chat yet.",
-                GalleryKind::Files => "No files in this chat yet.",
-                GalleryKind::Links => "No links in this chat yet.",
+                GalleryKind::Media => i18n::t("status.gallery.empty.media"),
+                GalleryKind::Files => i18n::t("status.gallery.empty.files"),
+                GalleryKind::Links => i18n::t("status.gallery.empty.links"),
             };
             return body.child(
                 div()
@@ -263,7 +260,7 @@ impl Shell {
                 div().px_4().pt_3().flex().justify_center().child(
                     text_button(
                         "gallery-more",
-                        format!("Show more ({left} left)"),
+                        i18n::tr("status.gallery.more", &[("left", &left)]),
                         None,
                         false,
                         palette,
@@ -325,7 +322,7 @@ impl Shell {
                 MediaVisual::Image(image) => {
                     cell.child(img(image).size_full().object_fit(ObjectFit::Cover))
                 }
-                MediaVisual::Loading { .. } => cell.child(mono("LOADING…")),
+                MediaVisual::Loading { .. } => cell.child(mono(i18n::t("status.gallery.loading"))),
                 MediaVisual::Unavailable(_) | MediaVisual::Unsupported(_) | MediaVisual::NoFile => {
                     cell.child(icon(IconName::Ban, px(24.), palette.icon))
                 }
@@ -401,15 +398,15 @@ impl Shell {
             MessageContent::Media(media) => {
                 let name = media.file_name.clone().unwrap_or_else(|| {
                     if media.kind == MediaKind::Audio {
-                        "Audio".to_owned()
+                        i18n::t("status.gallery.audio").to_owned()
                     } else {
-                        "Document".to_owned()
+                        i18n::t("status.gallery.document").to_owned()
                     }
                 });
                 let kind = name
                     .rsplit_once('.')
                     .map(|(_, extension)| extension.to_uppercase())
-                    .unwrap_or_else(|| "FILE".to_owned());
+                    .unwrap_or_else(|| i18n::t("status.gallery.file_tag").to_owned());
                 let detail = match media.size_bytes {
                     Some(bytes) => format!("{kind} · {} · {stamp}", format::file_size(bytes)),
                     None => format!("{kind} · {stamp}"),
@@ -496,7 +493,7 @@ enum Opens {
 /// Who sent a message, as the gallery names them.
 fn sender_of(message: &Message) -> String {
     match message.direction {
-        Direction::Outgoing => "You".to_owned(),
+        Direction::Outgoing => i18n::t("status.gallery.you").to_owned(),
         Direction::Incoming => message
             .sender_name
             .clone()
@@ -507,7 +504,11 @@ fn sender_of(message: &Message) -> String {
 
 /// What stands under the glyph of a video in the grid.
 fn video_line(media: &Media) -> String {
-    let kind = if media.gif { "GIF" } else { "VIDEO" };
+    let kind = if media.gif {
+        "GIF"
+    } else {
+        i18n::t("status.gallery.video_tag")
+    };
     match media.duration_secs {
         Some(secs) => format!("{kind} · {}", format::duration(secs)),
         None => kind.to_owned(),

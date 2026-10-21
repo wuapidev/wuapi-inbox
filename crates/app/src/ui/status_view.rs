@@ -19,6 +19,7 @@ use super::status_post::{with_face, Sheet};
 use super::transfer::{transfer_button, Transfer};
 use super::widgets::{icon_button, label, mono, text_button};
 use crate::format::{duration as clock_time, file_size};
+use crate::i18n;
 use crate::icons::{icon, IconName};
 use crate::keys::Command;
 use crate::markup::{self, Block};
@@ -41,7 +42,9 @@ use std::sync::Arc;
 use std::time::Duration;
 
 /// What the viewer says when a story's video cannot be played here.
-const VIDEO_FAILED: &str = "This video can't be played in the app.";
+fn video_failed() -> &'static str {
+    i18n::t("status.view.video_failed")
+}
 
 /// How often the viewer's clock ticks.
 pub(super) const TICK: Duration = Duration::from_millis(40);
@@ -187,7 +190,7 @@ impl Shell {
             key: "me".into(),
             author: mine[0].story.author.clone(),
             name: if me.is_empty() {
-                "My status".into()
+                i18n::t("status.mine").into()
             } else {
                 me
             },
@@ -829,7 +832,7 @@ impl Shell {
     }
 
     fn story_video_failed(&mut self, id: MessageId) {
-        self.status.video_error = Some((id, VIDEO_FAILED.into()));
+        self.status.video_error = Some((id, video_failed().into()));
         self.status.video_pending = None;
         if let Some(viewing) = self.status.viewing.as_mut() {
             viewing.player.holds.loading = false;
@@ -894,7 +897,7 @@ impl Shell {
                     .reply
                     .update(cx, |field, cx| field.set_value("", window, cx));
                 if let Some(viewing) = self.status.viewing.as_mut() {
-                    viewing.notice = Some("Reply sent".into());
+                    viewing.notice = Some(i18n::t("status.view.reply_sent").into());
                     viewing.reply_note = None;
                     viewing.player.holds.typing = false;
                 }
@@ -932,7 +935,10 @@ impl Shell {
                     viewing.notice = None;
                 } else {
                     viewing.reacted.insert(id, emoji);
-                    viewing.notice = Some(SharedString::from(format!("Reacted {emoji}")));
+                    viewing.notice = Some(SharedString::from(i18n::tr(
+                        "status.view.reacted",
+                        &[("emoji", &emoji)],
+                    )));
                 }
             }
             Err(error) => viewing.reply_note = Some(error.to_string().into()),
@@ -1106,7 +1112,10 @@ impl Shell {
                             },
                             palette,
                         )
-                        .tooltip(tooltip_with_keys("Pause or go on", Command::StoryPause))
+                        .tooltip(tooltip_with_keys(
+                            i18n::t("status.view.pause"),
+                            Command::StoryPause,
+                        ))
                         .on_click(cx.listener(|this, _, window, cx| {
                             this.run_story_command(Command::StoryPause, window, cx);
                         })),
@@ -1124,9 +1133,9 @@ impl Shell {
                             )
                             .tooltip(tooltip_with_keys(
                                 if muted {
-                                    "Unmute their status"
+                                    i18n::t("status.view.unmute")
                                 } else {
-                                    "Mute their status"
+                                    i18n::t("status.view.mute")
                                 },
                                 Command::StoryMute,
                             ))
@@ -1140,7 +1149,7 @@ impl Shell {
                     .child(
                         icon_button("story-info", IconName::Info, palette)
                             .tooltip(tooltip_with_keys(
-                                "Who saw it, and when it goes",
+                                i18n::t("status.view.info"),
                                 Command::StoryInfo,
                             ))
                             .on_click(cx.listener(|this, _, window, cx| {
@@ -1149,7 +1158,10 @@ impl Shell {
                     )
                     .child(
                         icon_button("story-close", IconName::X, palette)
-                            .tooltip(tooltip_with_keys("Close", Command::StoryClose))
+                            .tooltip(tooltip_with_keys(
+                                i18n::t("status.view.close"),
+                                Command::StoryClose,
+                            ))
                             .on_click(cx.listener(|this, _, _, cx| this.close_story_viewer(cx))),
                     ),
             )
@@ -1211,7 +1223,11 @@ impl Shell {
             palette,
         )
         .tooltip(tooltip_with_keys(
-            if back { "Previous story" } else { "Next story" },
+            if back {
+                i18n::t("status.view.previous")
+            } else {
+                i18n::t("status.view.next")
+            },
             command,
         ))
         .on_click(cx.listener(move |this, _, window, cx| {
@@ -1412,7 +1428,7 @@ impl Shell {
             }
             super::media::MediaVisual::Unavailable(reason) => centred(say(reason)),
             super::media::MediaVisual::NoFile => {
-                centred(say("This status has no picture to show.".into()))
+                centred(say(i18n::t("status.view.no_picture").into()))
             }
             super::media::MediaVisual::Unsupported(reason) => centred(say(reason)),
         }
@@ -1452,12 +1468,12 @@ impl Shell {
                         .text_center()
                         .text_size(metrics::TEXT_SMALL())
                         .text_color(story::on_background())
-                        .child(VIDEO_FAILED),
+                        .child(video_failed()),
                 )
                 .child(
                     text_button(
                         "story-open-video",
-                        "Try again",
+                        i18n::t("status.mine.retry"),
                         Some(IconName::Play),
                         true,
                         palette,
@@ -1548,11 +1564,16 @@ impl Shell {
         let (glyph, title, action, button_icon) = match kind {
             SlideKind::Voice => (
                 IconName::Mic,
-                "Voice message",
-                "Play",
+                i18n::t("status.kind.voice"),
+                i18n::t("status.view.play"),
                 IconName::ExternalLink,
             ),
-            _ => (IconName::Video, "Video", "Play", IconName::Play),
+            _ => (
+                IconName::Video,
+                i18n::t("status.kind.video"),
+                i18n::t("status.view.play"),
+                IconName::Play,
+            ),
         };
         div()
             .debug_selector(|| "story-tile".into())
@@ -1581,7 +1602,11 @@ impl Shell {
             .child(
                 text_button(
                     "story-open-video",
-                    if opened { "Playing outside" } else { action },
+                    if opened {
+                        i18n::t("status.view.playing_outside")
+                    } else {
+                        action
+                    },
                     Some(button_icon),
                     true,
                     palette,
@@ -1701,10 +1726,26 @@ impl Shell {
         let mut body = div().flex().flex_col().gap_2();
         if let Some(item) = item {
             let posted = age_label(item.story.posted_at, now);
-            body = body.child(super::menus::fact("Posted", posted.into(), palette));
+            body = body.child(super::menus::fact(
+                i18n::t("status.view.posted"),
+                posted.into(),
+                palette,
+            ));
             match expires_label(item.story.expiry(), now) {
-                Some(left) => body = body.child(super::menus::fact("Goes", left.into(), palette)),
-                None => body = body.child(super::menus::fact("Goes", "Gone".into(), palette)),
+                Some(left) => {
+                    body = body.child(super::menus::fact(
+                        i18n::t("status.view.goes"),
+                        left.into(),
+                        palette,
+                    ))
+                }
+                None => {
+                    body = body.child(super::menus::fact(
+                        i18n::t("status.view.goes"),
+                        i18n::t("status.view.gone").into(),
+                        palette,
+                    ))
+                }
             }
             if mine {
                 let viewers = self
@@ -1712,14 +1753,17 @@ impl Shell {
                     .store()
                     .story_viewers(&account, &item.story.id)
                     .unwrap_or_default();
-                body = body.child(label(&format!("Seen by {}", viewers.len()), palette));
+                body = body.child(label(
+                    &i18n::plural("status.mine.seen_by", viewers.len() as u64, &[]),
+                    palette,
+                ));
                 if !self.caps_now().story_viewers {
                     body = body.child(
                         div()
                             .debug_selector(|| "story-viewers-unavailable".into())
                             .text_size(metrics::TEXT_SMALL())
                             .text_color(palette.text_muted)
-                            .child("Who saw your status is not available yet from this provider."),
+                            .child(i18n::t("status.view.viewers_unavailable")),
                     );
                 }
                 for (index, viewer) in viewers.iter().enumerate() {
@@ -1764,7 +1808,7 @@ impl Shell {
             .flex()
             .flex_col()
             .child(super::menus::panel_header(
-                "Details",
+                i18n::t("status.view.details"),
                 palette,
                 cx.listener(|this, _, window, cx| {
                     this.run_story_command(Command::StoryInfo, window, cx);
@@ -1831,10 +1875,9 @@ impl Shell {
                     .and_then(|stored| stored.story.view_count)
             });
             let views: SharedString = match (caps.story_viewers, count) {
-                (true, Some(1)) => "1 view".into(),
-                (true, Some(n)) => format!("{n} views").into(),
-                (true, None) => "No views yet".into(),
-                (false, _) => "Views are not available yet from this provider".into(),
+                (true, Some(n)) => i18n::plural("status.view.views", u64::from(n), &[]).into(),
+                (true, None) => i18n::t("status.view.no_views").into(),
+                (false, _) => i18n::t("status.view.views_unavailable").into(),
             };
             let id = viewing.player.current().map(|slide| slide.id.clone());
             return footer
@@ -1860,7 +1903,7 @@ impl Shell {
                         .children(id.map(|id| {
                             text_button(
                                 "story-delete",
-                                "Delete",
+                                i18n::t("status.mine.delete"),
                                 Some(IconName::Trash),
                                 false,
                                 palette,
@@ -1936,8 +1979,10 @@ impl Shell {
                         .child(
                             icon_button("story-send", IconName::SendHorizontal, palette)
                                 .tooltip(|window, cx| {
-                                    gpui_kit::component::tooltip::Tooltip::new("Send")
-                                        .build(window, cx)
+                                    gpui_kit::component::tooltip::Tooltip::new(i18n::t(
+                                        "status.view.send",
+                                    ))
+                                    .build(window, cx)
                                 })
                                 .on_click(cx.listener(|this, _, window, cx| {
                                     this.send_story_reply(window, cx)
@@ -1949,7 +1994,7 @@ impl Shell {
                 .debug_selector(|| "story-reply-unavailable".into())
                 .text_size(metrics::TEXT_SMALL())
                 .text_color(palette.text_faint)
-                .child("Replying to a status is not available yet from this provider.")
+                .child(i18n::t("status.view.reply_unavailable"))
         };
         let not_reacting = !caps.story_react;
         footer

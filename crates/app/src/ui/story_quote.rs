@@ -6,6 +6,7 @@
 
 use super::bubble::{RowContext, Side};
 use super::media::MediaVisual;
+use crate::i18n;
 use crate::icons::{icon, IconName};
 use crate::stories::{face_of, SlideKind};
 use crate::theme::{metrics, px, story};
@@ -21,10 +22,10 @@ fn thumb() -> gpui_kit::Pixels {
 /// What the quoted status was, in a word.
 fn kind_word(kind: StoryReplyKind) -> &'static str {
     match kind {
-        StoryReplyKind::Text => "Status",
-        StoryReplyKind::Image => "Photo",
-        StoryReplyKind::Video => "Video",
-        StoryReplyKind::Voice => "Voice message",
+        StoryReplyKind::Text => i18n::t("status.kind.status"),
+        StoryReplyKind::Image => i18n::t("status.kind.photo"),
+        StoryReplyKind::Video => i18n::t("status.kind.video"),
+        StoryReplyKind::Voice => i18n::t("status.kind.voice"),
     }
 }
 
@@ -42,11 +43,11 @@ pub(super) fn story_quote(
         .ok()
         .flatten();
     let heading: SharedString = if reply.of_mine {
-        "Replied to your status".into()
+        i18n::t("status.quote.replied_mine").into()
     } else if message.direction == client_provider::Direction::Outgoing {
-        "You replied to a status".into()
+        i18n::t("status.quote.you_replied").into()
     } else {
-        "Replied to a status".into()
+        i18n::t("status.quote.replied").into()
     };
     // The picture: the status itself while it lives.
     let face: gpui_kit::AnyElement = match &item {
@@ -89,7 +90,7 @@ pub(super) fn story_quote(
                 .into(),
             false,
         ),
-        None => ("Status no longer available".into(), true),
+        None => (i18n::t("status.quote.gone").into(), true),
     };
     let (view, story_id) = (context.view.clone(), reply.story.clone());
     let available = item.is_some();

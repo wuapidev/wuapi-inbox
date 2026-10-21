@@ -7,6 +7,7 @@ use super::shell::Shell;
 use super::status::{tooltip_with_keys, Main};
 use super::status_post::{with_face, Sheet};
 use super::widgets::{icon_button, label, mono, text_button};
+use crate::i18n;
 use crate::icons::{icon, IconName};
 use crate::keys::Command;
 use crate::stories::{age_label, describe, expires_label, expiring_soon, face_of, SlideKind};
@@ -82,7 +83,7 @@ impl Shell {
                     .py_6()
                     .text_size(metrics::TEXT_BODY())
                     .text_color(palette.text_muted)
-                    .child("You have no status right now. What you post stays a day."),
+                    .child(i18n::t("status.mine.empty")),
             );
         }
         div()
@@ -107,7 +108,7 @@ impl Shell {
                         div()
                             .text_size(metrics::TEXT_TITLE())
                             .font_weight(FontWeight::SEMIBOLD)
-                            .child("My status"),
+                            .child(i18n::t("status.mine")),
                     )
                     .child(
                         div()
@@ -116,7 +117,7 @@ impl Shell {
                             .child(if caps.story_privacy {
                                 icon_button("status-audience", IconName::Lock, palette)
                                     .tooltip(tooltip_with_keys(
-                                        "Who sees my status",
+                                        i18n::t("status.mine.audience"),
                                         Command::SettingsStatus,
                                     ))
                                     .on_click(cx.listener(|this, _, window, cx| {
@@ -128,7 +129,10 @@ impl Shell {
                             })
                             .child(if caps.story_post {
                                 icon_button("status-new-mine", IconName::Plus, palette)
-                                    .tooltip(tooltip_with_keys("New status", Command::NewStatus))
+                                    .tooltip(tooltip_with_keys(
+                                        i18n::t("status.new"),
+                                        Command::NewStatus,
+                                    ))
                                     .on_click(cx.listener(|this, _, window, cx| {
                                         this.open_status_post(window, cx)
                                     }))
@@ -224,13 +228,17 @@ impl Shell {
                     .as_ref()
                     .and_then(|client| self.engine.story_upload_progress(client));
                 match progress {
-                    Some((sent, total)) if total > 0 => {
-                        format!("Uploading {}%", sent * 100 / total).into()
-                    }
-                    _ => "Posting…".into(),
+                    Some((sent, total)) if total > 0 => i18n::tr(
+                        "status.mine.uploading",
+                        &[("percent", &(sent * 100 / total))],
+                    )
+                    .into(),
+                    _ => i18n::t("status.posting").into(),
                 }
             }
-            Some(StoryPostState::Failed(reason)) => format!("Not posted: {reason}").into(),
+            Some(StoryPostState::Failed(reason)) => {
+                i18n::tr("status.mine.not_posted", &[("reason", reason)]).into()
+            }
             None => {
                 let left = expires_label(item.story.expiry(), now).unwrap_or_default();
                 format!("{} · {left}", age_label(item.story.posted_at, now)).into()
@@ -290,10 +298,7 @@ impl Shell {
         // How many saw it, and who: names and times, with the reactions.
         if item.post.is_none() && caps.story_viewers {
             card = card.child(label(
-                &match count {
-                    1 => "Seen by 1".to_owned(),
-                    n => format!("Seen by {n}"),
-                },
+                &i18n::plural("status.mine.seen_by", u64::from(count), &[]),
                 palette,
             ));
             for (row, viewer) in viewers.iter().take(VIEWERS_LISTED).enumerate() {
@@ -331,9 +336,9 @@ impl Shell {
                     div()
                         .text_size(metrics::TEXT_SMALL())
                         .text_color(palette.text_muted)
-                        .child(SharedString::from(format!(
-                            "and {} more",
-                            viewers.len() - VIEWERS_LISTED
+                        .child(SharedString::from(i18n::tr(
+                            "status.mine.more",
+                            &[("n", &(viewers.len() - VIEWERS_LISTED))],
                         ))),
                 );
             }
@@ -344,17 +349,23 @@ impl Shell {
             None => {
                 let watch = id.clone();
                 actions = actions.child(
-                    text_button("mine-watch", "Watch", Some(IconName::Play), false, palette)
-                        .on_click(cx.listener(move |this, _, window, cx| {
-                            this.open_own_story_viewer(Some(watch.clone()), window, cx)
-                        })),
+                    text_button(
+                        "mine-watch",
+                        i18n::t("status.mine.watch"),
+                        Some(IconName::Play),
+                        false,
+                        palette,
+                    )
+                    .on_click(cx.listener(move |this, _, window, cx| {
+                        this.open_own_story_viewer(Some(watch.clone()), window, cx)
+                    })),
                 );
                 if caps.forwards {
                     let pass = id.clone();
                     actions = actions.child(
                         text_button(
                             "mine-forward",
-                            "Forward",
+                            i18n::t("status.mine.forward"),
                             Some(IconName::Forward),
                             false,
                             palette,
@@ -372,7 +383,7 @@ impl Shell {
                     actions = actions.child(
                         text_button(
                             "mine-delete",
-                            "Delete",
+                            i18n::t("status.mine.delete"),
                             Some(IconName::Trash),
                             false,
                             palette,
@@ -394,7 +405,7 @@ impl Shell {
                         .child(
                             text_button(
                                 "mine-retry",
-                                "Try again",
+                                i18n::t("status.mine.retry"),
                                 Some(IconName::RotateCw),
                                 false,
                                 palette,
@@ -409,7 +420,7 @@ impl Shell {
                         .child(
                             text_button(
                                 "mine-discard",
-                                "Discard",
+                                i18n::t("status.mine.discard"),
                                 Some(IconName::Trash),
                                 false,
                                 palette,
