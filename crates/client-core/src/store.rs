@@ -146,6 +146,23 @@ pub fn file_state(path: impl AsRef<Path>) -> std::io::Result<FileState> {
     })
 }
 
+/// Gives a connection `fold(text)`: the text as a search compares it,
+/// lower case and without accents ([`crate::fold`]).
+fn with_fold(conn: &Connection) -> StoreResult<()> {
+    use rusqlite::functions::FunctionFlags;
+    conn.create_scalar_function(
+        "fold",
+        1,
+        FunctionFlags::SQLITE_UTF8 | FunctionFlags::SQLITE_DETERMINISTIC,
+        |context| {
+            Ok(context
+                .get::<Option<String>>(0)?
+                .map(|text| crate::fold(&text)))
+        },
+    )?;
+    Ok(())
+}
+
 /// Opens a connection and, with a key, unlocks it. The key is the first
 /// thing the connection hears, as SQLCipher requires.
 fn connect(path: &Path, key: Option<&StoreKey>) -> StoreResult<Connection> {
@@ -153,6 +170,7 @@ fn connect(path: &Path, key: Option<&StoreKey>) -> StoreResult<Connection> {
     if let Some(key) = key {
         conn.execute_batch(&format!("PRAGMA key = {};", key.literal()))?;
     }
+    with_fold(&conn)?;
     // The first real read is where a wrong key shows.
     match conn.query_row("SELECT count(*) FROM sqlite_master", [], |row| {
         row.get::<_, i64>(0)
@@ -617,6 +635,7 @@ impl Store {
     /// sessions. Nothing reaches the disk, so there is nothing to encrypt.
     pub fn open_in_memory() -> StoreResult<Self> {
         let mut writer = Connection::open_in_memory()?;
+        with_fold(&writer)?;
         migrations::migrate(&mut writer)?;
         Ok(Self::with_connections(writer, None))
     }
@@ -1332,7 +1351,7 @@ impl Store {
     /// The chats of an account as the chat list shows them: pinned first
     /// (the last one pinned on top, those without a known time after),
     /// then most recently active. `filter` keeps chats whose title contains
-    /// it (case-insensitive).
+    /// it, whatever the case and the accents of either.
     pub fn chats(
         &self,
         account: &AccountId,
@@ -1341,7 +1360,8 @@ impl Store {
         let pattern = filter.map(str::trim).filter(|f| !f.is_empty()).map(|f| {
             format!(
                 "%{}%",
-                f.replace('\\', "\\\\")
+                crate::fold(f)
+                    .replace('\\', "\\\\")
                     .replace('%', "\\%")
                     .replace('_', "\\_")
             )
@@ -1352,7 +1372,7 @@ impl Store {
                  FROM chats c
                  {SUMMARY_JOINS}
                  WHERE c.account_id = ?1 AND c.archived = 0
-                   AND (?2 IS NULL OR c.title LIKE ?2 ESCAPE '\\')
+                   AND (?2 IS NULL OR fold(c.title) LIKE ?2 ESCAPE '\\')
                  ORDER BY c.pinned DESC,
                           CASE WHEN c.pinned THEN COALESCE(c.pinned_at, 0) ELSE 0 END DESC,
                           COALESCE(c.last_message_at, 0) DESC, c.title"
@@ -1661,8 +1681,8 @@ impl Store {
     }
 
     /// The address book of an account, by name. `query` keeps the
-    /// contacts whose name, username or number contains it (the number
-    /// compared by its digits).
+    /// contacts whose name, username or number contains it (the name
+    /// whatever its case and accents, the number by its digits).
     pub fn contacts(
         &self,
         account: &AccountId,
@@ -1678,7 +1698,7 @@ impl Store {
                     .replace('_', "\\_")
             )
         };
-        let pattern = typed.map(|q| escape(&q.to_lowercase()));
+        let pattern = typed.map(|q| escape(&crate::fold(q)));
         let digits = typed
             .map(|q| q.chars().filter(char::is_ascii_digit).collect::<String>())
             .filter(|digits| digits.len() >= 3)
@@ -1690,8 +1710,8 @@ impl Store {
                  FROM contacts
                  WHERE account_id = ?1
                    AND (?2 IS NULL
-                        OR sort_name LIKE ?2 ESCAPE '\\'
-                        OR lower(COALESCE(username, '')) LIKE ?2 ESCAPE '\\'
+                        OR fold(sort_name) LIKE ?2 ESCAPE '\\'
+                        OR fold(COALESCE(username, '')) LIKE ?2 ESCAPE '\\'
                         OR (?3 IS NOT NULL
                             AND COALESCE(phone, id) LIKE ?3 ESCAPE '\\'))
                  ORDER BY sort_name, id

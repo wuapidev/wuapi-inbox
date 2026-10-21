@@ -163,6 +163,20 @@ fn chat_list_is_ordered_by_pin_then_activity_and_shows_previews() {
     assert_eq!(filtered.len(), 1);
     assert_eq!(filtered[0].title, "Bruno");
     assert!(store.chats(&account(), Some("100%")).unwrap().is_empty());
+
+    // Accents do not count, on either side.
+    store.upsert_chat(&chat("r", "René Lomelí"), false).unwrap();
+    for typed in ["rene", "RENÉ", "lomeli", "Lomelí"] {
+        let found: Vec<_> = store
+            .chats(&account(), Some(typed))
+            .unwrap()
+            .into_iter()
+            .map(|chat| chat.title)
+            .collect();
+        assert_eq!(found, ["René Lomelí"], "{typed}");
+    }
+    let found = store.chats(&account(), Some("bruñ")).unwrap();
+    assert_eq!(found.len(), 1, "an accent typed finds the name without");
 }
 
 /// Pinned chats are in the order they were pinned, the last one first, as
@@ -3118,6 +3132,12 @@ async fn contacts_are_found_by_name_username_and_number_and_events_only_add() {
     };
     assert_eq!(names(None), ["María José", "Panadería 100%", "Zoe"]);
     assert_eq!(names(Some("jos")), ["María José"]);
+    assert_eq!(
+        names(Some("maria jose")),
+        ["María José"],
+        "accents do not count"
+    );
+    assert_eq!(names(Some("panaderia")), ["Panadería 100%"]);
     assert_eq!(
         names(Some("ZOE_")),
         ["Zoe"],

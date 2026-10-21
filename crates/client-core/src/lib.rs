@@ -14,6 +14,7 @@
 #![warn(missing_docs)]
 
 mod animation;
+mod fold;
 mod imaging;
 mod library;
 mod mentions;
@@ -32,6 +33,7 @@ pub use animation::{
     AnimationLimits,
 };
 pub use client_provider as provider;
+pub use fold::fold;
 pub use imaging::{thumbnail, turned_size, upright, Thumbnail, Upright};
 pub use library::{
     content_id, gif_file, image_size, library_thumbnail, sniff, sticker_from_image, FileKind,

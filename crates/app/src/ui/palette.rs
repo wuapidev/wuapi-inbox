@@ -2,9 +2,11 @@
 //!
 //! The palette is one field over everything the application can go to or
 //! do, the way an editor's is. Cmd or Ctrl with P (or K) opens it to go
-//! somewhere: chats, people of the address book, messages (the local
-//! full-text index). Cmd or Ctrl with Shift and P opens it on the
-//! commands. A prefix says what is looked through, and can be typed or
+//! to a chat, and lists nothing else: chats, each with its picture, its
+//! last message and what is unread, and the people of the address book
+//! who have none yet. Cmd or Ctrl with Shift and P opens it on the
+//! commands; with Shift and F, on the messages (the local full-text
+//! index). A prefix says what is looked through, and can be typed or
 //! deleted at any time: `>` commands, `@` people, `#` groups, `/` (or
 //! `in:`) the messages of the open conversation, `?` the list of these.
 //!
@@ -12,13 +14,14 @@
 //! that is on a key or in a menu is missing here; a command that needs to
 //! be told something asks for it in place (`palette_steps.rs`).
 //!
-//! Commands are matched as they are typed. What is read from the store
-//! (chats, people, messages) is read off the UI thread, a moment after
-//! the typing stops; a newer keystroke drops the read that was under way.
+//! Commands, and the chats the list has loaded, are matched as they are
+//! typed. What is read from the store (every chat, people, messages) is
+//! read off the UI thread, a moment after the typing stops, and joins
+//! them; a newer keystroke drops the read that was under way.
 
 use super::palette_steps::{Avail, Step, StepKind, OF_A_MESSAGE};
 use super::shell::{ListRow, Overlay, Shell};
-use super::widgets::mono;
+use super::widgets::{avatar_or, mono, AvatarKind};
 use crate::format::list_time;
 use crate::icons::{icon, IconName};
 use crate::keys::{self, Binding, Command, Section, BINDINGS};
@@ -30,14 +33,16 @@ use client_provider::{ChatId, ChatKind, Contact, Message, Timestamp};
 use gpui_kit::component::input::InputState;
 use gpui_kit::prelude::*;
 use gpui_kit::{
-    div, Context, Div, Entity, FontWeight, KeyDownEvent, SharedString, Stateful, Task, Window,
+    div, AnyElement, Context, Div, Entity, FontWeight, KeyDownEvent, ScrollHandle, SharedString,
+    Stateful, Task, Window,
 };
 use std::collections::HashMap;
 
 /// How many of each kind the palette lists.
-const CHATS: usize = 6;
+const CHATS: usize = 8;
+/// How many chats it lists with nothing typed: enough to scroll through.
+const BROWSE: usize = 30;
 const PEOPLE: usize = 5;
-const COMMANDS: usize = 7;
 const MESSAGES: usize = 12;
 /// How many recent chats and commands are remembered.
 const RECENT: usize = 5;
@@ -50,7 +55,7 @@ const CLOSE: u32 = 600;
 /// What the palette is looking through.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Scope {
-    /// Where to go: chats, people, messages, and the commands after them.
+    /// Where to go: chats, and people who have none yet.
     All,
     /// `>`: commands.
     Commands,
@@ -95,12 +100,12 @@ pub(super) fn parse(typed: &str, messages_only: bool) -> (Scope, &str) {
 }
 
 /// How well `text` answers `query`, higher being better; `None` when it
-/// does not. The whole name beats a name that starts with it, which beats
+/// does not. Case and accents do not count: "rene" is "René". The whole name beats a name that starts with it, which beats
 /// its initials ("np" for "New poll"), which beat a word that starts with
 /// it, which beats having it somewhere, which beats having its letters in
 /// order. Among equals the shorter name wins.
 pub(super) fn score(query: &str, text: &str) -> Option<u32> {
-    let (query, text) = (query.trim().to_lowercase(), text.to_lowercase());
+    let (query, text) = (client_core::fold(query.trim()), client_core::fold(text));
     if query.is_empty() {
         return Some(0);
     }
@@ -265,6 +270,8 @@ pub(super) struct PaletteState {
     pub(super) usage: Option<Usage>,
     /// The search of the shortcuts sheet.
     pub(super) shortcuts_input: Entity<InputState>,
+    /// The list's scroll, which follows the keyboard.
+    pub(super) scroll: ScrollHandle,
 }
 
 impl PaletteState {
@@ -288,6 +295,7 @@ impl PaletteState {
                 InputState::new(window, cx)
                     .placeholder(crate::i18n::t("commands.shortcuts.placeholder"))
             }),
+            scroll: ScrollHandle::new(),
         }
     }
 
@@ -657,6 +665,7 @@ impl Shell {
             }
             self.palette.cursor = items.iter().position(Item::is_row).unwrap_or(0);
             self.palette.items = items;
+            self.palette.scroll.scroll_to_item(0);
             return cx.notify();
         }
 
@@ -673,7 +682,8 @@ impl Shell {
                 self.ranked_commands(query, 60, cx),
             );
         } else if query.is_empty() && scope == Scope::All {
-            // Nothing typed: what was used last, then the chats on top.
+            // Nothing typed: what was opened last, then the chats as the
+            // list has them.
             let chats = listed(self);
             let recent: Vec<Item> = self
                 .palette
@@ -685,7 +695,7 @@ impl Shell {
             let rest: Vec<Item> = chats
                 .iter()
                 .filter(|chat| !self.palette.recent_chats.contains(&chat.id))
-                .take(CHATS.saturating_sub(recent.len()))
+                .take(BROWSE.saturating_sub(recent.len()))
                 .map(|chat| Item::Chat(chat.clone()))
                 .collect();
             section(
@@ -698,19 +708,23 @@ impl Shell {
                 crate::i18n::t("commands.palette.section_chats"),
                 rest,
             );
-            section(
-                &mut items,
-                crate::i18n::t("commands.palette.section_commands"),
-                self.ranked_commands("", COMMANDS, cx),
-            );
         } else {
             let found = &self.palette.found;
             if matches!(scope, Scope::All | Scope::Groups) {
-                let chats: Vec<ChatSummary> = found
-                    .chats
+                // The chats the list has answer at once; the store's read
+                // adds the rest (archived, in another filter) when it is in.
+                // Ranked by reference: only what is listed is copied.
+                let mut seen = std::collections::HashSet::new();
+                let chats: Vec<&ChatSummary> = self
+                    .list_rows
                     .iter()
+                    .filter_map(|row| match row {
+                        ListRow::Chat(chat) => Some(chat),
+                        _ => None,
+                    })
+                    .chain(&found.chats)
                     .filter(|chat| scope == Scope::All || chat.kind == ChatKind::Group)
-                    .cloned()
+                    .filter(|chat| seen.insert(&chat.id))
                     .collect();
                 let chats = rank(query, chats, |chat| chat.title.clone());
                 section(
@@ -720,7 +734,11 @@ impl Shell {
                     } else {
                         crate::i18n::t("commands.palette.section_chats")
                     },
-                    chats.into_iter().take(CHATS).map(Item::Chat).collect(),
+                    chats
+                        .into_iter()
+                        .take(CHATS)
+                        .map(|chat| Item::Chat(chat.clone()))
+                        .collect(),
                 );
             }
             if matches!(scope, Scope::All | Scope::People) {
@@ -733,6 +751,10 @@ impl Shell {
                             || !found
                                 .chats
                                 .iter()
+                                .chain(self.list_rows.iter().filter_map(|row| match row {
+                                    ListRow::Chat(chat) => Some(chat),
+                                    _ => None,
+                                }))
                                 .any(|chat| chat.id.as_str() == contact.id.as_str())
                     })
                     .cloned()
@@ -744,14 +766,7 @@ impl Shell {
                     people.into_iter().take(PEOPLE).map(Item::Person).collect(),
                 );
             }
-            if scope == Scope::All {
-                section(
-                    &mut items,
-                    crate::i18n::t("commands.palette.section_commands"),
-                    self.ranked_commands(query, COMMANDS, cx),
-                );
-            }
-            if matches!(scope, Scope::All | Scope::Messages | Scope::InChat) {
+            if matches!(scope, Scope::Messages | Scope::InChat) {
                 section(
                     &mut items,
                     if scope == Scope::InChat {
@@ -772,6 +787,7 @@ impl Shell {
         // The keyboard stays on a row, the first one after a change.
         self.palette.cursor = items.iter().position(Item::is_row).unwrap_or(0);
         self.palette.items = items;
+        self.palette.scroll.scroll_to_item(0);
         cx.notify();
     }
 
@@ -818,7 +834,7 @@ impl Shell {
                         .contacts(&account, Some(&query), PEOPLE * 4)
                         .unwrap_or_default();
                 }
-                if matches!(scope, Scope::All | Scope::Messages | Scope::InChat) {
+                if matches!(scope, Scope::Messages | Scope::InChat) {
                     // The index is per account; a conversation's matches
                     // are picked out of a wider read.
                     let wanted = if scope == Scope::InChat {
@@ -991,6 +1007,14 @@ impl Shell {
             "pageup" => rows[at.saturating_sub(6)],
             _ => return false,
         };
+        // The row the keyboard went to is in view; a heading over the
+        // first row comes with it.
+        let shown = if self.palette.cursor == rows[0] {
+            0
+        } else {
+            self.palette.cursor
+        };
+        self.palette.scroll.scroll_to_item(shown);
         cx.notify();
         true
     }
@@ -1086,6 +1110,252 @@ impl Shell {
         )
     }
 
+    /// A row of the palette that goes somewhere, as tall as two lines: the
+    /// picture, the name over a second line, and what is said on the
+    /// right. The keyboard's row is filled, with the accent's bar.
+    #[allow(clippy::too_many_arguments)]
+    fn palette_rich_row(
+        &self,
+        index: usize,
+        on: bool,
+        face: Div,
+        name: Div,
+        second: AnyElement,
+        right: Div,
+        colours: &Colours,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let hover = colours.elevated_selected;
+        div()
+            .id(("palette-item", index))
+            .debug_selector(move || format!("palette-item-{index}"))
+            .relative()
+            .flex_none()
+            .h(px(52.))
+            .pl(px(12.))
+            .pr_2()
+            .rounded(px(6.))
+            .flex()
+            .items_center()
+            .gap(px(12.))
+            .cursor_pointer()
+            .when(on, |this| {
+                this.bg(colours.elevated_selected).child(
+                    div()
+                        .debug_selector(|| "palette-cursor".into())
+                        .absolute()
+                        .left_0()
+                        .top(px(10.))
+                        .bottom(px(10.))
+                        .w(px(3.))
+                        .rounded_full()
+                        .bg(colours.focus_ring),
+                )
+            })
+            .hover(move |style| style.bg(hover))
+            .on_click(cx.listener(move |this, _, window, cx| {
+                cx.stop_propagation();
+                this.run_palette_item(index, false, window, cx);
+            }))
+            .child(
+                div()
+                    .flex_none()
+                    .debug_selector(move || format!("palette-avatar-{index}"))
+                    .child(face),
+            )
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .flex()
+                    .flex_col()
+                    .gap(px(2.))
+                    .child(name)
+                    .child(
+                        div()
+                            .debug_selector(move || format!("palette-preview-{index}"))
+                            .min_w_0()
+                            .text_size(metrics::TEXT_SMALL())
+                            .text_color(colours.text_muted)
+                            .child(second),
+                    ),
+            )
+            .child(right)
+            // What Enter does, on the row the keyboard is on.
+            .when(on && self.palette.steps.is_empty(), |this| {
+                this.child(
+                    mono(keys::key_label("enter"))
+                        .debug_selector(|| "palette-enter".into())
+                        .flex_none()
+                        .px(px(6.))
+                        .py(px(2.))
+                        .rounded(px(4.))
+                        .border_1()
+                        .border_color(colours.elevated_border)
+                        .text_color(colours.text_muted),
+                )
+            })
+            .into_any_element()
+    }
+
+    /// A chat: its picture, its name, its last message (or who is
+    /// typing), when that was, and what is unread. Asked for by a
+    /// command, it says what the command would find instead.
+    fn palette_chat_row(
+        &self,
+        index: usize,
+        chat: &ChatSummary,
+        on: bool,
+        now: Timestamp,
+        colours: &Colours,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let unread = chat.unread_count > 0;
+        let kind = match chat.kind {
+            ChatKind::Group => AvatarKind::Group,
+            ChatKind::Direct => AvatarKind::Person,
+        };
+        let face = avatar_or(
+            self.media.avatar(&chat.account_id, &chat.id),
+            &chat.title,
+            kind,
+            metrics::AVATAR_LARGE(),
+            colours,
+        );
+        let time = chat
+            .last_message
+            .as_ref()
+            .map(|message| list_time(message.timestamp, now))
+            .unwrap_or_default();
+        let name = div()
+            .flex()
+            .items_center()
+            .justify_between()
+            .gap_2()
+            .child(
+                div()
+                    .min_w_0()
+                    .truncate()
+                    .text_size(metrics::TEXT_BODY())
+                    .text_color(colours.text)
+                    .font_weight(if unread {
+                        FontWeight::SEMIBOLD
+                    } else {
+                        FontWeight::MEDIUM
+                    })
+                    .child(SharedString::from(chat.title.clone())),
+            )
+            .child(
+                mono(time)
+                    .debug_selector(move || format!("palette-time-{index}"))
+                    .flex_none()
+                    .text_color(if unread {
+                        colours.accent
+                    } else {
+                        colours.text_muted
+                    }),
+            );
+        // What a command asking for a chat would find: its state now.
+        let state = match self.palette.steps.last().map(|step| step.command) {
+            Some(Command::PinAChat) if chat.pinned => Some("commands.palette.pinned"),
+            Some(Command::ArchiveAChat) if chat.archived => Some("commands.palette.archived"),
+            Some(Command::MuteAChat) if chat.muted => Some("commands.palette.muted"),
+            _ => None,
+        };
+        let right = div()
+            .flex_none()
+            .flex()
+            .items_center()
+            .gap(px(6.))
+            .when(chat.muted, |this| {
+                this.child(icon(IconName::BellOff, px(14.), colours.text_faint))
+            })
+            .when(chat.pinned, |this| {
+                this.child(icon(IconName::Pin, px(14.), colours.text_faint))
+            })
+            .children(state.map(|state| {
+                div()
+                    .debug_selector(move || format!("palette-detail-{index}"))
+                    .text_size(metrics::TEXT_SMALL())
+                    .text_color(colours.text_muted)
+                    .child(crate::i18n::t(state))
+            }))
+            .when(unread && state.is_none(), |this| {
+                this.child(
+                    div()
+                        .debug_selector(move || format!("palette-badge-{index}"))
+                        .child(super::chat_list::unread_badge(
+                            chat.unread_count,
+                            chat.muted,
+                            colours,
+                        )),
+                )
+            });
+        self.palette_rich_row(
+            index,
+            on,
+            face,
+            name,
+            div()
+                .when(unread, |this| this.text_color(colours.text))
+                .child(self.chat_preview(chat, colours))
+                .into_any_element(),
+            right,
+            colours,
+            cx,
+        )
+    }
+
+    /// Somebody of the address book with no chat yet: their picture, their
+    /// name and their number.
+    fn palette_person_row(
+        &self,
+        index: usize,
+        contact: &Contact,
+        on: bool,
+        colours: &Colours,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let name = contact.display_name();
+        let picture = self.account.as_ref().and_then(|account| {
+            self.media
+                .avatar(account, &ChatId::new(contact.id.as_str()))
+        });
+        let face = avatar_or(
+            picture,
+            &name,
+            AvatarKind::Person,
+            metrics::AVATAR_LARGE(),
+            colours,
+        );
+        let title = div()
+            .min_w_0()
+            .truncate()
+            .text_size(metrics::TEXT_BODY())
+            .font_weight(FontWeight::MEDIUM)
+            .text_color(colours.text)
+            .child(SharedString::from(name));
+        let number: SharedString = contact
+            .phone
+            .as_deref()
+            .map(crate::format::phone)
+            .unwrap_or_default()
+            .into();
+        let right = div()
+            .flex_none()
+            .child(icon(IconName::UserPlus, px(15.), colours.text_muted));
+        self.palette_rich_row(
+            index,
+            on,
+            face,
+            title,
+            div().truncate().child(number).into_any_element(),
+            right,
+            colours,
+            cx,
+        )
+    }
+
     pub(super) fn render_palette(
         &self,
         colours: &Colours,
@@ -1095,6 +1365,7 @@ impl Shell {
         let step = self.palette.steps.last();
         let mut list = div()
             .id("palette-list")
+            .track_scroll(&self.palette.scroll)
             // As tall as the window leaves under its top, the field and
             // the footer; the results scroll inside.
             .max_h(
@@ -1152,43 +1423,16 @@ impl Shell {
                     );
                     continue;
                 }
-                Item::Chat(chat) => (
-                    match chat.kind {
-                        ChatKind::Group => IconName::Users,
-                        ChatKind::Direct => IconName::MessageCircle,
-                    },
-                    chat.title.clone().into(),
-                    match (step.map(|step| step.command), chat.unread_count) {
-                        // What the command would find: its state now.
-                        (Some(Command::PinAChat), _) if chat.pinned => {
-                            crate::i18n::t("commands.palette.pinned").into()
-                        }
-                        (Some(Command::ArchiveAChat), _) if chat.archived => {
-                            crate::i18n::t("commands.palette.archived").into()
-                        }
-                        (Some(Command::MuteAChat), _) if chat.muted => {
-                            crate::i18n::t("commands.palette.muted").into()
-                        }
-                        (_, 0) => "".into(),
-                        (_, n) => {
-                            crate::i18n::plural("commands.palette.unread", u64::from(n), &[]).into()
-                        }
-                    },
-                    None,
-                    false,
-                ),
-                Item::Person(contact) => (
-                    IconName::UserPlus,
-                    contact.display_name().into(),
-                    contact
-                        .phone
-                        .as_deref()
-                        .map(crate::format::phone)
-                        .unwrap_or_default()
-                        .into(),
-                    None,
-                    false,
-                ),
+                Item::Chat(chat) => {
+                    let on = index == self.palette.cursor;
+                    list = list.child(self.palette_chat_row(index, chat, on, now, colours, cx));
+                    continue;
+                }
+                Item::Person(contact) => {
+                    let on = index == self.palette.cursor;
+                    list = list.child(self.palette_person_row(index, contact, on, colours, cx));
+                    continue;
+                }
                 Item::Number(number) => (
                     IconName::SquarePen,
                     crate::i18n::tr("commands.palette.chat_with_number", &[("number", number)])
@@ -1335,8 +1579,7 @@ impl Shell {
                     // What Enter does to somewhere to go, on the row the
                     // keyboard is on.
                     .when(
-                        on && step.is_none()
-                            && matches!(item, Item::Chat(_) | Item::Person(_) | Item::Message(_)),
+                        on && step.is_none() && matches!(item, Item::Message(_)),
                         |this| {
                             this.child(
                                 mono(crate::i18n::tr(
@@ -1622,8 +1865,11 @@ mod tests {
             names("tgl", &["Light or dark", "Settings"]),
             Vec::<String>::new()
         );
-        // Case and stray spaces do not matter.
+        // Case, accents and stray spaces do not matter.
         assert_eq!(names("  LISBON ", &["Lisbon trip ✈️"]), ["Lisbon trip ✈️"]);
+        assert_eq!(names("rene", &["René Lomelí"]), ["René Lomelí"]);
+        assert_eq!(names("Lomeli", &["René Lomelí"]), ["René Lomelí"]);
+        assert_eq!(names("josé", &["Jose Pérez"]), ["Jose Pérez"]);
         // Equals keep their order: the list's own (most recent first).
         assert_eq!(names("a", &["Ana", "Abe"]), ["Ana", "Abe"]);
         // One letter does not match by "letters in order".

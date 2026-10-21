@@ -552,8 +552,8 @@ fn read_chat_list(store: &Store, asked: &ChatListAsked) -> ChatListRead {
         let listed = if asked.filter == ChatFilter::Archived {
             store.archived_chats(account).map(|mut chats| {
                 if let Some(query) = filter {
-                    let query = query.to_lowercase();
-                    chats.retain(|chat| chat.title.to_lowercase().contains(&query));
+                    let query = client_core::fold(query);
+                    chats.retain(|chat| client_core::fold(&chat.title).contains(&query));
                 }
                 chats
             })

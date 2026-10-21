@@ -232,6 +232,70 @@ fn the_keys_open_it_in_a_mode_and_the_prefixes_change_it(cx: &mut TestAppContext
 }
 
 #[gpui_kit::test]
+fn ctrl_p_lists_chats_with_their_faces_and_last_messages(cx: &mut TestAppContext) {
+    let harness = open_one(cx);
+    focus_composer(&harness, cx);
+    press(harness.window, "ctrl-p", cx);
+    let rows = palette_rows(&harness, cx);
+    assert!(rows.len() > 5, "{rows:?}");
+    assert!(rows.iter().all(|(kind, _)| *kind == "chat"), "{rows:?}");
+
+    // Each row has the chat's picture (or its initials), its last message
+    // and when that was, inside the row.
+    let at = cx.update(|cx| harness.shell.read(cx).palette.cursor);
+    let row = bounds_of(harness.window, &format!("palette-item-{at}"), cx);
+    for part in ["avatar", "preview", "time"] {
+        let found = bounds_of(harness.window, &format!("palette-{part}-{at}"), cx);
+        assert!(within(found, row), "{part}");
+    }
+    let (avatar, preview) = (
+        bounds_of(harness.window, &format!("palette-avatar-{at}"), cx),
+        bounds_of(harness.window, &format!("palette-preview-{at}"), cx),
+    );
+    assert!(avatar.right() <= preview.left());
+    // A chat with something unread says how much.
+    let unread = cx.update(|cx| {
+        harness
+            .shell
+            .read(cx)
+            .palette
+            .items
+            .iter()
+            .position(|item| matches!(item, Item::Chat(chat) if chat.unread_count > 0))
+    });
+    if let Some(unread) = unread {
+        assert!(shows(
+            harness.window,
+            Box::leak(format!("palette-badge-{unread}").into_boxed_str()),
+            cx
+        ));
+    }
+
+    // A name finds its chat at once, before the store is asked.
+    let title = rows[rows.len() - 1].1.clone();
+    let word = title.split_whitespace().next().unwrap().to_owned();
+    type_text(harness.window, &word, cx);
+    assert!(
+        rows_of(&harness, cx, "chat").contains(&title),
+        "{word}: {:?}",
+        palette_rows(&harness, cx)
+    );
+    assert!(rows_of(&harness, cx, "command").is_empty());
+
+    // Down to the last row: the list scrolls so that it is in view.
+    press(harness.window, "ctrl-a", cx);
+    press(harness.window, "backspace", cx);
+    let list = bounds(harness.window, "palette", cx);
+    for _ in 1..palette_rows(&harness, cx).len() {
+        press(harness.window, "down", cx);
+    }
+    let at = cx.update(|cx| harness.shell.read(cx).palette.cursor);
+    let row = bounds_of(harness.window, &format!("palette-item-{at}"), cx);
+    assert!(within(row, list), "{row:?} in {list:?}");
+    press(harness.window, "escape", cx);
+}
+
+#[gpui_kit::test]
 fn a_command_that_needs_to_be_told_something_asks_in_place(cx: &mut TestAppContext) {
     let dir = tempfile::tempdir().unwrap();
     cx.update(|cx| prepare(cx, Some(dir.path().join(settings::FILE_NAME))));

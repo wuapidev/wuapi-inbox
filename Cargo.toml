@@ -41,7 +41,7 @@ reqwest = { version = "0.13", default-features = false, features = ["json", "rus
 # SQLite with SQLCipher: the database on disk is encrypted. The vendored
 # OpenSSL supplies the cipher, so nothing has to be installed on Linux,
 # macOS or Windows (building it needs perl and make).
-rusqlite = { version = "0.40", features = ["bundled-sqlcipher-vendored-openssl", "cache"] }
+rusqlite = { version = "0.40", features = ["bundled-sqlcipher-vendored-openssl", "cache", "functions"] }
 getrandom = "0.3"
 # Audio: containers and codecs in pure Rust (symphonia), Opus for voice
 # notes in pure Rust (opus-decoder), and the system's audio output (cpal;
