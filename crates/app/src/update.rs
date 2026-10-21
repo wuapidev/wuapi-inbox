@@ -12,6 +12,7 @@
 //! snapshot, and is redrawn when there is another.
 
 use crate::cli::Options;
+use crate::i18n;
 use crate::product;
 use crate::settings;
 use gpui_kit::{App, Global};
@@ -370,7 +371,7 @@ fn make_move(plan: &updater::Relocation, args: Vec<OsString>) -> Result<(), Stri
 /// Only macOS has a move to make ([`updater::install::relocation_in`]).
 #[cfg(not(target_os = "macos"))]
 fn make_move(_: &updater::Relocation, _: Vec<OsString>) -> Result<(), String> {
-    Err("There is no Applications folder on this system.".to_owned())
+    Err(i18n::t("accounts.updates.no_applications_folder").to_owned())
 }
 
 /// The move to the Applications folder, where it would let this copy
@@ -445,14 +446,15 @@ pub fn set_base_url(cx: &mut App, url: &str) -> Result<(), String> {
         (url.to_owned(), UrlFrom::Setting)
     };
     if !cx.has_global::<Center>() {
-        return Err("Updates are off in this build.".into());
+        return Err(i18n::t("accounts.updates.off_in_build").into());
     }
     let center = cx.global_mut::<Center>();
     if let Some(file) = &center.saved_file {
         let saved = Saved {
             base_url: (url_from == UrlFrom::Setting).then(|| base_url.clone()),
         };
-        save_saved(file, &saved).map_err(|error| format!("It could not be saved: {error}"))?;
+        save_saved(file, &saved)
+            .map_err(|error| i18n::tr("accounts.updates.not_saved", &[("error", &error)]))?;
     }
     center.base_url = base_url.clone();
     center.url_from = url_from;
@@ -475,7 +477,7 @@ pub fn dismiss_notice(cx: &mut App) {
 /// Starts the application again and quits this one. With an update
 /// ready, the new start installs it.
 pub fn restart(cx: &mut App) -> Result<(), String> {
-    let actions = actions(cx).ok_or("Updates are off in this build.")?;
+    let actions = actions(cx).ok_or(i18n::t("accounts.updates.off_in_build"))?;
     actions.restart()?;
     cx.quit();
     Ok(())
@@ -491,22 +493,18 @@ pub fn ready_version(cx: &App) -> Option<Version> {
 
 /// How long ago, in words: "just now", "5 minutes ago", "2 days ago".
 pub fn ago(seconds: u64) -> String {
-    let count = |n: u64, unit: &str| match n {
-        1 => format!("1 {unit} ago"),
-        n => format!("{n} {unit}s ago"),
-    };
     match seconds {
-        0..=59 => "just now".to_owned(),
-        60..=3_599 => count(seconds / 60, "minute"),
-        3_600..=86_399 => count(seconds / 3_600, "hour"),
-        _ => count(seconds / 86_400, "day"),
+        0..=59 => i18n::t("accounts.updates.just_now").to_owned(),
+        60..=3_599 => i18n::plural("accounts.updates.minutes_ago", seconds / 60, &[]),
+        3_600..=86_399 => i18n::plural("accounts.updates.hours_ago", seconds / 3_600, &[]),
+        _ => i18n::plural("accounts.updates.days_ago", seconds / 86_400, &[]),
     }
 }
 
 /// When the source was last asked, in words.
 pub fn last_checked(snapshot: &Snapshot, now: u64) -> String {
     match snapshot.last_check {
-        None => "Never".to_owned(),
+        None => i18n::t("accounts.updates.never").to_owned(),
         Some(at) => {
             let mut text = ago(now.saturating_sub(at));
             if let Some(first) = text.get_mut(..1) {
@@ -521,20 +519,27 @@ pub fn last_checked(snapshot: &Snapshot, now: u64) -> String {
 pub fn status_line(snapshot: &Snapshot) -> String {
     let name = product::PRODUCT_NAME;
     match &snapshot.phase {
-        Phase::Disabled(reason) => format!("Updates are off: {reason}."),
-        Phase::Idle => "Not checked yet.".to_owned(),
-        Phase::Checking => "Checking…".to_owned(),
+        Phase::Disabled(reason) => {
+            let reason = if reason == NO_KEY {
+                i18n::t("accounts.updates.no_key")
+            } else {
+                reason.as_str()
+            };
+            i18n::tr("accounts.updates.disabled", &[("reason", &reason)])
+        }
+        Phase::Idle => i18n::t("accounts.updates.not_checked").to_owned(),
+        Phase::Checking => i18n::t("accounts.updates.checking").to_owned(),
         // A check that failed says which way, and why: a server that is
         // away and an update that was not taken are looked into
         // differently. (The reason never holds the address.)
         Phase::UpToDate => match &snapshot.failure {
-            Some(updater::Failure::Unreachable(reason)) => format!(
-                "The update server could not be reached: {reason}. It is asked again later."
-            ),
-            Some(updater::Failure::Refused(reason)) => {
-                format!("The update could not be used: {reason}. It is asked again later.")
+            Some(updater::Failure::Unreachable(reason)) => {
+                i18n::tr("accounts.updates.unreachable", &[("reason", reason)])
             }
-            None => format!("{name} is up to date."),
+            Some(updater::Failure::Refused(reason)) => {
+                i18n::tr("accounts.updates.refused", &[("reason", reason)])
+            }
+            None => i18n::tr("accounts.updates.up_to_date", &[("name", &name)]),
         },
         Phase::Downloading {
             version,
@@ -546,22 +551,22 @@ pub fn status_line(snapshot: &Snapshot) -> String {
             } else {
                 received.saturating_mul(100) / total
             };
-            format!("Downloading version {version}: {percent} %")
+            i18n::tr(
+                "accounts.updates.downloading",
+                &[("version", version), ("percent", &percent)],
+            )
         }
-        Phase::Ready { version, .. } => {
-            format!("Version {version} is ready. It is installed when {name} restarts.")
-        }
+        Phase::Ready { version, .. } => i18n::tr(
+            "accounts.updates.ready",
+            &[("version", version), ("name", &name)],
+        ),
         Phase::Available { version, why, .. } => match why {
-            Manual::Install(why) => {
-                format!("Version {version} is available. {}", why.explain())
-            }
-            Manual::TooOld => format!(
-                "Version {version} is available. This version is too old to update itself \
-                 to it: install it from the download page."
+            Manual::Install(why) => i18n::tr(
+                "accounts.updates.available",
+                &[("version", version), ("why", &why.explain())],
             ),
-            Manual::NoBuild => {
-                format!("Version {version} is out, without a build for this system yet.")
-            }
+            Manual::TooOld => i18n::tr("accounts.updates.too_old", &[("version", version)]),
+            Manual::NoBuild => i18n::tr("accounts.updates.no_build", &[("version", version)]),
         },
     }
 }

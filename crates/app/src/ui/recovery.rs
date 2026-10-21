@@ -8,6 +8,7 @@
 
 use super::conversation::{colophon, mark_frame};
 use super::widgets::{grid_mark, screen_header, screen_rail, tag, text_button, MarkPlay};
+use crate::i18n;
 use crate::settings;
 use crate::theme::px;
 use crate::theme::{fonts, metrics, palette};
@@ -75,7 +76,11 @@ impl Render for RecoveryScreen {
                     .h_full()
                     .flex()
                     .flex_col()
-                    .child(screen_header("Local data", 1., &palette))
+                    .child(screen_header(
+                        i18n::t("accounts.recovery.header"),
+                        1.,
+                        &palette,
+                    ))
                     .child(
                         div()
                             .flex_1()
@@ -100,7 +105,7 @@ impl Render for RecoveryScreen {
                                             .text_center()
                                             .text_size(metrics::TEXT_DISPLAY())
                                             .font_weight(FontWeight::SEMIBOLD)
-                                            .child("The local database cannot be opened"),
+                                            .child(i18n::t("accounts.recovery.title")),
                                     )
                                     .child(
                                         div()
@@ -109,15 +114,10 @@ impl Render for RecoveryScreen {
                                             .text_size(metrics::TEXT_BODY())
                                             .line_height(px(22.))
                                             .text_color(palette.text_muted)
-                                            .child(
-                                                "It is encrypted, and its key is no longer in \
-                                                 your system keychain. Resetting deletes the \
-                                                 copy on this computer and downloads your chats \
-                                                 again.",
-                                            ),
+                                            .child(i18n::t("accounts.recovery.text")),
                                     )
                                     .child(div().pt_4().child(tag(
-                                        "Messages waiting to be sent are lost",
+                                        i18n::t("accounts.recovery.lost"),
                                         Some(palette.danger),
                                         &palette,
                                     )))
@@ -139,7 +139,7 @@ impl Render for RecoveryScreen {
                                             .child(
                                                 text_button(
                                                     "recovery-quit",
-                                                    "Quit",
+                                                    i18n::t("accounts.recovery.quit"),
                                                     None,
                                                     false,
                                                     &palette,
@@ -151,7 +151,7 @@ impl Render for RecoveryScreen {
                                             .child(
                                                 text_button(
                                                     "reset-database",
-                                                    "Reset local data",
+                                                    i18n::t("accounts.recovery.reset"),
                                                     None,
                                                     true,
                                                     &palette,

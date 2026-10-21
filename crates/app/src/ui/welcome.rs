@@ -13,6 +13,7 @@ use super::conversation::{colophon, fact_row, framed_rows, sized_mark_frame};
 use super::widgets::{
     grid_mark_in, led, mono, reveal, screen_header, screen_rail, tag, text_button, MarkPlay,
 };
+use crate::i18n;
 use crate::motion::{self, Entrance};
 use crate::product::{MAKER, PRODUCT_NAME};
 use crate::settings;
@@ -180,7 +181,7 @@ impl WelcomeScreen {
                     .text_size(metrics::TEXT_BODY())
                     .line_height(px(22.))
                     .text_color(palette.text_muted)
-                    .child("A fast, native, open-source WhatsApp client for your wuapi numbers."),
+                    .child(i18n::t("accounts.welcome.tagline")),
                 step(1),
             ))
             // The two keys worth knowing before anything else.
@@ -189,9 +190,9 @@ impl WelcomeScreen {
                     .debug_selector(|| "welcome-keys".into())
                     .pt_2()
                     .text_color(palette.text_muted)
-                    .child(mono(format!(
-                        "Once you are in: {}",
-                        super::hints::keys_line()
+                    .child(mono(i18n::tr(
+                        "accounts.welcome.once_in",
+                        &[("keys", &super::hints::keys_line())],
                     ))),
                 step(1),
             ))
@@ -201,20 +202,20 @@ impl WelcomeScreen {
                     palette,
                     [
                         fact_row(
-                            "Native",
-                            "No browser inside. Chats open from this computer, at once.",
+                            i18n::t("accounts.welcome.native"),
+                            i18n::t("accounts.welcome.native_text"),
                             false,
                             palette,
                         ),
                         fact_row(
-                            "Drop-proof",
-                            "Messages queue and go out when the connection is back.",
+                            i18n::t("accounts.welcome.drop_proof"),
+                            i18n::t("accounts.welcome.drop_proof_text"),
                             true,
                             palette,
                         ),
                         fact_row(
-                            "Open source",
-                            "Apache-2.0, with pluggable providers. wuapi is the first.",
+                            i18n::t("accounts.welcome.open_source"),
+                            i18n::t("accounts.welcome.open_source_text"),
                             true,
                             palette,
                         ),
@@ -225,8 +226,14 @@ impl WelcomeScreen {
             ))
             .child(reveal(
                 div().pt_6().child(
-                    text_button("get-started", "Get started", None, true, palette)
-                        .on_click(cx.listener(|this, _, _, cx| this.get_started(cx))),
+                    text_button(
+                        "get-started",
+                        i18n::t("accounts.welcome.get_started"),
+                        None,
+                        true,
+                        palette,
+                    )
+                    .on_click(cx.listener(|this, _, _, cx| this.get_started(cx))),
                 ),
                 step(3),
             ))
@@ -287,7 +294,7 @@ impl WelcomeScreen {
                     .pt_6()
                     .text_size(metrics::TEXT_DISPLAY())
                     .font_weight(FontWeight::SEMIBOLD)
-                    .child("Choose how to connect"),
+                    .child(i18n::t("accounts.welcome.choose_title")),
                 step(0),
             ))
             .child(reveal(
@@ -298,7 +305,7 @@ impl WelcomeScreen {
                     .text_size(metrics::TEXT_BODY())
                     .line_height(px(22.))
                     .text_color(palette.text_muted)
-                    .child("A provider is what links your WhatsApp numbers to this client."),
+                    .child(i18n::t("accounts.welcome.choose_text")),
                 step(1),
             ))
             .child(reveal(
@@ -313,23 +320,22 @@ impl WelcomeScreen {
                             .child(led(palette.accent))
                             .child(lines(
                                 MAKER,
-                                "A hosted WhatsApp API. You sign in from the browser.",
+                                i18n::t("accounts.welcome.provider_text"),
                                 false,
                             ))
-                            .child(tag("Default", None, palette)),
+                            .child(tag(i18n::t("accounts.welcome.default"), None, palette)),
                         // Said, not hidden: there will be others, there are
                         // none yet, and this is how one is written.
                         row(true)
                             .debug_selector(|| "provider-other".into())
                             .child(led(palette.border))
                             .child(lines(
-                                "Other providers",
-                                "wuapi is the only adapter today. Writing one is one trait: \
-                                 docs/PROVIDERS.md.",
+                                i18n::t("accounts.welcome.other_providers"),
+                                i18n::t("accounts.welcome.other_providers_text"),
                                 true,
                             ))
                             .child(
-                                mono("NOT AVAILABLE YET")
+                                mono(i18n::t("accounts.welcome.not_available"))
                                     .text_size(px(9.5))
                                     .text_color(palette.text_faint),
                             ),
@@ -344,12 +350,24 @@ impl WelcomeScreen {
                     .flex()
                     .gap_2()
                     .child(
-                        text_button("welcome-back", "Back", None, false, palette)
-                            .on_click(cx.listener(|this, _, _, cx| this.back(cx))),
+                        text_button(
+                            "welcome-back",
+                            i18n::t("accounts.welcome.back"),
+                            None,
+                            false,
+                            palette,
+                        )
+                        .on_click(cx.listener(|this, _, _, cx| this.back(cx))),
                     )
                     .child(
-                        text_button("choose-wuapi", "Continue with wuapi", None, true, palette)
-                            .on_click(cx.listener(|this, _, _, cx| this.choose_wuapi(cx))),
+                        text_button(
+                            "choose-wuapi",
+                            i18n::t("accounts.welcome.continue"),
+                            None,
+                            true,
+                            palette,
+                        )
+                        .on_click(cx.listener(|this, _, _, cx| this.choose_wuapi(cx))),
                     ),
                 step(3),
             ))
@@ -400,7 +418,11 @@ impl Render for WelcomeScreen {
                     .h_full()
                     .flex()
                     .flex_col()
-                    .child(screen_header("Welcome", step(4), &palette))
+                    .child(screen_header(
+                        i18n::t("accounts.welcome.header"),
+                        step(4),
+                        &palette,
+                    ))
                     .child(
                         div()
                             .id("welcome-scroll")

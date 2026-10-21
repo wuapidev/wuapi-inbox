@@ -20,6 +20,7 @@
 use super::link_qr::{self, QrLook};
 use super::shell::{CloudOffer, Overlay, Shell};
 use super::widgets::{label, mono, switch, text_button, MarkPlay};
+use crate::i18n;
 use crate::icons::{icon, IconName};
 use crate::linking::{self, GIVE_UP, POLL};
 use crate::motion::{self, Tween};
@@ -169,15 +170,15 @@ pub(in crate::ui) struct NumberAction {
 pub(in crate::ui) fn said(error: &SyncError) -> SharedString {
     match error {
         SyncError::Provider(ProviderError::RateLimited { retry_after }) => match retry_after {
-            Some(wait) => format!(
-                "Too many requests. Try again in {} seconds.",
-                wait.as_secs().max(1)
+            Some(wait) => i18n::tr(
+                "accounts.numbers.rate_limited_in",
+                &[("seconds", &wait.as_secs().max(1))],
             )
             .into(),
-            None => "Too many requests. Wait a moment and try again.".into(),
+            None => i18n::t("accounts.numbers.rate_limited").into(),
         },
         SyncError::Provider(provider) if provider.is_transient() => {
-            "Could not reach the provider. Try again.".into()
+            i18n::t("accounts.numbers.unreachable").into()
         }
         SyncError::Provider(ProviderError::Rejected { message, .. }) => message.clone().into(),
         other => other.to_string().into(),
@@ -222,11 +223,13 @@ impl Shell {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> LinkFlow {
-        let name =
-            cx.new(|cx| InputState::new(window, cx).placeholder("Sales, Support, My number"));
+        let name = cx.new(|cx| {
+            InputState::new(window, cx).placeholder(i18n::t("accounts.numbers.name_placeholder"))
+        });
         let phone = cx.new(|cx| InputState::new(window, cx).placeholder("+58 424 555 0199"));
-        let place_search =
-            cx.new(|cx| InputState::new(window, cx).placeholder("Search a city or country"));
+        let place_search = cx.new(|cx| {
+            InputState::new(window, cx).placeholder(i18n::t("accounts.numbers.place_placeholder"))
+        });
         let subscriptions = vec![
             cx.subscribe_in(&phone, window, |this, _, event: &InputEvent, window, cx| {
                 match event {
@@ -300,7 +303,7 @@ impl Shell {
                     Ok(Err(error)) => {
                         flow.places = Some(Vec::new());
                         flow.error = Some(
-                            format!("The list of places could not be loaded. {}", said(&error))
+                            i18n::tr("accounts.numbers.places_failed", &[("why", &said(&error))])
                                 .into(),
                         );
                     }
@@ -371,10 +374,7 @@ impl Shell {
         // the number would be linked to this computer instead.
         let no_places = flow.places.as_ref().is_none_or(|places| places.is_empty());
         if self.cloud == CloudOffer::Connected && flow.in_cloud && no_places {
-            flow.error = Some(
-                "Wuapi Cloud's places could not be loaded. Close this and try again in a moment."
-                    .into(),
-            );
+            flow.error = Some(i18n::t("accounts.numbers.cloud_places_failed").into());
             return cx.notify();
         }
         let needs_place = !here
@@ -383,7 +383,7 @@ impl Shell {
                 .as_ref()
                 .is_some_and(|places| !places.is_empty());
         if (flow.places.is_none() && !here) || (needs_place && flow.place.is_none()) {
-            flow.error = Some("Choose where the number connects from.".into());
+            flow.error = Some(i18n::t("accounts.numbers.choose_place").into());
             return cx.notify();
         }
         let new = NewAccount {
@@ -480,7 +480,7 @@ impl Shell {
                 flow.stage = LinkStage::Stopped {
                     account: Some(account.clone()),
                     was_linked: status.was_linked,
-                    reason: "The number was not linked in time.".into(),
+                    reason: i18n::t("accounts.numbers.not_linked_in_time").into(),
                 };
                 false
             }
@@ -541,14 +541,14 @@ impl Shell {
             _ => (None, false),
         };
         let more = if error.is_transient() && waited < GIVE_UP {
-            flow.note = Some("The connection dropped. Still waiting for the phone.".into());
+            flow.note = Some(i18n::t("accounts.numbers.connection_dropped").into());
             true
         } else {
             flow.stage = LinkStage::Stopped {
                 account,
                 was_linked,
                 reason: if error.is_transient() {
-                    "The number was not linked in time.".into()
+                    i18n::t("accounts.numbers.not_linked_in_time").into()
                 } else {
                     said(error)
                 },
@@ -890,7 +890,11 @@ impl Shell {
                     Ok(Err(error)) => {
                         if let Some(flow) = this.linking.as_mut() {
                             flow.error = Some(
-                                format!("The number could not be deleted. {}", said(&error)).into(),
+                                i18n::tr(
+                                    "accounts.numbers.delete_failed",
+                                    &[("why", &said(&error))],
+                                )
+                                .into(),
                             );
                         }
                     }
@@ -964,7 +968,10 @@ impl Shell {
             .find(|known| known.id == account)
             .map(|known| known.display_name.clone())
             .unwrap_or_default();
-        let name = cx.new(|cx| InputState::new(window, cx).placeholder("A name for this number"));
+        let name = cx.new(|cx| {
+            InputState::new(window, cx)
+                .placeholder(i18n::t("accounts.numbers.name_input_placeholder"))
+        });
         name.update(cx, |field, cx| field.set_value(current, window, cx));
         let subscription = cx.subscribe_in(&name, window, |this, _, event: &InputEvent, _, cx| {
             if matches!(event, InputEvent::PressEnter { .. }) {
@@ -1005,7 +1012,7 @@ impl Shell {
         let typed = action.name.read(cx).value().trim().to_owned();
         let (renamed, new_name) = (account.clone(), typed.clone());
         if ask == NumberAsk::Rename && typed.is_empty() {
-            action.error = Some("Type a name.".into());
+            action.error = Some(i18n::t("accounts.numbers.type_name").into());
             return cx.notify();
         }
         action.busy = true;
@@ -1111,12 +1118,12 @@ impl Shell {
     ) -> Option<Div> {
         let flow = self.linking.as_ref()?;
         let title = match &flow.stage {
-            LinkStage::Form => "Link a number",
-            LinkStage::Waiting(_) if flow.ask_phone => linking::PHONE_TITLE,
+            LinkStage::Form => i18n::t("accounts.numbers.title_form"),
+            LinkStage::Waiting(_) if flow.ask_phone => linking::phone_title(),
             LinkStage::Creating => linking::step_text(&STARTING).0,
             LinkStage::Waiting(status) => linking::step_text(&status.step).0,
-            LinkStage::Done(_) => "Linked",
-            LinkStage::Stopped { .. } => "Linking stopped",
+            LinkStage::Done(_) => i18n::t("accounts.linking.linked.title"),
+            LinkStage::Stopped { .. } => i18n::t("accounts.linking.stopped.title"),
         };
         let body = match &flow.stage {
             LinkStage::Form => self.render_link_form(flow, palette, cx),
@@ -1180,7 +1187,7 @@ impl Shell {
 
         let mut form = div().flex().flex_col().gap_3().child(field_block(
             "link-name",
-            "Name (optional)",
+            i18n::t("accounts.numbers.name_optional"),
             &flow.name,
             false,
             palette,
@@ -1209,7 +1216,7 @@ impl Shell {
                     .flex()
                     .flex_col()
                     .gap_1()
-                    .child(label("Where to link it", palette))
+                    .child(label(i18n::t("accounts.numbers.where_to_link"), palette))
                     .child(
                         div()
                             .debug_selector(|| "link-home".into())
@@ -1221,8 +1228,8 @@ impl Shell {
                                     "link-home-cloud",
                                     IconName::Globe,
                                     "Wuapi Cloud",
-                                    Some("Recommended"),
-                                    CLOUD_POINTS,
+                                    Some(i18n::t("accounts.numbers.recommended")),
+                                    &cloud_points(),
                                     flow.in_cloud,
                                     palette,
                                 )
@@ -1232,9 +1239,9 @@ impl Shell {
                                 home_card(
                                     "link-home-here",
                                     IconName::Monitor,
-                                    "This computer",
+                                    i18n::t("accounts.home.local"),
                                     None,
-                                    LOCAL_POINTS,
+                                    &local_points(),
                                     !flow.in_cloud,
                                     palette,
                                 )
@@ -1252,7 +1259,7 @@ impl Shell {
                     .flex()
                     .flex_col()
                     .gap_1()
-                    .child(label("Where to link it", palette))
+                    .child(label(i18n::t("accounts.numbers.where_to_link"), palette))
                     .child(
                         div()
                             .debug_selector(|| "link-home".into())
@@ -1264,8 +1271,8 @@ impl Shell {
                                     "link-home-cloud",
                                     IconName::Globe,
                                     "Wuapi Cloud",
-                                    Some("Recommended"),
-                                    CLOUD_POINTS,
+                                    Some(i18n::t("accounts.numbers.recommended")),
+                                    &cloud_points(),
                                     false,
                                     palette,
                                 )
@@ -1273,7 +1280,7 @@ impl Shell {
                                     div().pt_1().flex().child(
                                         text_button(
                                             "link-home-connect",
-                                            "Connect Wuapi Cloud",
+                                            i18n::t("accounts.numbers.connect_cloud"),
                                             Some(IconName::ExternalLink),
                                             true,
                                             palette,
@@ -1297,9 +1304,9 @@ impl Shell {
                             .child(home_card(
                                 "link-home-here",
                                 IconName::Monitor,
-                                "This computer",
+                                i18n::t("accounts.home.local"),
                                 None,
-                                LOCAL_POINTS,
+                                &local_points(),
                                 true,
                                 palette,
                             )),
@@ -1314,7 +1321,7 @@ impl Shell {
                     .flex()
                     .flex_col()
                     .gap_1()
-                    .child(label("How to link", palette))
+                    .child(label(i18n::t("accounts.numbers.how_to_link"), palette))
                     .child(
                         div()
                             .debug_selector(|| "link-method".into())
@@ -1324,8 +1331,8 @@ impl Shell {
                                 method_card(
                                     "link-method-qr",
                                     IconName::Scan,
-                                    "Scan a QR code",
-                                    "The phone's camera reads a code shown here.",
+                                    i18n::t("accounts.numbers.method_qr"),
+                                    i18n::t("accounts.numbers.method_qr_text"),
                                     !flow.by_code,
                                     palette,
                                 )
@@ -1335,8 +1342,8 @@ impl Shell {
                                 method_card(
                                     "link-method-code",
                                     IconName::Phone,
-                                    "Use the phone number",
-                                    "You type an 8-character code on the phone.",
+                                    i18n::t("accounts.numbers.method_code"),
+                                    i18n::t("accounts.numbers.method_code_text"),
                                     flow.by_code,
                                     palette,
                                 )
@@ -1348,7 +1355,7 @@ impl Shell {
         if flow.by_code {
             form = form.child(field_block(
                 "link-phone",
-                "Number to link",
+                i18n::t("accounts.numbers.number_to_link"),
                 &flow.phone,
                 true,
                 palette,
@@ -1364,7 +1371,7 @@ impl Shell {
                         .debug_selector(|| "link-places-loading".into())
                         .text_size(metrics::TEXT_SMALL())
                         .text_color(palette.text_muted)
-                        .child("Loading the places a number can connect from…"),
+                        .child(i18n::t("accounts.numbers.places_loading")),
                 );
             }
             Some(places) if places.is_empty() => {}
@@ -1410,7 +1417,7 @@ impl Shell {
                 let more = matches.len().saturating_sub(PLACES_SHOWN);
                 let chosen: SharedString = match &flow.place {
                     Some(place) => linking::place_name(place).into(),
-                    None => "Not chosen".into(),
+                    None => i18n::t("accounts.numbers.not_chosen").into(),
                 };
                 // The place is chosen for the user, from their number and
                 // where the computer is: the list is there to change it,
@@ -1421,7 +1428,7 @@ impl Shell {
                         .flex()
                         .items_center()
                         .gap_3()
-                        .child(label("Connects from", palette))
+                        .child(label(i18n::t("accounts.numbers.connects_from"), palette))
                         .child(div().flex_1())
                         .child(
                             div()
@@ -1435,7 +1442,11 @@ impl Shell {
                                 small_button(
                                     "link-place-change",
                                     "link-place-change".into(),
-                                    if open { "Done" } else { "Change" },
+                                    if open {
+                                        i18n::t("accounts.numbers.done")
+                                    } else {
+                                        i18n::t("accounts.numbers.change")
+                                    },
                                     palette,
                                 )
                                 .on_click(cx.listener(
@@ -1457,10 +1468,7 @@ impl Shell {
                                 .text_size(metrics::TEXT_SMALL())
                                 .line_height(px(18.))
                                 .text_color(palette.text_muted)
-                                .child(
-                                    "The number reaches WhatsApp from here. Its own country \
-                                     is the best choice.",
-                                ),
+                                .child(i18n::t("accounts.numbers.place_hint")),
                         )
                         .child(input_box(
                             "link-place-search",
@@ -1474,12 +1482,12 @@ impl Shell {
                                 div()
                                     .text_size(metrics::TEXT_SMALL())
                                     .text_color(palette.text_muted)
-                                    .child("No place matches."),
+                                    .child(i18n::t("accounts.numbers.no_place")),
                             )
                         })
                         .when(more > 0, |this| {
                             this.child(
-                                mono(format!("{more} MORE: TYPE TO NARROW"))
+                                mono(i18n::tr("accounts.numbers.more_places", &[("more", &more)]))
                                     .text_size(px(9.5))
                                     .text_color(palette.text_faint),
                             )
@@ -1490,46 +1498,42 @@ impl Shell {
         }
 
         if caps.history_import {
-            form = form.child(
-                div()
-                    .flex()
-                    .items_center()
-                    .justify_between()
-                    .gap_4()
-                    .child(
-                        div()
-                            .flex_1()
-                            .min_w_0()
-                            .flex()
-                            .flex_col()
-                            .child(
-                                div()
-                                    .text_size(metrics::TEXT_BODY())
-                                    .child("Import recent chats from the phone"),
-                            )
-                            .child(
-                                div()
-                                    .text_size(metrics::TEXT_SMALL())
-                                    .line_height(px(18.))
-                                    .text_color(palette.text_muted)
-                                    .child(
-                                        "WhatsApp hands its history over once, when the number \
-                                         links. It cannot be asked for later.",
-                                    ),
-                            ),
-                    )
-                    .child(
-                        switch("link-history", flow.history, palette).on_click(cx.listener(
-                            |this, _, _, cx| {
+            form =
+                form.child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .justify_between()
+                        .gap_4()
+                        .child(
+                            div()
+                                .flex_1()
+                                .min_w_0()
+                                .flex()
+                                .flex_col()
+                                .child(
+                                    div()
+                                        .text_size(metrics::TEXT_BODY())
+                                        .child(i18n::t("accounts.numbers.import_history")),
+                                )
+                                .child(
+                                    div()
+                                        .text_size(metrics::TEXT_SMALL())
+                                        .line_height(px(18.))
+                                        .text_color(palette.text_muted)
+                                        .child(i18n::t("accounts.numbers.import_history_text")),
+                                ),
+                        )
+                        .child(switch("link-history", flow.history, palette).on_click(
+                            cx.listener(|this, _, _, cx| {
                                 cx.stop_propagation();
                                 if let Some(flow) = this.linking.as_mut() {
                                     flow.history = !flow.history;
                                 }
                                 cx.notify();
-                            },
+                            }),
                         )),
-                    ),
-            );
+                );
         }
 
         // The fields scroll when the card is not tall enough for them (a
@@ -1562,14 +1566,21 @@ impl Shell {
                             .clone()
                             .map(|error| error_line("link-error", error, palette)),
                     )
-                    .child(div().flex().justify_end().gap_2().child(
-                        text_button("link-submit", "Link number", None, true, palette).on_click(
-                            cx.listener(|this, _, _, cx| {
+                    .child(
+                        div().flex().justify_end().gap_2().child(
+                            text_button(
+                                "link-submit",
+                                i18n::t("accounts.numbers.link_submit"),
+                                None,
+                                true,
+                                palette,
+                            )
+                            .on_click(cx.listener(|this, _, _, cx| {
                                 cx.stop_propagation();
                                 this.submit_link(cx);
-                            }),
+                            })),
                         ),
-                    )),
+                    ),
             )
     }
 
@@ -1616,9 +1627,15 @@ impl Shell {
         let caps = self.link_caps();
         let step = status.map_or(&STARTING, |status| &status.step);
         let steps = [
-            ("Session", !matches!(step, LinkStep::Starting)),
-            ("Phone", matches!(step, LinkStep::Finishing)),
-            ("Linked", false),
+            (
+                i18n::t("accounts.numbers.step_session"),
+                !matches!(step, LinkStep::Starting),
+            ),
+            (
+                i18n::t("accounts.numbers.step_phone"),
+                matches!(step, LinkStep::Finishing),
+            ),
+            (i18n::t("accounts.linking.linked.title"), false),
         ];
         let mut progress = div().flex().items_center().gap_3();
         for (name, done) in steps {
@@ -1707,7 +1724,7 @@ impl Shell {
         } else if flow.qr_unreadable {
             div()
                 .debug_selector(|| "link-qr-unreadable".into())
-                .child("The code could not be drawn. A new one is on its way.")
+                .child(i18n::t("accounts.numbers.qr_unreadable"))
         } else {
             div().child(what_to_do)
         };
@@ -1729,7 +1746,7 @@ impl Shell {
                 |this| {
                     let button = text_button(
                         "link-use-code",
-                        "Link with phone number instead",
+                        i18n::t("accounts.numbers.use_code"),
                         Some(IconName::Phone),
                         false,
                         palette,
@@ -1770,14 +1787,11 @@ impl Shell {
                         .text_size(metrics::TEXT_SMALL())
                         .line_height(px(19.))
                         .text_color(palette.text_muted)
-                        .child(
-                            "WhatsApp gives a code for this number. You type it on the phone \
-                             and nothing has to be scanned.",
-                        ),
+                        .child(i18n::t("accounts.numbers.code_intro")),
                 )
                 .child(field_block(
                     "link-code-phone",
-                    "Number to link",
+                    i18n::t("accounts.numbers.number_to_link"),
                     &flow.phone,
                     true,
                     palette,
@@ -1788,10 +1802,9 @@ impl Shell {
                         .line_height(px(18.))
                         .text_color(palette.text_faint)
                         .child(if way_back || flow.by_code {
-                            "With its country code, like +58 412 123 4567."
+                            i18n::t("accounts.numbers.phone_hint")
                         } else {
-                            "With its country code, like +58 412 123 4567. Once the code is \
-                             asked for, this number links with the code."
+                            i18n::t("accounts.numbers.phone_hint_code")
                         }),
                 )
                 .child(
@@ -1804,9 +1817,9 @@ impl Shell {
                             text_button(
                                 "link-use-qr",
                                 if flow.by_code {
-                                    "Back to the code"
+                                    i18n::t("accounts.numbers.back_to_code")
                                 } else {
-                                    "Use QR code instead"
+                                    i18n::t("accounts.numbers.use_qr")
                                 },
                                 Some(IconName::ArrowLeft),
                                 false,
@@ -1823,9 +1836,9 @@ impl Shell {
                             text_button(
                                 "link-get-code",
                                 if flow.code_busy {
-                                    "Getting the code…"
+                                    i18n::t("accounts.numbers.getting_code")
                                 } else {
-                                    "Get code"
+                                    i18n::t("accounts.numbers.get_code")
                                 },
                                 None,
                                 true,
@@ -1865,15 +1878,23 @@ impl Shell {
             .map(|phone| client_core::phone::format(&phone));
         let said: SharedString = match (code, &life) {
             // One line each: the row keeps its height.
-            (None, _) if matches!(step, LinkStep::Finishing) => "The phone accepted.".into(),
-            (None, _) => "The code is on its way.".into(),
-            (Some(_), None) => "This code ran out.".into(),
-            (Some(_), Some(None)) => "Type it on the phone.".into(),
-            (Some(_), Some(Some(left))) => format!("Runs out in {left}").into(),
+            (None, _) if matches!(step, LinkStep::Finishing) => {
+                i18n::t("accounts.numbers.phone_accepted").into()
+            }
+            (None, _) => i18n::t("accounts.numbers.code_coming").into(),
+            (Some(_), None) => i18n::t("accounts.numbers.code_ran_out").into(),
+            (Some(_), Some(None)) => i18n::t("accounts.numbers.type_on_phone").into(),
+            (Some(_), Some(Some(left))) => {
+                i18n::tr("accounts.numbers.runs_out_in", &[("left", left)]).into()
+            }
         };
         let copy = text_button(
             "link-code-copy",
-            if flow.copied { "Copied" } else { "Copy code" },
+            if flow.copied {
+                i18n::t("accounts.login.copied")
+            } else {
+                i18n::t("accounts.login.copy_code")
+            },
             Some(if flow.copied {
                 IconName::Check
             } else {
@@ -1885,9 +1906,9 @@ impl Shell {
         let renew = text_button(
             "link-code-renew",
             if flow.code_busy {
-                "Getting the code…"
+                i18n::t("accounts.numbers.getting_code")
             } else {
-                "Get a new code"
+                i18n::t("accounts.numbers.new_code")
             },
             Some(IconName::RotateCw),
             code.is_some() && !live,
@@ -1903,7 +1924,7 @@ impl Shell {
             .flex()
             .flex_col()
             .gap_1();
-        for (index, text) in linking::CODE_STEPS.iter().enumerate() {
+        for (index, text) in linking::code_steps().iter().enumerate() {
             steps = steps.child(
                 div()
                     .flex()
@@ -1927,9 +1948,12 @@ impl Shell {
         }
         body.child(code_boxes(code, live, palette))
             .children(number.map(|number| {
-                mono(format!("FOR {number}"))
-                    .debug_selector(|| "link-code-for".into())
-                    .text_color(palette.text_muted)
+                mono(i18n::tr(
+                    "accounts.numbers.code_for",
+                    &[("number", &number)],
+                ))
+                .debug_selector(|| "link-code-for".into())
+                .text_color(palette.text_muted)
             }))
             .child(
                 div()
@@ -1969,7 +1993,7 @@ impl Shell {
                 this.child(
                     text_button(
                         "link-use-qr",
-                        "Use QR code instead",
+                        i18n::t("accounts.numbers.use_qr"),
                         Some(IconName::Scan),
                         false,
                         palette,
@@ -1987,12 +2011,17 @@ impl Shell {
     fn render_link_exit(&self, flow: &LinkFlow, palette: &Palette, cx: &mut Context<Self>) -> Div {
         if !flow.confirm_cancel {
             return div().w_full().flex().justify_end().child(
-                text_button("link-cancel", "Cancel", None, false, palette).on_click(cx.listener(
-                    |this, _, window, cx| {
-                        cx.stop_propagation();
-                        this.cancel_link(window, cx);
-                    },
-                )),
+                text_button(
+                    "link-cancel",
+                    i18n::t("accounts.numbers.cancel"),
+                    None,
+                    false,
+                    palette,
+                )
+                .on_click(cx.listener(|this, _, window, cx| {
+                    cx.stop_propagation();
+                    this.cancel_link(window, cx);
+                })),
             );
         }
         div()
@@ -2009,11 +2038,7 @@ impl Shell {
                 div()
                     .text_size(metrics::TEXT_SMALL())
                     .line_height(px(19.))
-                    .child(
-                        "Stop linking? This number was created just now and never linked, so \
-                         deleting it loses nothing. Keeping it leaves it in Settings to link \
-                         later.",
-                    ),
+                    .child(i18n::t("accounts.numbers.stop_linking")),
             )
             .child(
                 div()
@@ -2021,28 +2046,38 @@ impl Shell {
                     .justify_end()
                     .gap_2()
                     .child(
-                        text_button("link-keep-waiting", "Go back", None, false, palette).on_click(
-                            cx.listener(|this, _, _, cx| {
-                                cx.stop_propagation();
-                                if let Some(flow) = this.linking.as_mut() {
-                                    flow.confirm_cancel = false;
-                                }
-                                cx.notify();
-                            }),
-                        ),
+                        text_button(
+                            "link-keep-waiting",
+                            i18n::t("accounts.numbers.go_back"),
+                            None,
+                            false,
+                            palette,
+                        )
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            cx.stop_propagation();
+                            if let Some(flow) = this.linking.as_mut() {
+                                flow.confirm_cancel = false;
+                            }
+                            cx.notify();
+                        })),
                     )
                     .child(
-                        text_button("link-keep", "Keep it", None, false, palette).on_click(
-                            cx.listener(|this, _, window, cx| {
-                                cx.stop_propagation();
-                                this.leave_link(window, cx);
-                            }),
-                        ),
+                        text_button(
+                            "link-keep",
+                            i18n::t("accounts.numbers.keep"),
+                            None,
+                            false,
+                            palette,
+                        )
+                        .on_click(cx.listener(|this, _, window, cx| {
+                            cx.stop_propagation();
+                            this.leave_link(window, cx);
+                        })),
                     )
                     .child(
                         text_button(
                             "link-delete",
-                            "Stop and delete",
+                            i18n::t("accounts.numbers.stop_delete"),
                             Some(IconName::Trash),
                             false,
                             palette,
@@ -2062,8 +2097,16 @@ impl Shell {
         cx: &mut Context<Self>,
     ) -> Div {
         let who: SharedString = match &account.phone {
-            Some(phone) => format!("{} ({phone}) is linked.", account.display_name).into(),
-            None => format!("{} is linked.", account.display_name).into(),
+            Some(phone) => i18n::tr(
+                "accounts.numbers.linked_phone",
+                &[("name", &account.display_name), ("phone", phone)],
+            )
+            .into(),
+            None => i18n::tr(
+                "accounts.numbers.linked",
+                &[("name", &account.display_name)],
+            )
+            .into(),
         };
         div()
             .debug_selector(|| "link-done".into())
@@ -2084,19 +2127,23 @@ impl Shell {
                     .text_size(metrics::TEXT_SMALL())
                     .line_height(px(19.))
                     .text_color(palette.text_muted)
-                    .child(
-                        "Its chats appear as they arrive. Imported history can take a few \
-                         minutes.",
-                    ),
+                    .child(i18n::t("accounts.numbers.done_text")),
             )
-            .child(div().flex().justify_end().child(
-                text_button("link-open", "Open", None, true, palette).on_click(cx.listener(
-                    |this, _, window, cx| {
+            .child(
+                div().flex().justify_end().child(
+                    text_button(
+                        "link-open",
+                        i18n::t("accounts.numbers.open"),
+                        None,
+                        true,
+                        palette,
+                    )
+                    .on_click(cx.listener(|this, _, window, cx| {
                         cx.stop_propagation();
                         this.open_linked(window, cx);
-                    },
-                )),
-            ))
+                    })),
+                ),
+            )
     }
 
     fn render_link_stopped(
@@ -2136,7 +2183,7 @@ impl Shell {
                     div().flex().justify_end().child(
                         text_button(
                             "link-retry",
-                            "Try again",
+                            i18n::t("accounts.numbers.try_again"),
                             Some(IconName::RotateCw),
                             true,
                             palette,
@@ -2164,9 +2211,21 @@ impl Shell {
             .iter()
             .find(|known| known.id == action.account)?;
         let (title, confirm, glyph) = match action.ask {
-            NumberAsk::Rename => ("Rename number", "Save", None),
-            NumberAsk::LogOut => ("Log this number out?", "Log out", Some(IconName::LogOut)),
-            NumberAsk::Remove => ("Remove this number?", "Remove", Some(IconName::Trash)),
+            NumberAsk::Rename => (
+                i18n::t("accounts.numbers.rename_title"),
+                i18n::t("accounts.numbers.save"),
+                None,
+            ),
+            NumberAsk::LogOut => (
+                i18n::t("accounts.numbers.log_out_title"),
+                i18n::t("accounts.numbers.log_out"),
+                Some(IconName::LogOut),
+            ),
+            NumberAsk::Remove => (
+                i18n::t("accounts.numbers.remove_title"),
+                i18n::t("accounts.numbers.remove"),
+                Some(IconName::Trash),
+            ),
         };
         let body: Div = match action.ask {
             NumberAsk::Rename => input_box("number-name", &action.name, false, palette),
@@ -2174,20 +2233,17 @@ impl Shell {
                 .text_size(metrics::TEXT_BODY())
                 .line_height(px(21.))
                 .text_color(palette.text_muted)
-                .child(SharedString::from(format!(
-                    "{} was created and never linked to a phone, so it holds no chats. \
-                     Removing it deletes it for good.",
-                    account.display_name
+                .child(SharedString::from(i18n::tr(
+                    "accounts.numbers.remove_text",
+                    &[("name", &account.display_name)],
                 ))),
             NumberAsk::LogOut => div()
                 .text_size(metrics::TEXT_BODY())
                 .line_height(px(21.))
                 .text_color(palette.text_muted)
-                .child(SharedString::from(format!(
-                    "{} will be unlinked from its phone and stop sending and receiving. The \
-                     number and its messages stay; to use it again it has to be linked again \
-                     from the phone.",
-                    account.display_name
+                .child(SharedString::from(i18n::tr(
+                    "accounts.numbers.log_out_text",
+                    &[("name", &account.display_name)],
                 ))),
         };
         Some(
@@ -2220,17 +2276,28 @@ impl Shell {
                         .justify_end()
                         .gap_2()
                         .child(
-                            text_button("number-cancel", "Cancel", None, false, palette).on_click(
-                                cx.listener(|this, _, window, cx| {
+                            text_button(
+                                "number-cancel",
+                                i18n::t("accounts.numbers.cancel"),
+                                None,
+                                false,
+                                palette,
+                            )
+                            .on_click(cx.listener(
+                                |this, _, window, cx| {
                                     cx.stop_propagation();
                                     this.back_to_settings(window, cx);
-                                }),
-                            ),
+                                },
+                            )),
                         )
                         .child(
                             text_button(
                                 "number-confirm",
-                                if action.busy { "Working…" } else { confirm },
+                                if action.busy {
+                                    i18n::t("accounts.numbers.working")
+                                } else {
+                                    confirm
+                                },
                                 glyph,
                                 action.ask == NumberAsk::Rename,
                                 palette,
@@ -2287,22 +2354,13 @@ impl Shell {
             .filter(|_| caps.history_import)
         {
             let text = match history {
-                HistoryImport::Recent => {
-                    "History: the phone's recent chats are imported when this number links."
-                }
-                HistoryImport::Off => {
-                    "History: not imported. Chats from before this number was linked are not \
-                     here, because WhatsApp only hands them over at the moment of linking."
-                }
+                HistoryImport::Recent => i18n::t("accounts.numbers.history_recent"),
+                HistoryImport::Off => i18n::t("accounts.numbers.history_off"),
             };
             extras = extras
                 .child(line(text.into()).debug_selector(move || format!("number-history-{index}")));
             if history == HistoryImport::Recent && number.connection.is_connected() {
-                extras = extras.child(line(
-                    "It applies to the next link: to import now, log this number out and link \
-                     it again from the phone."
-                        .into(),
-                ));
+                extras = extras.child(line(i18n::t("accounts.numbers.history_next").into()));
             }
         }
         if let Some(setting) = &number.settings.server_media {
@@ -2327,7 +2385,7 @@ impl Shell {
             any = true;
             let (link, remove) = (number.id.clone(), number.id.clone());
             extras = extras.child(
-                line("This number was created and never linked to a phone.".into())
+                line(i18n::t("accounts.connection.unlinked_sentence").into())
                     .debug_selector(move || format!("number-unlinked-{index}")),
             );
             actions = actions
@@ -2335,7 +2393,7 @@ impl Shell {
                     small_button(
                         ("number-link", index),
                         format!("number-link-{index}"),
-                        "Link",
+                        i18n::t("accounts.connection.action_link"),
                         palette,
                     )
                     .on_click(cx.listener(move |this, _, window, cx| {
@@ -2347,7 +2405,7 @@ impl Shell {
                     small_button(
                         ("number-remove", index),
                         format!("number-remove-{index}"),
-                        "Remove",
+                        i18n::t("accounts.numbers.remove"),
                         palette,
                     )
                     .on_click(cx.listener(move |this, _, window, cx| {
@@ -2364,7 +2422,7 @@ impl Shell {
                     small_button(
                         ("number-rename", index),
                         format!("number-rename-{index}"),
-                        "Rename",
+                        i18n::t("accounts.numbers.rename"),
                         palette,
                     )
                     .on_click(cx.listener(move |this, _, window, cx| {
@@ -2377,9 +2435,9 @@ impl Shell {
                         ("number-reconnect", index),
                         format!("number-reconnect-{index}"),
                         if number.connection == ConnectionState::LoggedOut {
-                            "Link again"
+                            i18n::t("accounts.connection.action_link_again")
                         } else {
-                            "Reconnect"
+                            i18n::t("accounts.connection.action_reconnect")
                         },
                         palette,
                     )
@@ -2393,7 +2451,7 @@ impl Shell {
                     small_button(
                         ("number-logout", index),
                         format!("number-logout-{index}"),
-                        "Log out",
+                        i18n::t("accounts.numbers.log_out"),
                         palette,
                     )
                     .on_click(cx.listener(move |this, _, window, cx| {
@@ -2410,7 +2468,7 @@ impl Shell {
                 small_button(
                     ("number-profile", index),
                     format!("number-profile-{index}"),
-                    "WhatsApp profile",
+                    i18n::t("accounts.profile.own_title"),
                     palette,
                 )
                 .on_click(cx.listener(move |this, _, window, cx| {
@@ -2429,7 +2487,7 @@ impl Shell {
                 small_button(
                     ("number-import", index),
                     format!("number-import-{index}"),
-                    "Import history on next link",
+                    i18n::t("accounts.numbers.import_next"),
                     palette,
                 )
                 .on_click(cx.listener(move |this, _, _, cx| {
@@ -2448,22 +2506,23 @@ impl Shell {
 /// One of the two ways to link, on the form: what it is and what it asks
 /// of the phone, with the chosen one marked.
 /// What a number gets from being linked to Wuapi Cloud: only what is so.
-const CLOUD_POINTS: &[(&str, bool)] = &[
-    ("Always on: messages arrive with this computer off", true),
-    ("One number for the whole team, on every computer", true),
-    (
-        "Sticker favourites and status privacy, as on the phone",
-        true,
-    ),
-];
+fn cloud_points() -> [(&'static str, bool); 3] {
+    [
+        (i18n::t("accounts.numbers.cloud_always_on"), true),
+        (i18n::t("accounts.numbers.cloud_team"), true),
+        (i18n::t("accounts.numbers.cloud_favourites"), true),
+    ]
+}
 
 /// What a number gets from being linked to this computer, and what it
 /// gives up.
-const LOCAL_POINTS: &[(&str, bool)] = &[
-    ("Calls, from this computer", true),
-    ("Nothing to sign up for", true),
-    ("Connected only while this application is open", false),
-];
+fn local_points() -> [(&'static str, bool); 3] {
+    [
+        (i18n::t("accounts.numbers.local_calls"), true),
+        (i18n::t("accounts.numbers.local_no_signup"), true),
+        (i18n::t("accounts.numbers.local_while_open"), false),
+    ]
+}
 
 /// One of the places a number can be linked to, with what it means: its
 /// name, a tag when it is the one to prefer, and a list of points, each
@@ -2473,7 +2532,7 @@ fn home_card(
     glyph: IconName,
     title: &'static str,
     tag: Option<&'static str>,
-    points: &'static [(&'static str, bool)],
+    points: &[(&'static str, bool)],
     chosen: bool,
     palette: &Palette,
 ) -> Stateful<Div> {
