@@ -59,38 +59,58 @@ pub fn command(action: &dyn Action) -> Option<Command> {
 }
 
 /// The menus, in the order of the bar.
+///
+/// Written in the language in use; [`refresh`] builds them again when it
+/// changes.
 pub fn menus() -> Vec<Menu> {
+    let product: &dyn std::fmt::Display = &PRODUCT_NAME;
+    let t = crate::i18n::t;
     vec![
         // macOS titles the first menu with the application's name.
         Menu::new(PRODUCT_NAME).items([
-            MenuItem::action(format!("About {PRODUCT_NAME}"), About),
+            MenuItem::action(
+                crate::i18n::tr("commands.menu.about", &[("product", product)]),
+                About,
+            ),
             MenuItem::separator(),
-            MenuItem::action("Settings…", OpenSettings),
-            MenuItem::action("Check for Updates…", CheckForUpdates),
+            MenuItem::action(t("commands.menu.settings"), OpenSettings),
+            MenuItem::action(t("commands.menu.check_for_updates"), CheckForUpdates),
             MenuItem::separator(),
-            MenuItem::os_submenu("Services", SystemMenuType::Services),
+            MenuItem::os_submenu(t("commands.menu.services"), SystemMenuType::Services),
             MenuItem::separator(),
-            MenuItem::action(format!("Hide {PRODUCT_NAME}"), Hide),
-            MenuItem::action("Hide Others", HideOthers),
-            MenuItem::action("Show All", ShowAll),
+            MenuItem::action(
+                crate::i18n::tr("commands.menu.hide", &[("product", product)]),
+                Hide,
+            ),
+            MenuItem::action(t("commands.menu.hide_others"), HideOthers),
+            MenuItem::action(t("commands.menu.show_all"), ShowAll),
             MenuItem::separator(),
-            MenuItem::action(format!("Quit {PRODUCT_NAME}"), Quit),
+            MenuItem::action(
+                crate::i18n::tr("commands.menu.quit", &[("product", product)]),
+                Quit,
+            ),
         ]),
         // The text fields' own actions: an entry acts on the field that
         // has the keyboard, and is greyed out when none has.
-        Menu::new("Edit").items([
-            MenuItem::os_action("Undo", Undo, OsAction::Undo),
-            MenuItem::os_action("Redo", Redo, OsAction::Redo),
+        Menu::new(t("commands.menu.edit")).items([
+            MenuItem::os_action(t("commands.menu.undo"), Undo, OsAction::Undo),
+            MenuItem::os_action(t("commands.menu.redo"), Redo, OsAction::Redo),
             MenuItem::separator(),
-            MenuItem::os_action("Cut", Cut, OsAction::Cut),
-            MenuItem::os_action("Copy", Copy, OsAction::Copy),
-            MenuItem::os_action("Paste", Paste, OsAction::Paste),
-            MenuItem::os_action("Select All", SelectAll, OsAction::SelectAll),
+            MenuItem::os_action(t("commands.menu.cut"), Cut, OsAction::Cut),
+            MenuItem::os_action(t("commands.menu.copy"), Copy, OsAction::Copy),
+            MenuItem::os_action(t("commands.menu.paste"), Paste, OsAction::Paste),
+            MenuItem::os_action(
+                t("commands.menu.select_all"),
+                SelectAll,
+                OsAction::SelectAll,
+            ),
         ]),
-        // By this name macOS adds its own entries, and the open windows.
+        // By this name macOS adds its own entries, and the open windows
+        // (GPUI looks for "Window"): the title is the one menu that stays
+        // as it is, and the system writes its own entries in its language.
         Menu::new("Window").items([
-            MenuItem::action("Minimize", Minimize),
-            MenuItem::action("Zoom", Zoom),
+            MenuItem::action(t("commands.menu.minimize"), Minimize),
+            MenuItem::action(t("commands.menu.zoom"), Zoom),
         ]),
     ]
 }
@@ -158,6 +178,17 @@ pub fn install(cx: &mut App) {
     cx.on_action(|_: &Zoom, cx| in_active_window(cx, |window| window.zoom_window()));
     // The keys first: the bar prints the ones that are bound.
     cx.bind_keys(key_bindings());
+    cx.set_menus(menus());
+}
+
+/// Builds the menu bar again, in the language in use. On macOS only, like
+/// [`install`]; the settings call it when the language changes.
+// Nothing calls it until the settings do.
+#[allow(dead_code)]
+pub fn refresh(cx: &mut App) {
+    if !cfg!(target_os = "macos") {
+        return;
+    }
     cx.set_menus(menus());
 }
 

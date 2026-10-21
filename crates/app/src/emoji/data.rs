@@ -83,6 +83,28 @@ pub struct Group {
     pub range: Range<usize>,
 }
 
+impl Group {
+    /// Its name in the language of the interface: the data names the
+    /// groups in English, and a group the catalog does not know keeps that
+    /// name.
+    // The picker draws `name` today; it asks for this where it draws.
+    #[allow(dead_code)]
+    pub fn title(&self) -> &str {
+        match &*self.name {
+            "Smileys & Emotion" => crate::i18n::t("commands.emoji_groups.smileys"),
+            "People & Body" => crate::i18n::t("commands.emoji_groups.people"),
+            "Animals & Nature" => crate::i18n::t("commands.emoji_groups.animals"),
+            "Food & Drink" => crate::i18n::t("commands.emoji_groups.food"),
+            "Travel & Places" => crate::i18n::t("commands.emoji_groups.travel"),
+            "Activities" => crate::i18n::t("commands.emoji_groups.activities"),
+            "Objects" => crate::i18n::t("commands.emoji_groups.objects"),
+            "Symbols" => crate::i18n::t("commands.emoji_groups.symbols"),
+            "Flags" => crate::i18n::t("commands.emoji_groups.flags"),
+            other => other,
+        }
+    }
+}
+
 /// Every emoji.
 #[derive(Debug, Default)]
 pub struct EmojiSet {

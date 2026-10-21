@@ -67,12 +67,13 @@ pub(super) enum Scope {
 }
 
 /// The prefixes, as `?` lists them.
+/// Each is the prefix and the catalog key of what it does.
 pub(super) const MODES: [(&str, &str); 5] = [
-    ("", "Go to a chat, a person or a message"),
-    (">", "Run a command"),
-    ("@", "Find a person"),
-    ("#", "Find a group"),
-    ("/", "Search this conversation"),
+    ("", "commands.palette.mode_go"),
+    (">", "commands.palette.mode_command"),
+    ("@", "commands.palette.mode_person"),
+    ("#", "commands.palette.mode_group"),
+    ("/", "commands.palette.mode_conversation"),
 ];
 
 /// Splits what was typed into what to look through and what to look for.
@@ -270,7 +271,8 @@ impl PaletteState {
     pub(super) fn new(window: &mut Window, cx: &mut Context<Shell>) -> Self {
         Self {
             input: cx.new(|cx| {
-                InputState::new(window, cx).placeholder("Go to a chat, or type > for commands")
+                InputState::new(window, cx)
+                    .placeholder(crate::i18n::t("commands.palette.placeholder"))
             }),
             messages_only: false,
             items: Vec::new(),
@@ -282,8 +284,10 @@ impl PaletteState {
             recent_chats: Vec::new(),
             recent_commands: Vec::new(),
             usage: None,
-            shortcuts_input: cx
-                .new(|cx| InputState::new(window, cx).placeholder("Search an action or a key")),
+            shortcuts_input: cx.new(|cx| {
+                InputState::new(window, cx)
+                    .placeholder(crate::i18n::t("commands.shortcuts.placeholder"))
+            }),
         }
     }
 
@@ -363,6 +367,7 @@ pub(super) fn shortcut_rows_for(query: &str) -> Vec<(Section, Vec<(&'static Bind
                 .into_iter()
                 .filter(|(binding, keys)| {
                     wanted.is_empty()
+                        || binding.title().to_lowercase().contains(&wanted)
                         || binding.label.to_lowercase().contains(&wanted)
                         || as_keys(keys).contains(&wanted_keys)
                 })
@@ -401,6 +406,17 @@ pub(super) fn shortcut_rows() -> Vec<(Section, Vec<(&'static Binding, String)>)>
 impl Shell {
     // ----- the palette --------------------------------------------------------------
 
+    /// Puts the placeholders of the palette's two fields in the language in
+    /// use, which may have changed since they were made.
+    pub(super) fn palette_placeholders(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.palette.input.update(cx, |field, cx| {
+            field.set_placeholder(crate::i18n::t("commands.palette.placeholder"), window, cx)
+        });
+        self.palette.shortcuts_input.update(cx, |field, cx| {
+            field.set_placeholder(crate::i18n::t("commands.shortcuts.placeholder"), window, cx)
+        });
+    }
+
     /// Opens the palette: to go somewhere, or over messages alone.
     pub(super) fn open_palette(
         &mut self,
@@ -408,6 +424,7 @@ impl Shell {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        self.palette_placeholders(window, cx);
         self.palette.messages_only = messages_only;
         self.palette.found = Found::default();
         self.palette._search = None;
@@ -512,11 +529,24 @@ impl Shell {
     fn command_title(&self, command: Command) -> SharedString {
         match command {
             Command::Account(place) => match self.linked_accounts().nth(usize::from(place) - 1) {
-                Some(account) => format!("Go to {}", self.account_name(account)).into(),
+                Some(account) => crate::i18n::tr(
+                    "commands.palette.go_to_number",
+                    &[("name", &self.account_name(account))],
+                )
+                .into(),
                 None => keys::label(command).into(),
             },
             _ => keys::label(command).into(),
         }
+    }
+
+    /// How well `query` names a command in English, which is searched
+    /// whatever the language in use: `None` where that is the language.
+    fn english_score(&self, query: &str, command: Command) -> Option<u32> {
+        if crate::i18n::language() == crate::i18n::Language::En {
+            return None;
+        }
+        score(query, keys::binding(command)?.label)
     }
 
     /// The commands that answer `query`, best first: by how well their
@@ -529,8 +559,9 @@ impl Shell {
             .into_iter()
             .filter_map(|(command, avail)| {
                 // By its name, or by its keys ("ctrl+n").
-                let matched =
-                    key_score(query, command).max(score(query, &self.command_title(command)))?;
+                let matched = key_score(query, command)
+                    .max(score(query, &self.command_title(command)))
+                    .max(self.english_score(query, command))?;
                 match avail {
                     Avail::Enabled => {
                         Some((matched + usage.boost(command), Item::Command(command)))
@@ -631,10 +662,16 @@ impl Shell {
 
         let (scope, query) = parse(&typed, self.palette.messages_only);
         if scope == Scope::Help {
-            items.push(Item::Section("What to type"));
+            items.push(Item::Section(crate::i18n::t(
+                "commands.palette.section_prefixes",
+            )));
             items.extend((0..MODES.len()).map(Item::Choice));
         } else if scope == Scope::Commands {
-            section(&mut items, "Commands", self.ranked_commands(query, 60, cx));
+            section(
+                &mut items,
+                crate::i18n::t("commands.palette.section_commands"),
+                self.ranked_commands(query, 60, cx),
+            );
         } else if query.is_empty() && scope == Scope::All {
             // Nothing typed: what was used last, then the chats on top.
             let chats = listed(self);
@@ -651,11 +688,19 @@ impl Shell {
                 .take(CHATS.saturating_sub(recent.len()))
                 .map(|chat| Item::Chat(chat.clone()))
                 .collect();
-            section(&mut items, "Recent", recent);
-            section(&mut items, "Chats", rest);
             section(
                 &mut items,
-                "Commands",
+                crate::i18n::t("commands.palette.section_recent"),
+                recent,
+            );
+            section(
+                &mut items,
+                crate::i18n::t("commands.palette.section_chats"),
+                rest,
+            );
+            section(
+                &mut items,
+                crate::i18n::t("commands.palette.section_commands"),
                 self.ranked_commands("", COMMANDS, cx),
             );
         } else {
@@ -671,9 +716,9 @@ impl Shell {
                 section(
                     &mut items,
                     if scope == Scope::Groups {
-                        "Groups"
+                        crate::i18n::t("commands.palette.section_groups")
                     } else {
-                        "Chats"
+                        crate::i18n::t("commands.palette.section_chats")
                     },
                     chats.into_iter().take(CHATS).map(Item::Chat).collect(),
                 );
@@ -695,14 +740,14 @@ impl Shell {
                 let people = rank(query, people, |contact| contact.display_name());
                 section(
                     &mut items,
-                    "People",
+                    crate::i18n::t("commands.palette.section_people"),
                     people.into_iter().take(PEOPLE).map(Item::Person).collect(),
                 );
             }
             if scope == Scope::All {
                 section(
                     &mut items,
-                    "Commands",
+                    crate::i18n::t("commands.palette.section_commands"),
                     self.ranked_commands(query, COMMANDS, cx),
                 );
             }
@@ -710,9 +755,9 @@ impl Shell {
                 section(
                     &mut items,
                     if scope == Scope::InChat {
-                        "In this conversation"
+                        crate::i18n::t("commands.palette.section_in_conversation")
                     } else {
-                        "Messages"
+                        crate::i18n::t("commands.palette.section_messages")
                     },
                     self.palette
                         .found
@@ -1014,11 +1059,13 @@ impl Shell {
                 .line_height(px(18.))
                 .text_color(colours.text)
                 .child(icon(IconName::Keyboard, px(15.), colours.icon))
-                .child(div().flex_1().min_w_0().child(format!(
-                    "Tip: {} finds any chat, {} runs any action, {} lists every shortcut.",
-                    key(Command::Palette),
-                    key(Command::PaletteCommands),
-                    key(Command::Shortcuts)
+                .child(div().flex_1().min_w_0().child(crate::i18n::tr(
+                    "commands.palette.tip",
+                    &[
+                        ("go", &key(Command::Palette)),
+                        ("commands", &key(Command::PaletteCommands)),
+                        ("shortcuts", &key(Command::Shortcuts)),
+                    ],
                 )))
                 .child(
                     div()
@@ -1034,7 +1081,7 @@ impl Shell {
                             });
                             cx.notify();
                         }))
-                        .child(mono("GOT IT")),
+                        .child(mono(crate::i18n::t("commands.palette.tip_dismiss"))),
                 ),
         )
     }
@@ -1113,12 +1160,19 @@ impl Shell {
                     chat.title.clone().into(),
                     match (step.map(|step| step.command), chat.unread_count) {
                         // What the command would find: its state now.
-                        (Some(Command::PinAChat), _) if chat.pinned => "Pinned".into(),
-                        (Some(Command::ArchiveAChat), _) if chat.archived => "Archived".into(),
-                        (Some(Command::MuteAChat), _) if chat.muted => "Muted".into(),
+                        (Some(Command::PinAChat), _) if chat.pinned => {
+                            crate::i18n::t("commands.palette.pinned").into()
+                        }
+                        (Some(Command::ArchiveAChat), _) if chat.archived => {
+                            crate::i18n::t("commands.palette.archived").into()
+                        }
+                        (Some(Command::MuteAChat), _) if chat.muted => {
+                            crate::i18n::t("commands.palette.muted").into()
+                        }
                         (_, 0) => "".into(),
-                        (_, 1) => "1 unread".into(),
-                        (_, n) => format!("{n} unread").into(),
+                        (_, n) => {
+                            crate::i18n::plural("commands.palette.unread", u64::from(n), &[]).into()
+                        }
                     },
                     None,
                     false,
@@ -1137,7 +1191,8 @@ impl Shell {
                 ),
                 Item::Number(number) => (
                     IconName::SquarePen,
-                    format!("Chat with {number}").into(),
+                    crate::i18n::tr("commands.palette.chat_with_number", &[("number", number)])
+                        .into(),
                     "".into(),
                     None,
                     false,
@@ -1198,9 +1253,9 @@ impl Shell {
                     _ => match MODES.get(*place) {
                         Some((prefix, what)) => (
                             IconName::ChevronRight,
-                            (*what).into(),
+                            crate::i18n::t(what).into(),
                             if prefix.is_empty() {
-                                "nothing".into()
+                                crate::i18n::t("commands.palette.mode_nothing").into()
                             } else {
                                 (*prefix).into()
                             },
@@ -1284,10 +1339,13 @@ impl Shell {
                             && matches!(item, Item::Chat(_) | Item::Person(_) | Item::Message(_)),
                         |this| {
                             this.child(
-                                mono(format!("{} to open", keys::key_label("enter")))
-                                    .debug_selector(|| "palette-enter".into())
-                                    .flex_none()
-                                    .text_color(colours.text_muted),
+                                mono(crate::i18n::tr(
+                                    "commands.palette.to_open",
+                                    &[("key", &keys::key_label("enter"))],
+                                ))
+                                .debug_selector(|| "palette-enter".into())
+                                .flex_none()
+                                .text_color(colours.text_muted),
                             )
                         },
                     )
@@ -1311,18 +1369,19 @@ impl Shell {
         // The few keys worth knowing where the palette is now.
         let typed = self.palette.input.read(cx).value().to_string();
         let scope = parse(&typed, self.palette.messages_only).0;
-        let stay = format!(
-            "ENTER RUN   {} RUN AND STAY   ESC CLOSE",
-            keys::Chord::label(&keys::RUN_AND_STAY).to_uppercase()
+        let stay = crate::i18n::tr(
+            "commands.palette.hints_commands",
+            &[(
+                "keys",
+                &keys::Chord::label(&keys::RUN_AND_STAY).to_uppercase(),
+            )],
         );
         let hints: SharedString = match (step.map(|step| &step.kind), scope) {
-            (Some(StepKind::Lines(_)), _) => "ESC BACK".into(),
-            (Some(_), _) => "ENTER CHOOSE   TAB COMPLETE   ESC BACK".into(),
+            (Some(StepKind::Lines(_)), _) => crate::i18n::t("commands.palette.hints_lines").into(),
+            (Some(_), _) => crate::i18n::t("commands.palette.hints_choices").into(),
             (None, Scope::Commands) => stay.into(),
-            (None, Scope::Help) => "ENTER CHOOSE   ESC CLOSE".into(),
-            (None, _) => {
-                "ENTER OPEN   > COMMANDS   @ PEOPLE   / THIS CONVERSATION   ? ALL PREFIXES".into()
-            }
+            (None, Scope::Help) => crate::i18n::t("commands.palette.hints_help").into(),
+            (None, _) => crate::i18n::t("commands.palette.hints_all").into(),
         };
         self.card("palette", colours)
             .w(metrics::PALETTE_WIDTH())
@@ -1381,7 +1440,7 @@ impl Shell {
                         .pb_4()
                         .text_size(metrics::TEXT_SMALL())
                         .text_color(colours.text_muted)
-                        .child("Nothing found."),
+                        .child(crate::i18n::t("commands.palette.nothing_found")),
                 )
             })
             .child(
@@ -1423,7 +1482,7 @@ impl Shell {
                     .pt_4()
                     .text_size(metrics::TEXT_SMALL())
                     .text_color(colours.text_muted)
-                    .child("No shortcut by that name or key."),
+                    .child(crate::i18n::t("commands.shortcuts.none")),
             );
         }
         for (section, rows) in found {
@@ -1453,7 +1512,7 @@ impl Shell {
                                 .min_w_0()
                                 .truncate()
                                 .text_size(metrics::TEXT_BODY())
-                                .child(binding.label),
+                                .child(binding.title()),
                         )
                         .child(
                             mono(keys)
@@ -1469,7 +1528,7 @@ impl Shell {
             .flex()
             .flex_col()
             .child(super::menus::panel_header(
-                "Keyboard shortcuts",
+                crate::i18n::t("commands.shortcuts.title"),
                 colours,
                 cx.listener(|this, _, window, cx| this.close_overlay(window, cx)),
             ))
