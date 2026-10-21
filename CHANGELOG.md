@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+* Ctrl+P (⌘P) goes to a chat and lists nothing else: each chat with its picture, its last message (or who is typing), when that was and what is unread, and the people of the address book who have no chat yet. The commands are Ctrl+Shift+P (or `>` typed), the messages Ctrl+Shift+F. The chats the list has loaded answer as each letter is typed; the store's read adds the rest. The list scrolls to follow the keyboard.
+* Searching ignores accents, in the chat list's field and in the palette, for chats, people and the members of a group: "rene" finds "René Lomelí", and "lomeli" too. `client_core::fold`, which the store gives SQLite as `fold(text)`.
+
 ## [0.6.0]
 
 * The interface is in English and Spanish. Settings > Appearance > Language picks System (the language of the computer, which is what it was until now), English or Español, and the palette has "Interface language…". It changes at once, with no restart, in every window, and on macOS in the menu bar too. Every text of the interface comes from a catalog, the conversations, the palette, settings, sign-in, accounts, groups, communities, calls, tasks and status among them, and so do the dates (weekdays and months of the calendar and the tasks), the names of the emoji groups and languages, and the sizes.

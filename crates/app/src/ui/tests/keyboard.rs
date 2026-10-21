@@ -1241,7 +1241,7 @@ fn the_palette_finds_a_message_opens_its_chat_and_goes_to_it(cx: &mut TestAppCon
     let harness = open(cx, ShellOptions::default());
     assert!(cx.update(|cx| harness.shell.read(cx).open.is_none()));
 
-    // Ctrl+K, from anywhere: with nothing typed, chats and commands.
+    // Ctrl+K, from anywhere: with nothing typed, chats and nothing else.
     press(harness.window, "ctrl-k", cx);
     assert_eq!(overlay(&harness, cx), Overlay::Palette);
     let palette = bounds(harness.window, "palette", cx);
@@ -1253,10 +1253,23 @@ fn the_palette_finds_a_message_opens_its_chat_and_goes_to_it(cx: &mut TestAppCon
     assert!(palette.top() > px(40.) && palette.bottom() < window.height);
     let rows = palette_rows(&harness, cx);
     assert!(rows.iter().any(|(kind, _)| *kind == "chat"));
-    assert!(rows.iter().any(|(kind, _)| *kind == "command"));
+    assert!(rows.iter().all(|(kind, _)| *kind == "chat"), "{rows:?}");
+    // Nor are messages found there: a word that is only in messages
+    // finds nothing to go to.
+    type_text(harness.window, "dentist", cx);
+    settle_search(&harness, cx);
+    assert!(
+        !palette_rows(&harness, cx)
+            .iter()
+            .any(|(kind, _)| matches!(*kind, "message" | "command")),
+        "{:?}",
+        palette_rows(&harness, cx)
+    );
+    press(harness.window, "escape", cx);
 
-    // A word that is only in messages: the store is asked a moment after
-    // the typing stops, not per letter.
+    // Ctrl+Shift+F looks through the messages: the store is asked a
+    // moment after the typing stops, not per letter.
+    press(harness.window, "ctrl-shift-f", cx);
     type_text(harness.window, "dentist", cx);
     assert!(
         !palette_rows(&harness, cx)
@@ -1401,7 +1414,7 @@ fn the_palette_narrows_by_prefix_and_runs_commands_with_their_keys(cx: &mut Test
     assert!(!shows(harness.window, "palette-step", cx));
     press(harness.window, "escape", cx);
     assert_eq!(overlay(&harness, cx), Overlay::None);
-    press(harness.window, "ctrl-k", cx);
+    press(harness.window, "ctrl-shift-p", cx);
     let commands: Vec<String> = palette_rows(&harness, cx)
         .into_iter()
         .filter(|(kind, _)| *kind == "command")
@@ -1409,6 +1422,7 @@ fn the_palette_narrows_by_prefix_and_runs_commands_with_their_keys(cx: &mut Test
         .collect();
     assert_eq!(commands[0], "New chat");
     assert_eq!(commands[1], "Settings: Keyboard");
+    press(harness.window, "backspace", cx);
 
     // "#" is groups, "@" people of the address book.
     type_text(harness.window, "#lisbon", cx);

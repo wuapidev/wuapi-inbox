@@ -124,7 +124,7 @@
   "common.shell.participants.other": "{n} participants",
   "common.shell.search": "Search",
   "common.shell.search_conversation": "Search in this conversation",
-  "common.shell.search_keys": "Search  ·  {keys} for everything",
+  "common.shell.search_keys": "Search  ·  {keys} to go to a chat",
   "common.shell.search_name_number": "Search a name, or type a number",
   "common.shell.this_computer": "This computer",
   "common.shell.type_message": "Type a message",

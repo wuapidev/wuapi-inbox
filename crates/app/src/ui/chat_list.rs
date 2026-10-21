@@ -595,31 +595,10 @@ impl Shell {
             .into_any_element()
     }
 
-    fn render_chat_row(
-        &self,
-        index: usize,
-        chat: &ChatSummary,
-        now: Timestamp,
-        focused: bool,
-        palette: &Palette,
-        cx: &mut Context<Self>,
-    ) -> AnyElement {
-        let active = self
-            .open
-            .as_ref()
-            .is_some_and(|open| open.chat.id == chat.id);
-        let unread = chat.unread_count > 0;
-        let presence = self.engine.presence(&chat.account_id, &chat.id);
-        let chat_id = chat.id.clone();
-
-        let time = chat
-            .last_message
-            .as_ref()
-            .map(|message| list_time(message.timestamp, now))
-            .unwrap_or_default();
-
-        // Second line: who is typing, or the last message.
-        let preview = match presence {
+    /// The second line of a chat's row: who is typing, or the last
+    /// message. The palette's rows say the same.
+    pub(super) fn chat_preview(&self, chat: &ChatSummary, palette: &Palette) -> AnyElement {
+        match self.engine.presence(&chat.account_id, &chat.id) {
             Some(PresenceState::Typing) => div()
                 .text_color(palette.accent)
                 .child(crate::i18n::t("chat.chat_list.typing"))
@@ -666,7 +645,32 @@ impl Shell {
                     .child(crate::i18n::t("chat.chat_list.no_messages"))
                     .into_any_element(),
             },
-        };
+        }
+    }
+
+    fn render_chat_row(
+        &self,
+        index: usize,
+        chat: &ChatSummary,
+        now: Timestamp,
+        focused: bool,
+        palette: &Palette,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let active = self
+            .open
+            .as_ref()
+            .is_some_and(|open| open.chat.id == chat.id);
+        let unread = chat.unread_count > 0;
+        let chat_id = chat.id.clone();
+
+        let time = chat
+            .last_message
+            .as_ref()
+            .map(|message| list_time(message.timestamp, now))
+            .unwrap_or_default();
+
+        let preview = self.chat_preview(chat, palette);
 
         let hover = palette.hover;
         let kind = match chat.kind {
@@ -1011,7 +1015,7 @@ impl Shell {
 
 /// The unread count: the lime fill with ink, or a quiet chip for a muted
 /// chat.
-fn unread_badge(count: u32, muted: bool, palette: &Palette) -> impl IntoElement {
+pub(super) fn unread_badge(count: u32, muted: bool, palette: &Palette) -> impl IntoElement {
     let (fill, ink) = if muted {
         (palette.badge_muted, palette.on_badge_muted)
     } else {

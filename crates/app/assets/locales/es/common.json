@@ -124,7 +124,7 @@
   "common.shell.participants.other": "{n} participantes",
   "common.shell.search": "Buscar",
   "common.shell.search_conversation": "Buscar en esta conversación",
-  "common.shell.search_keys": "Buscar  ·  {keys} para todo",
+  "common.shell.search_keys": "Buscar  ·  {keys} para ir a un chat",
   "common.shell.search_name_number": "Busca un nombre o escribe un número",
   "common.shell.this_computer": "Este equipo",
   "common.shell.type_message": "Escribe un mensaje",

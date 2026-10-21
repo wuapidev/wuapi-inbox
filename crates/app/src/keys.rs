@@ -816,7 +816,7 @@ pub const BINDINGS: &[Binding] = &[
     // Search
     bind(
         C::Palette,
-        "Go to a chat, a person or a message",
+        "Go to a chat or a person",
         "commands.keys.palette",
         S::Search,
         W::Anywhere,
