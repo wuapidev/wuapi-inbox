@@ -39,8 +39,9 @@ const KEYFRAME_SECONDS: u32 = 2;
 /// The other side's pictures are fitted into a square of this side: a
 /// phone is held upright or sideways, and turns during a call.
 const REMOTE_SIDE: u32 = 480;
-/// The size of the account's own small picture.
-const PREVIEW: (u32, u32) = (160, 90);
+/// The size of the account's own picture: small in its corner during a
+/// call, across the card while one rings.
+const PREVIEW: (u32, u32) = (320, 180);
 /// How many of the camera's access units may wait before they are
 /// dropped: video that is late is worse than video that is missing.
 const WAITING_UNITS: usize = 4;
@@ -739,7 +740,8 @@ impl Drop for VideoLink {
 ///
 /// With `wait` it answers once the camera gave a picture: a call that is
 /// answered says it has video, so it should have some. A call that is
-/// placed does not wait: the camera starts while it rings.
+/// placed, or one that rings here, does not wait: the camera starts while
+/// it rings, and shows the user themselves before it is answered.
 pub fn open(camera: Option<&str>, wait: bool) -> Result<(VideoLink, Receiver<Vec<u8>>), String> {
     open_on(Input::Camera(camera.map(str::to_owned)), wait)
 }

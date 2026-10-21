@@ -2388,6 +2388,17 @@ impl Provider for NativeProvider {
 
     fn set_call_devices(&self, devices: client_provider::CallDevices) {
         crate::call_audio::choose(devices);
+        let sessions: Vec<Arc<dyn Session>> = self
+            .inner
+            .live
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .values()
+            .filter_map(|live| live.session.clone())
+            .collect();
+        for session in sessions {
+            session.call_devices_changed();
+        }
     }
 
     fn call_cameras(&self) -> Vec<client_provider::CallCamera> {

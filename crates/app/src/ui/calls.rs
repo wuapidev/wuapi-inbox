@@ -8,7 +8,8 @@
 //! come.
 
 use super::shell::Shell;
-use super::widgets::{avatar_or, mono, AvatarKind};
+use super::voice_record::Pick;
+use super::widgets::{avatar_or, icon_button, mono, AvatarKind};
 use crate::i18n;
 use crate::icons::{icon, IconName};
 use crate::theme::px;
@@ -493,9 +494,9 @@ impl Shell {
                         this.call_deck._tick = None;
                         return None;
                     }
-                    let video = calls.iter().any(|call| {
-                        call.event.video && !matches!(call.event.state, CallState::Ringing { .. })
-                    });
+                    // A call with video that rings shows the own camera
+                    // already.
+                    let video = calls.iter().any(|call| call.event.video);
                     Some(if video { VIDEO_TICK } else { CLOCK_TICK })
                 });
                 match pace {
@@ -690,6 +691,143 @@ impl Shell {
         )
     }
 
+    /// A call with video that rings, here or there: the own camera across
+    /// the card, as it will be seen once the call is on, with who it is
+    /// and where it stands over it. `None` until the camera gave a
+    /// picture.
+    fn call_preview(
+        &self,
+        call: &LiveCall,
+        name: &SharedString,
+        words: &SharedString,
+    ) -> Option<AnyElement> {
+        if !call.event.video || !matches!(call.event.state, CallState::Ringing { .. }) {
+            return None;
+        }
+        let id = &call.event.call_id;
+        let video = self.engine.call_video(id)?;
+        let local = self.call_deck.picture(id, LOCAL, &video.local)?;
+        let ink = gpui_kit::white();
+        let side = self.card_width() - gpui_kit::px(2.);
+        let height = side * 0.75;
+        Some(
+            div()
+                .debug_selector(|| "call-preview".into())
+                .relative()
+                .w_full()
+                .h(height)
+                .bg(gpui_kit::black())
+                .overflow_hidden()
+                .child(img(local).w_full().h(height).object_fit(ObjectFit::Cover))
+                .child(
+                    div()
+                        .absolute()
+                        .top_0()
+                        .left_0()
+                        .right_0()
+                        .px_4()
+                        .pt_3()
+                        .pb_6()
+                        .bg(gpui_kit::linear_gradient(
+                            180.,
+                            gpui_kit::linear_color_stop(gpui_kit::black().opacity(0.6), 0.),
+                            gpui_kit::linear_color_stop(gpui_kit::black().opacity(0.), 1.),
+                        ))
+                        .flex()
+                        .flex_col()
+                        .gap(px(1.))
+                        .child(
+                            div()
+                                .debug_selector(|| "call-name".into())
+                                .truncate()
+                                .font_weight(FontWeight::MEDIUM)
+                                .text_size(metrics::TEXT_BODY())
+                                .text_color(ink)
+                                .child(name.clone()),
+                        )
+                        .child(
+                            mono(words.clone())
+                                .debug_selector(|| "call-state".into())
+                                .text_color(ink.opacity(0.75)),
+                        ),
+                )
+                .into_any_element(),
+        )
+    }
+
+    /// Before a call that comes in is answered: the microphone it will
+    /// use and, with video, the camera, each stepped through as in the
+    /// settings, which remember the choice.
+    fn call_devices(&self, call: &LiveCall, palette: &Palette, cx: &mut Context<Self>) -> Div {
+        let default = i18n::t("chat.voice_record.system_default");
+        let row = |pick: Pick, glyph: IconName, chosen: Option<String>, cx: &mut Context<Self>| {
+            let (previous, next, value): (&'static str, &'static str, &'static str) = match pick {
+                Pick::Camera => (
+                    "call-camera-previous",
+                    "call-camera-next",
+                    "call-camera-value",
+                ),
+                _ => ("call-mic-previous", "call-mic-next", "call-mic-value"),
+            };
+            let step =
+                |id: &'static str, glyph: IconName, forward: bool, cx: &mut Context<Self>| {
+                    icon_button(id, glyph, palette).on_click(cx.listener(move |this, _, _, cx| {
+                        cx.stop_propagation();
+                        this.step_audio_device(pick, forward, cx);
+                    }))
+                };
+            let label: SharedString = chosen.unwrap_or_else(|| default.to_owned()).into();
+            div()
+                .w_full()
+                .flex()
+                .items_center()
+                .gap_1()
+                .child(
+                    div()
+                        .flex_none()
+                        .px_1()
+                        .child(icon(glyph, px(14.), palette.icon)),
+                )
+                .child(step(previous, IconName::ChevronLeft, false, cx))
+                .child(
+                    div()
+                        .debug_selector(move || value.into())
+                        .flex_1()
+                        .min_w_0()
+                        .truncate()
+                        .text_center()
+                        .text_size(metrics::TEXT_SMALL())
+                        .text_color(palette.text)
+                        .child(label),
+                )
+                .child(step(next, IconName::ChevronRight, true, cx))
+        };
+        let microphone = row(
+            Pick::Microphone,
+            IconName::Mic,
+            self.voice.device.clone(),
+            cx,
+        );
+        let camera = call
+            .event
+            .video
+            .then(|| row(Pick::Camera, IconName::Video, self.camera_name(), cx));
+        div()
+            .debug_selector(|| "call-devices".into())
+            .w_full()
+            .px_3()
+            .pt_3()
+            .flex()
+            .flex_col()
+            .gap_1()
+            // Choosing here is not taking hold of the card.
+            .on_mouse_down(gpui_kit::MouseButton::Left, |_, _, cx| {
+                cx.stop_propagation()
+            })
+            .child(microphone)
+            .children(camera)
+    }
+
     /// Who a call without pictures is with: the face, large, the name
     /// and where the call stands.
     fn call_face(
@@ -791,10 +929,14 @@ impl Shell {
                 .as_ref()
                 .is_some_and(|adding| adding.call == id);
         let add_panel = adding.then(|| self.call_add_panel(call, palette, cx));
-        let stage = self.call_stage(call, &name, &words);
+        let stage = self
+            .call_stage(call, &name, &words)
+            .or_else(|| self.call_preview(call, &name, &words));
         let face = stage
             .is_none()
             .then(|| self.call_face(call, &name, &words, palette));
+        // What answering will use is chosen while it rings.
+        let devices = answerable.then(|| self.call_devices(call, palette, cx));
         // A switch that is off is drawn filled, so that it is seen.
         let switch = |selector: &'static str, says: &'static str, glyph: IconName, off: bool| {
             let (fill, ink) = if off {
@@ -842,6 +984,7 @@ impl Shell {
             )
             .children(stage)
             .children(face)
+            .children(devices)
             .when(call.waits_for_answer() && !answerable, |this| {
                 this.child(
                     div()
