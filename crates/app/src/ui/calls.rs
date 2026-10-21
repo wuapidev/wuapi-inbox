@@ -9,6 +9,7 @@
 
 use super::shell::Shell;
 use super::widgets::{avatar_or, mono, AvatarKind};
+use crate::i18n;
 use crate::icons::{icon, IconName};
 use crate::theme::px;
 use crate::theme::{metrics, Palette};
@@ -236,19 +237,21 @@ pub(super) fn call_words(call: &LiveCall) -> &'static str {
                 group: true,
             },
             _,
-        ) => "Incoming group call",
-        (CallState::Ringing { incoming: true, .. }, true) => "Incoming video call",
-        (CallState::Ringing { incoming: true, .. }, false) => "Incoming voice call",
+        ) => i18n::t("groups.calls.incoming_group"),
+        (CallState::Ringing { incoming: true, .. }, true) => i18n::t("groups.calls.incoming_video"),
+        (CallState::Ringing { incoming: true, .. }, false) => {
+            i18n::t("groups.calls.incoming_voice")
+        }
         (
             CallState::Ringing {
                 incoming: false, ..
             },
             _,
-        ) => "Calling…",
-        (CallState::Connecting, _) => "Connecting…",
-        (CallState::Connected, _) if call.muted => "On a call, microphone off",
-        (CallState::Connected, _) => "On a call",
-        (CallState::Ended { .. }, _) => "Call ended",
+        ) => i18n::t("groups.calls.calling"),
+        (CallState::Connecting, _) => i18n::t("groups.calls.connecting"),
+        (CallState::Connected, _) if call.muted => i18n::t("groups.calls.on_call_muted"),
+        (CallState::Connected, _) => i18n::t("groups.calls.on_call"),
+        (CallState::Ended { .. }, _) => i18n::t("groups.calls.ended"),
     }
 }
 
@@ -360,7 +363,9 @@ impl Shell {
             .is_some_and(|adding| adding.call == call);
         self.call_deck.adding = None;
         if !open {
-            let search = cx.new(|cx| InputState::new(window, cx).placeholder("Search a contact"));
+            let search = cx.new(|cx| {
+                InputState::new(window, cx).placeholder(i18n::t("groups.calls.search_contact"))
+            });
             let typed = cx.subscribe(&search, |_, _, event: &InputEvent, cx| {
                 if matches!(event, InputEvent::Change) {
                     cx.notify();
@@ -622,7 +627,7 @@ impl Shell {
                                 div()
                                     .text_size(metrics::TEXT_SMALL())
                                     .text_color(ink.opacity(0.65))
-                                    .child("Waiting for their video…"),
+                                    .child(i18n::t("groups.calls.waiting_video")),
                             ),
                     )
                 })
@@ -846,7 +851,7 @@ impl Shell {
                         .text_size(metrics::TEXT_SMALL())
                         .line_height(px(18.))
                         .text_color(palette.text_muted)
-                        .child("Video calls cannot be answered here. Answer it on the phone."),
+                        .child(i18n::t("groups.calls.video_unanswerable")),
                 )
             })
             .child(
@@ -863,9 +868,9 @@ impl Shell {
                             switch(
                                 "call-mute",
                                 if muted {
-                                    "Turn the microphone on"
+                                    i18n::t("groups.calls.mic_on")
                                 } else {
-                                    "Turn the microphone off"
+                                    i18n::t("groups.calls.mic_off")
                                 },
                                 if muted {
                                     IconName::MicOff
@@ -887,7 +892,7 @@ impl Shell {
                         this.child(
                             switch(
                                 "call-add",
-                                "Add somebody to the call",
+                                i18n::t("groups.calls.add_somebody"),
                                 IconName::UserPlus,
                                 adding,
                             )
@@ -904,9 +909,9 @@ impl Shell {
                             switch(
                                 "call-camera",
                                 if camera_off {
-                                    "Turn the camera on"
+                                    i18n::t("groups.calls.camera_on")
                                 } else {
-                                    "Turn the camera off"
+                                    i18n::t("groups.calls.camera_off")
                                 },
                                 if camera_off {
                                     IconName::VideoOff
@@ -928,11 +933,11 @@ impl Shell {
                         round_button(
                             "call-end",
                             if call.waits_for_answer() {
-                                "Decline"
+                                i18n::t("groups.calls.decline")
                             } else if on {
-                                "Hang up"
+                                i18n::t("groups.calls.hang_up")
                             } else {
-                                "Cancel the call"
+                                i18n::t("groups.calls.cancel")
                             },
                             IconName::PhoneOff,
                             palette.danger,
@@ -949,7 +954,7 @@ impl Shell {
                         this.child(
                             round_button(
                                 "call-accept",
-                                "Answer",
+                                i18n::t("groups.calls.answer"),
                                 if call.event.video {
                                     IconName::Video
                                 } else {
@@ -1077,7 +1082,7 @@ impl Shell {
                         .py_1()
                         .text_size(metrics::TEXT_SMALL())
                         .text_color(palette.text_muted)
-                        .child("Nobody to add by that name."),
+                        .child(i18n::t("groups.calls.nobody_to_add")),
                 )
             })
             .into_any_element()
@@ -1122,7 +1127,7 @@ impl Shell {
                         .shadow_lg()
                         .text_size(metrics::TEXT_SMALL())
                         .line_height(px(18.))
-                        .child(format!("The call did not go through. {problem}"))
+                        .child(i18n::tr("groups.calls.failed", &[("problem", &problem)]))
                 }))
                 .into_any_element(),
         )

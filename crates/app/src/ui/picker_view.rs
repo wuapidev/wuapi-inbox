@@ -71,7 +71,12 @@ impl Shell {
                 .px(px(2.))
                 .gap(px(4.))
                 .justify_start()
-                .child(source("picker-source-saved", "Saved", Source::Saved, cx))
+                .child(source(
+                    "picker-source-saved",
+                    crate::i18n::t("chat.picker_view.saved"),
+                    Source::Saved,
+                    cx,
+                ))
                 .child(source("picker-source-online", "Giphy", Source::Online, cx));
         }
         let grid = self.picker.grid();
@@ -325,7 +330,10 @@ impl Shell {
             self.strip_button(
                 "picker-import",
                 IconName::Plus,
-                with_keys("Make a sticker from a picture…", Command::ImportSticker),
+                with_keys(
+                    crate::i18n::t("chat.picker_view.make_sticker"),
+                    Command::ImportSticker,
+                ),
                 palette,
             )
             .on_click(cx.listener(|this, _, _, cx| {
@@ -336,7 +344,10 @@ impl Shell {
             self.strip_button(
                 "picker-import",
                 IconName::Plus,
-                with_keys("Add GIFs from files…", Command::ImportGif),
+                with_keys(
+                    crate::i18n::t("chat.picker_view.add_gifs"),
+                    Command::ImportGif,
+                ),
                 palette,
             )
             .on_click(cx.listener(|this, _, _, cx| {
@@ -360,7 +371,7 @@ impl Shell {
         let Some(tile) = self.picker.current().cloned() else {
             // What is said once in the grid is not said again here.
             let text = match self.picker.tab {
-                Tab::Gifs if self.picker.source == Source::Saved => texts::SAVED_GIFS_HERE,
+                Tab::Gifs if self.picker.source == Source::Saved => texts::saved_gifs_here(),
                 _ => "",
             };
             return strip
@@ -372,7 +383,7 @@ impl Shell {
             let name = tile.name();
             if name.is_empty() {
                 match &tile.kind {
-                    TileKind::Sticker(_) => "Sticker".to_owned(),
+                    TileKind::Sticker(_) => crate::i18n::t("chat.picker_view.sticker").to_owned(),
                     TileKind::Gif(_) => "GIF".to_owned(),
                 }
             } else {
@@ -383,21 +394,31 @@ impl Shell {
             TileKind::Sticker(item) | TileKind::Gif(GifEntry::Saved(item)) => {
                 if item.pending() {
                     return strip
-                        .child(words("Not downloaded yet.".into(), palette.text_muted))
+                        .child(words(
+                            crate::i18n::t("chat.picker_view.not_downloaded").into(),
+                            palette.text_muted,
+                        ))
                         .child(import);
                 }
                 let kind = if item.mime == "video/mp4" {
                     "MP4"
                 } else if item.animated {
-                    "moving"
+                    crate::i18n::t("chat.picker_view.kind_moving")
                 } else {
-                    "still"
+                    crate::i18n::t("chat.picker_view.kind_still")
                 };
-                format!("{kind}, {} KB", item.bytes.div_ceil(1024))
+                crate::i18n::tr(
+                    "chat.picker_view.detail",
+                    &[("kind", &kind), ("kb", &item.bytes.div_ceil(1024))],
+                )
             }
-            TileKind::Gif(GifEntry::Online(hit)) => {
-                format!("online, {} KB", hit.media_bytes.unwrap_or(0).div_ceil(1024))
-            }
+            TileKind::Gif(GifEntry::Online(hit)) => crate::i18n::tr(
+                "chat.picker_view.detail",
+                &[
+                    ("kind", &crate::i18n::t("chat.picker_view.kind_online")),
+                    ("kb", &hit.media_bytes.unwrap_or(0).div_ceil(1024)),
+                ],
+            ),
         };
         let hint = keys::keys_label(Command::FavoriteSticker);
         strip
@@ -424,10 +445,15 @@ impl Shell {
             )
             .when(matches!(tile.kind, TileKind::Sticker(_)), |this| {
                 let tip: SharedString = match (&hint, star) {
-                    (Some(keys), true) => format!("Take off favorites ({keys})").into(),
-                    (Some(keys), false) => format!("Add to favorites ({keys})").into(),
-                    (None, true) => "Take off favorites".into(),
-                    (None, false) => "Add to favorites".into(),
+                    (Some(keys), true) => {
+                        crate::i18n::tr("chat.picker_view.unfavorite_keys", &[("keys", keys)])
+                            .into()
+                    }
+                    (Some(keys), false) => {
+                        crate::i18n::tr("chat.picker_view.favorite_keys", &[("keys", keys)]).into()
+                    }
+                    (None, true) => crate::i18n::t("chat.picker_view.unfavorite").into(),
+                    (None, false) => crate::i18n::t("chat.picker_view.favorite").into(),
                 };
                 let at = self.picker.grid().cursor;
                 this.child(
@@ -468,7 +494,7 @@ impl Shell {
 pub(super) fn with_keys(label: &str, command: Command) -> String {
     match keys::keys_label(command) {
         Some(keys) => format!("{label} ({keys})"),
-        None => format!("{label} (also in the command palette)"),
+        None => crate::i18n::tr("chat.picker_view.in_palette", &[("label", &label)]),
     }
 }
 
@@ -476,8 +502,12 @@ pub(super) fn with_keys(label: &str, command: Command) -> String {
 pub(super) fn section_tip(title: &str, tiles: usize) -> SharedString {
     match tiles {
         0 => title.to_owned().into(),
-        1 => format!("{title}: 1 sticker").into(),
-        n => format!("{title}: {n} stickers").into(),
+        n => crate::i18n::plural(
+            "chat.picker_view.section_tip",
+            n as u64,
+            &[("title", &title)],
+        )
+        .into(),
     }
 }
 

@@ -120,6 +120,8 @@ pub enum PickerTab {
 pub struct Settings {
     /// Light, dark or the desktop's.
     pub theme: ThemeChoice,
+    /// The language of the interface: the system's, or one picked.
+    pub language: crate::i18n::LanguageChoice,
     /// Animations.
     pub motion: MotionChoice,
     /// Show a desktop notification for a new message. Saved now; delivery
@@ -191,6 +193,7 @@ impl Default for Settings {
     fn default() -> Self {
         Self {
             theme: ThemeChoice::default(),
+            language: crate::i18n::LanguageChoice::default(),
             motion: MotionChoice::default(),
             desktop_notifications: true,
             message_previews: true,
@@ -289,6 +292,7 @@ pub fn init(path: Option<PathBuf>, theme_override: Option<Appearance>, cx: &mut 
     let values = path.as_deref().map(Settings::load).unwrap_or_default();
     theme::set_scale(values.interface_scale);
     theme::set_bubbles(values.bubbles);
+    apply_language(values.language);
     cx.set_global(Active {
         values,
         path,
@@ -338,8 +342,23 @@ pub fn update(cx: &mut App, change: impl FnOnce(&mut Settings)) {
         theme::set_bubbles(after.bubbles);
         theme::apply(appearance(cx), cx);
     }
+    if after.language != before.language {
+        apply_language(after.language);
+        crate::menu_bar::refresh(cx);
+    }
     apply_theme(cx);
     cx.refresh_windows();
+}
+
+/// Puts the interface in the language a choice means on this system.
+fn apply_language(choice: crate::i18n::LanguageChoice) {
+    // Tests see English, like the emoji picker's search language.
+    let system = if cfg!(test) {
+        None
+    } else {
+        crate::locale::system()
+    };
+    crate::i18n::set_language(crate::i18n::resolve(choice, system.as_ref()));
 }
 
 trait OrInit {
@@ -437,6 +456,7 @@ mod tests {
 
         let chosen = Settings {
             theme: ThemeChoice::Dark,
+            language: crate::i18n::LanguageChoice::Lang(crate::i18n::Language::Es),
             motion: MotionChoice::Off,
             desktop_notifications: false,
             message_previews: true,

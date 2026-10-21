@@ -56,26 +56,36 @@ const MIN_TICK: Duration = Duration::from_millis(30);
 /// What the tabs say when there is nothing to show. Each is one short
 /// line, written once: the grid wraps it inside the popover.
 pub(super) mod texts {
-    pub(in crate::ui) const FAVORITES_LOCAL: &str =
-        "Your phone's favorites are not available yet from this provider. \
-         Stickers you star here are kept as favorites.";
-    pub(in crate::ui) const FAVORITES_NOT_YET: &str =
-        "Your phone's favorites are not available yet for this number. \
-         Stickers you star here are kept as favorites.";
-    pub(in crate::ui) const FAVORITES_SYNCED: &str =
-        "Star a sticker to keep it here. Favorites sync with your phone.";
-    pub(in crate::ui) const FROM_CHATS_EMPTY: &str =
-        "Stickers you send or receive in your chats show up here.";
-    pub(in crate::ui) const NO_STICKER_FOUND: &str =
-        "No sticker has this name. Stickers are found by name and pack.";
-    pub(in crate::ui) const NO_SAVED_GIFS: &str =
-        "Save a GIF from a conversation (message menu, or G), or add files with +.";
-    pub(in crate::ui) const NO_GIF_FOUND: &str = "No saved GIF has this name.";
-    pub(in crate::ui) const ONLINE_OFF: &str =
-        "Online search is off. Turn it on, with your own key, in Settings > Stickers and GIFs.";
-    pub(in crate::ui) const ONLINE_NO_KEY: &str =
-        "Online search needs your own key. Add it in Settings > Stickers and GIFs.";
-    pub(in crate::ui) const SAVED_GIFS_HERE: &str = "Saved GIFs appear here.";
+    pub(in crate::ui) fn favorites_local() -> &'static str {
+        crate::i18n::t("chat.picker.favorites_local")
+    }
+    pub(in crate::ui) fn favorites_not_yet() -> &'static str {
+        crate::i18n::t("chat.picker.favorites_not_yet")
+    }
+    pub(in crate::ui) fn favorites_synced() -> &'static str {
+        crate::i18n::t("chat.picker.favorites_synced")
+    }
+    pub(in crate::ui) fn from_chats_empty() -> &'static str {
+        crate::i18n::t("chat.picker.from_chats_empty")
+    }
+    pub(in crate::ui) fn no_sticker_found() -> &'static str {
+        crate::i18n::t("chat.picker.no_sticker_found")
+    }
+    pub(in crate::ui) fn no_saved_gifs() -> &'static str {
+        crate::i18n::t("chat.picker.no_saved_gifs")
+    }
+    pub(in crate::ui) fn no_gif_found() -> &'static str {
+        crate::i18n::t("chat.picker.no_gif_found")
+    }
+    pub(in crate::ui) fn online_off() -> &'static str {
+        crate::i18n::t("chat.picker.online_off")
+    }
+    pub(in crate::ui) fn online_no_key() -> &'static str {
+        crate::i18n::t("chat.picker.online_no_key")
+    }
+    pub(in crate::ui) fn saved_gifs_here() -> &'static str {
+        crate::i18n::t("chat.picker.saved_gifs_here")
+    }
 }
 
 /// What the picker's moving tile may cost: a tile is small.
@@ -268,14 +278,18 @@ pub(super) enum Action {
 impl Action {
     pub(super) fn label(self, on: &Tile) -> &'static str {
         match self {
-            Self::Send if on.item().is_some_and(LibraryItem::pending) => "Download",
-            Self::Send => "Send",
-            Self::Favorite if on.item().is_some_and(|item| item.favorite) => "Take off favorites",
-            Self::Favorite => "Add to favorites",
-            Self::Keep => "Save to my GIFs",
-            Self::Earlier => "Move earlier",
-            Self::Later => "Move later",
-            Self::Remove => "Remove from the library",
+            Self::Send if on.item().is_some_and(LibraryItem::pending) => {
+                crate::i18n::t("chat.picker.download")
+            }
+            Self::Send => crate::i18n::t("chat.picker.send"),
+            Self::Favorite if on.item().is_some_and(|item| item.favorite) => {
+                crate::i18n::t("chat.picker.unfavorite")
+            }
+            Self::Favorite => crate::i18n::t("chat.picker.favorite"),
+            Self::Keep => crate::i18n::t("chat.picker.keep"),
+            Self::Earlier => crate::i18n::t("chat.picker.earlier"),
+            Self::Later => crate::i18n::t("chat.picker.later"),
+            Self::Remove => crate::i18n::t("chat.picker.remove"),
         }
     }
 }
@@ -573,12 +587,12 @@ impl Shell {
     /// tabs say it instead of failing after a click.
     pub(super) fn picker_cannot_send(&self) -> Option<&'static str> {
         if !self.caps_here().media_upload {
-            return Some("This provider cannot send files, so stickers and GIFs cannot be sent.");
+            return Some(crate::i18n::t("chat.picker.cannot_files"));
         }
         match self.engine.uploads_available() {
             Some(true) => None,
-            Some(false) => Some("Sending files is not available yet, so nothing can be sent."),
-            None => Some("Checking whether files can be sent…"),
+            Some(false) => Some(crate::i18n::t("chat.picker.uploads_unavailable")),
+            None => Some(crate::i18n::t("chat.picker.checking_uploads")),
         }
     }
 
@@ -664,10 +678,12 @@ impl Shell {
 
     fn picker_placeholder(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let text = match self.picker.tab {
-            Tab::Emoji => "Search emoji",
-            Tab::Stickers => "Search stickers by name or pack",
-            Tab::Gifs if self.picker.source == Source::Online => "Search GIFs online",
-            Tab::Gifs => "Search saved GIFs",
+            Tab::Emoji => crate::i18n::t("chat.picker.search_emoji"),
+            Tab::Stickers => crate::i18n::t("chat.picker.search_stickers"),
+            Tab::Gifs if self.picker.source == Source::Online => {
+                crate::i18n::t("chat.picker.search_gifs_online")
+            }
+            Tab::Gifs => crate::i18n::t("chat.picker.search_saved_gifs"),
         };
         self.emoji
             .search
@@ -783,9 +799,9 @@ impl Shell {
                 })
                 .map(tile)
                 .collect();
-            grid.section("Found", IconName::Search);
+            grid.section(crate::i18n::t("chat.picker.found"), IconName::Search);
             if found.is_empty() {
-                grid.note(texts::NO_STICKER_FOUND);
+                grid.note(texts::no_sticker_found());
             }
             grid.fill(found);
             return grid;
@@ -814,7 +830,7 @@ impl Shell {
             .collect();
         let mut sections: Vec<(String, IconName, Vec<LibraryItem>, Option<&str>)> = Vec::new();
         sections.push((
-            "Recently used".into(),
+            crate::i18n::t("chat.picker.recent").into(),
             IconName::Clock3,
             recent.clone(),
             None,
@@ -828,16 +844,16 @@ impl Shell {
                 .feature_unavailable(account, client_provider::Feature::StickerFavorites)
         });
         let favorites_note = if !self.caps_here().sticker_favorites {
-            Some(texts::FAVORITES_LOCAL)
+            Some(texts::favorites_local())
         } else if phone_missing {
-            Some(texts::FAVORITES_NOT_YET)
+            Some(texts::favorites_not_yet())
         } else if favorites.is_empty() {
-            Some(texts::FAVORITES_SYNCED)
+            Some(texts::favorites_synced())
         } else {
             None
         };
         sections.push((
-            "Favorites".into(),
+            crate::i18n::t("chat.picker.favorites").into(),
             IconName::Star,
             favorites,
             favorites_note,
@@ -850,9 +866,9 @@ impl Shell {
                 .collect();
             sections.push((pack.name.clone(), IconName::Sticker, inside, None));
         }
-        let heard_note = heard.is_empty().then_some(texts::FROM_CHATS_EMPTY);
+        let heard_note = heard.is_empty().then_some(texts::from_chats_empty());
         sections.push((
-            "From your chats".into(),
+            crate::i18n::t("chat.picker.from_chats").into(),
             IconName::MessageCircle,
             heard,
             heard_note,
@@ -867,7 +883,12 @@ impl Shell {
                         .is_none_or(|id| !packs.iter().any(|pack| &pack.id == id))
             })
             .collect();
-        sections.push(("All stickers".into(), IconName::Sticker, loose, None));
+        sections.push((
+            crate::i18n::t("chat.picker.all_stickers").into(),
+            IconName::Sticker,
+            loose,
+            None,
+        ));
 
         let (full, empty): (Vec<_>, Vec<_>) = sections
             .into_iter()
@@ -893,9 +914,9 @@ impl Shell {
                 let found = saved.find(query);
                 if found.is_empty() {
                     grid.note(if query.is_empty() {
-                        texts::NO_SAVED_GIFS
+                        texts::no_saved_gifs()
                     } else {
-                        texts::NO_GIF_FOUND
+                        texts::no_gif_found()
                     });
                 }
                 grid.fill(
@@ -922,17 +943,17 @@ impl Shell {
                     );
                     match &self.picker.online.status {
                         Status::Loading if self.picker.online.hits.is_empty() => {
-                            grid.note("Searching…")
+                            grid.note(crate::i18n::t("chat.picker.searching"))
                         }
                         Status::Failed(why) => grid.note(why.clone()),
                         Status::Idle if self.picker.online.hits.is_empty() => {
-                            grid.note("Nothing found.")
+                            grid.note(crate::i18n::t("chat.picker.nothing_found"))
                         }
                         _ => {}
                     }
                 }
-                Readiness::Off => grid.note(texts::ONLINE_OFF),
-                Readiness::NoKey => grid.note(texts::ONLINE_NO_KEY),
+                Readiness::Off => grid.note(texts::online_off()),
+                Readiness::NoKey => grid.note(texts::online_no_key()),
             },
         }
         grid
@@ -1086,7 +1107,7 @@ impl Shell {
         // it can be sent once it is here.
         if let Some(item) = tile.item().filter(|item| item.pending()) {
             self.picker_fetch(item, true, cx);
-            return self.picker_say("Downloading this sticker…", cx);
+            return self.picker_say(crate::i18n::t("chat.picker.downloading_sticker"), cx);
         }
         if let Some(why) = self.picker_cannot_send() {
             return self.picker_say(why, cx);
@@ -1144,7 +1165,7 @@ impl Shell {
                     self.picker.sending.remove(&request.key);
                     return;
                 };
-                self.picker_say("Downloading the GIF…", cx);
+                self.picker_say(crate::i18n::t("chat.picker.downloading_gif"), cx);
                 let runtime = engine.runtime().clone();
                 cx.spawn_in(window, async move |this, cx| {
                     // Whatever stops it short of the outbox is said, and
@@ -1230,10 +1251,7 @@ impl Shell {
     ) {
         self.picker.sending.remove(&request.key);
         if self.attach.is_some() {
-            return self.show_problem(
-                "Not sent: files are being attached. Send it again after them.".to_owned(),
-                cx,
-            );
+            return self.show_problem(crate::i18n::t("chat.picker.attaching").to_owned(), cx);
         }
         let queued = prepared.and_then(|prepared| {
             self.engine
@@ -1325,9 +1343,9 @@ impl Shell {
                     tracing::warn!(%error, "could not star a sticker");
                 }
                 let text = if now {
-                    "Added to favorites"
+                    crate::i18n::t("chat.picker.added_favorite")
                 } else {
-                    "Taken off favorites"
+                    crate::i18n::t("chat.picker.removed_favorite")
                 };
                 self.picker_say(text, cx);
             }
@@ -1350,10 +1368,10 @@ impl Shell {
                     // Through the engine: a favorite's star on the phone
                     // goes with it, or the next sync would bring it back.
                     match engine.remove_library_item(&item.id) {
-                        Ok(_) => self.picker_say("Removed from the library", cx),
+                        Ok(_) => self.picker_say(crate::i18n::t("chat.picker.removed"), cx),
                         Err(error) => {
                             tracing::warn!(%error, "could not remove a library item");
-                            self.picker_say("Could not remove it from the library", cx);
+                            self.picker_say(crate::i18n::t("chat.picker.remove_failed"), cx);
                         }
                     }
                 }
@@ -1548,7 +1566,7 @@ impl Shell {
         let from = grid
             .sections
             .iter()
-            .find(|section| section.title == "Favorites")
+            .find(|section| section.title == crate::i18n::t("chat.picker.favorites"))
             .map_or(0, |section| section.tile);
         let at = grid.tiles[from.min(grid.tiles.len())..]
             .iter()
@@ -2060,8 +2078,16 @@ pub(super) fn tab_index(tab: Tab) -> usize {
 /// What a tab is called, drawn as, and opened by.
 fn tab_look(tab: Tab) -> (IconName, &'static str, Command) {
     match tab {
-        Tab::Emoji => (IconName::FaceSlightlySmiling, "Emoji", Command::EmojiPicker),
+        Tab::Emoji => (
+            IconName::FaceSlightlySmiling,
+            crate::i18n::t("chat.picker.tab_emoji"),
+            Command::EmojiPicker,
+        ),
         Tab::Gifs => (IconName::Film, "GIF", Command::GifPicker),
-        Tab::Stickers => (IconName::Sticker, "Stickers", Command::StickerPicker),
+        Tab::Stickers => (
+            IconName::Sticker,
+            crate::i18n::t("chat.picker.tab_stickers"),
+            Command::StickerPicker,
+        ),
     }
 }

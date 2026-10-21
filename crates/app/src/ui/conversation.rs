@@ -80,9 +80,18 @@ impl Shell {
         let presence = self.engine.presence(&chat.account_id, &chat.id);
         // Second line: what the other side is doing, when known.
         let subtitle: Option<(SharedString, _)> = match presence {
-            Some(PresenceState::Typing) => Some(("typing…".into(), palette.accent)),
-            Some(PresenceState::Recording) => Some(("recording audio…".into(), palette.accent)),
-            Some(PresenceState::Online) => Some(("online".into(), palette.text_muted)),
+            Some(PresenceState::Typing) => Some((
+                crate::i18n::t("chat.conversation.typing").into(),
+                palette.accent,
+            )),
+            Some(PresenceState::Recording) => Some((
+                crate::i18n::t("chat.conversation.recording").into(),
+                palette.accent,
+            )),
+            Some(PresenceState::Online) => Some((
+                crate::i18n::t("chat.conversation.online").into(),
+                palette.text_muted,
+            )),
             // Otherwise who is in the group, or the contact's number:
             // what the store has, read when the chat was opened.
             _ => open.subtitle.clone().map(|line| (line, palette.text_muted)),
@@ -241,8 +250,12 @@ impl Shell {
         let now = Timestamp::now();
         let count: SharedString = match (search.query.is_empty(), search.hits.len()) {
             (true, _) => "".into(),
-            (false, 0) => "NO MATCHES".into(),
-            (false, n) => format!("{} OF {n}", search.current + 1).into(),
+            (false, 0) => crate::i18n::t("chat.conversation.no_matches").into(),
+            (false, n) => crate::i18n::tr(
+                "chat.conversation.match_of",
+                &[("n", &(search.current + 1)), ("count", &n)],
+            )
+            .into(),
         };
         let mut results = div()
             .id("thread-hits")
@@ -255,7 +268,7 @@ impl Shell {
             let target = message.id.clone();
             let hover = palette.hover;
             let who: SharedString = match (&message.direction, &message.sender_name) {
-                (Direction::Outgoing, _) => "You".into(),
+                (Direction::Outgoing, _) => crate::i18n::t("chat.you").into(),
                 (Direction::Incoming, Some(name)) => name.clone().into(),
                 (Direction::Incoming, None) => "".into(),
             };
@@ -457,8 +470,10 @@ impl Shell {
             return None;
         }
         let hint: SharedString = match crate::keys::keys_label(crate::keys::Command::JumpToNewest) {
-            Some(keys) => format!("Newest message ({keys})").into(),
-            None => "Newest message".into(),
+            Some(keys) => {
+                crate::i18n::tr("chat.conversation.newest_keys", &[("keys", &keys)]).into()
+            }
+            None => crate::i18n::t("chat.conversation.newest").into(),
         };
         let (fill, hover) = (palette.elevated, palette.elevated_selected);
         Some(
@@ -571,7 +586,7 @@ impl Shell {
                         unavailable_button(
                             "attach",
                             IconName::Plus,
-                            super::attach::NOT_AVAILABLE,
+                            super::attach::not_available(),
                             palette,
                         )
                     })
@@ -631,8 +646,12 @@ impl Shell {
                         if self.can_record() {
                             let hint: SharedString =
                                 match crate::keys::keys_label(crate::keys::Command::RecordVoice) {
-                                    Some(keys) => format!("Record a voice note ({keys})").into(),
-                                    None => "Record a voice note".into(),
+                                    Some(keys) => crate::i18n::tr(
+                                        "chat.conversation.record_keys",
+                                        &[("keys", &keys)],
+                                    )
+                                    .into(),
+                                    None => crate::i18n::t("chat.conversation.record").into(),
                                 };
                             icon_button("voice", IconName::Mic, palette)
                                 .rounded_full()
@@ -647,7 +666,7 @@ impl Shell {
                             unavailable_button(
                                 "voice",
                                 IconName::Mic,
-                                super::voice_record::NOT_AVAILABLE,
+                                super::voice_record::not_available(),
                                 palette,
                             )
                         }
@@ -689,12 +708,21 @@ impl Shell {
             .filter(|account| account.connection.is_connected())
             .count();
         let (light, status): (_, SharedString) = match (self.linked_accounts().count(), connected) {
-            (0, _) => (palette.text_faint, "No numbers yet".into()),
-            (1, 1) => (palette.accent, "1 number connected".into()),
-            (all, on) if all == on => (palette.accent, format!("{on} numbers connected").into()),
+            (0, _) => (
+                palette.text_faint,
+                crate::i18n::t("chat.conversation.no_numbers").into(),
+            ),
+            (all, on) if all == on => (
+                palette.accent,
+                crate::i18n::plural("chat.conversation.numbers_connected", on as u64, &[]).into(),
+            ),
             (all, on) => (
                 palette.warning,
-                format!("{on} of {all} numbers connected").into(),
+                crate::i18n::tr(
+                    "chat.conversation.numbers_some_connected",
+                    &[("on", &on), ("all", &all)],
+                )
+                .into(),
             ),
         };
 
@@ -714,7 +742,8 @@ impl Shell {
                     .items_center()
                     .justify_between()
                     .child(reveal(
-                        tag("Start", None, palette).when(narrow, |this| this.invisible()),
+                        tag(crate::i18n::t("chat.conversation.start"), None, palette)
+                            .when(narrow, |this| this.invisible()),
                         step(4),
                     ))
                     .child(reveal(
@@ -761,10 +790,7 @@ impl Shell {
                                     .text_size(metrics::TEXT_BODY())
                                     .line_height(px(22.))
                                     .text_color(palette.text_muted)
-                                    .child(
-                                        "Pick a chat to start messaging, or start one \
-                                         with the pencil above the list.",
-                                    ),
+                                    .child(crate::i18n::t("chat.conversation.pick_a_chat")),
                                 step(2),
                             ))
                             .when(!short, |this| {
@@ -774,23 +800,24 @@ impl Shell {
                                         palette,
                                         [
                                             fact_row(
-                                                "Local-first",
-                                                "Chats open from this computer, without waiting \
-                                             for the network.",
+                                                crate::i18n::t("chat.conversation.local_first"),
+                                                crate::i18n::t(
+                                                    "chat.conversation.local_first_text",
+                                                ),
                                                 false,
                                                 palette,
                                             ),
                                             fact_row(
-                                                "Outbox",
-                                                "What you send waits out a dropped connection \
-                                             and goes out once.",
+                                                crate::i18n::t("chat.conversation.outbox"),
+                                                crate::i18n::t("chat.conversation.outbox_text"),
                                                 true,
                                                 palette,
                                             ),
                                             fact_row(
-                                                "Open source",
-                                                "Apache-2.0. Read it, change it, plug in your \
-                                             own backend.",
+                                                crate::i18n::t("chat.conversation.open_source"),
+                                                crate::i18n::t(
+                                                    "chat.conversation.open_source_text",
+                                                ),
                                                 true,
                                                 palette,
                                             ),
@@ -944,8 +971,14 @@ pub(super) fn colophon(palette: &Palette) -> Div {
         .items_center()
         .gap_1()
         .text_color(palette.text_muted)
-        .child(mono(format!(
-            "{PRODUCT_NAME} {VERSION} · {LICENCE} · built by {MAKER}"
+        .child(mono(crate::i18n::tr(
+            "chat.conversation.colophon",
+            &[
+                ("product", &PRODUCT_NAME),
+                ("version", &VERSION),
+                ("licence", &LICENCE),
+                ("maker", &MAKER),
+            ],
         )))
-        .child(mono("An independent client. Not affiliated with WhatsApp."))
+        .child(mono(crate::i18n::t("chat.conversation.independent")))
 }

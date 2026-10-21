@@ -159,20 +159,20 @@ impl Shell {
                 let look = self.rail.look(&key);
                 entries.push(entry(
                     "rail-rename",
-                    "Rename",
+                    crate::i18n::t("commands.rail_menu.rename"),
                     IconName::SquarePen,
                     RailAction::Rename,
                 ));
                 entries.push(entry(
                     "rail-look",
-                    "Change icon and colour",
+                    crate::i18n::t("commands.rail_menu.look"),
                     IconName::Image,
                     RailAction::Look,
                 ));
                 if caps.profile_edit {
                     entries.push(entry(
                         "rail-profile",
-                        "Edit WhatsApp profile",
+                        crate::i18n::t("commands.rail_menu.profile"),
                         IconName::Info,
                         RailAction::EditProfile,
                     ));
@@ -183,7 +183,10 @@ impl Shell {
                     if Some(group.id) != own_group {
                         entries.push(entry(
                             &format!("rail-move-{}", group.id),
-                            format!("Move to {}", group.name),
+                            crate::i18n::tr(
+                                "commands.rail_menu.move_to",
+                                &[("group", &group.name)],
+                            ),
                             IconName::Users,
                             RailAction::MoveTo(group.id),
                         ));
@@ -202,9 +205,9 @@ impl Shell {
                 if others.is_empty() && self.rail.groups().is_empty() {
                     entries.push(disabled(
                         "rail-new-group",
-                        "New group",
+                        crate::i18n::t("commands.rail_menu.new_group"),
                         IconName::Users,
-                        "Needs another number",
+                        crate::i18n::t("commands.why.needs_another"),
                     ));
                 }
                 for (place, other) in others.iter().take(4).enumerate() {
@@ -214,7 +217,7 @@ impl Shell {
                         .unwrap_or_default();
                     entries.push(entry(
                         &format!("rail-group-with-{place}"),
-                        format!("New group with {name}"),
+                        crate::i18n::tr("commands.rail_menu.group_with", &[("name", &name)]),
                         IconName::Plus,
                         RailAction::GroupWith(other.clone()),
                     ));
@@ -222,20 +225,20 @@ impl Shell {
                 if own_group.is_some() {
                     entries.push(entry(
                         "rail-leave-group",
-                        "Remove from group",
+                        crate::i18n::t("commands.rail_menu.leave_group"),
                         IconName::X,
                         RailAction::LeaveGroup,
                     ));
                 }
                 entries.push(entry(
                     "rail-up",
-                    "Move up",
+                    crate::i18n::t("commands.rail_menu.move_up"),
                     IconName::ChevronDown,
                     RailAction::MoveUp,
                 ));
                 entries.push(entry(
                     "rail-down",
-                    "Move down",
+                    crate::i18n::t("commands.rail_menu.move_down"),
                     IconName::ChevronDown,
                     RailAction::MoveDown,
                 ));
@@ -243,24 +246,24 @@ impl Shell {
                 entries.push(if unread > 0 {
                     entry(
                         "rail-read",
-                        "Mark all as read",
+                        crate::i18n::t("commands.rail_menu.mark_read"),
                         IconName::CheckCheck,
                         RailAction::MarkRead,
                     )
                 } else {
                     disabled(
                         "rail-read",
-                        "Mark all as read",
+                        crate::i18n::t("commands.rail_menu.mark_read"),
                         IconName::CheckCheck,
-                        "Nothing unread",
+                        crate::i18n::t("commands.rail_menu.nothing_unread"),
                     )
                 });
                 entries.push(entry(
                     "rail-mute",
                     if look.muted {
-                        "Unmute notifications"
+                        crate::i18n::t("commands.rail_menu.unmute")
                     } else {
-                        "Mute notifications for this number"
+                        crate::i18n::t("commands.rail_menu.mute")
                     },
                     if look.muted {
                         IconName::Bell
@@ -273,20 +276,20 @@ impl Shell {
                 if !caps.manage_accounts {
                     entries.push(disabled(
                         "rail-reconnect",
-                        "Reconnect",
+                        crate::i18n::t("commands.rail_menu.reconnect"),
                         IconName::RotateCw,
-                        "Not with this provider",
+                        crate::i18n::t("commands.rail_menu.not_with_provider"),
                     ));
                 } else if account.never_linked() {
                     entries.push(entry(
                         "rail-link",
-                        "Link",
+                        crate::i18n::t("commands.rail_menu.link"),
                         IconName::Phone,
                         RailAction::Reconnect,
                     ));
                     entries.push(entry(
                         "rail-remove",
-                        "Remove",
+                        crate::i18n::t("commands.rail_menu.remove"),
                         IconName::Trash,
                         RailAction::Remove,
                     ));
@@ -294,9 +297,9 @@ impl Shell {
                     entries.push(entry(
                         "rail-reconnect",
                         if account.connection == ConnectionState::LoggedOut {
-                            "Link again"
+                            crate::i18n::t("commands.rail_menu.link_again")
                         } else {
-                            "Reconnect"
+                            crate::i18n::t("commands.rail_menu.reconnect")
                         },
                         IconName::RotateCw,
                         RailAction::Reconnect,
@@ -304,7 +307,7 @@ impl Shell {
                     if account.connection != ConnectionState::LoggedOut {
                         entries.push(entry(
                             "rail-logout",
-                            "Log out",
+                            crate::i18n::t("commands.rail_menu.log_out"),
                             IconName::LogOut,
                             RailAction::LogOut,
                         ));
@@ -317,13 +320,17 @@ impl Shell {
                 };
                 entries.push(entry(
                     "rail-group-toggle",
-                    if group.expanded { "Collapse" } else { "Expand" },
+                    if group.expanded {
+                        crate::i18n::t("commands.rail_menu.collapse")
+                    } else {
+                        crate::i18n::t("commands.rail_menu.expand")
+                    },
                     IconName::ChevronDown,
                     RailAction::GroupToggle,
                 ));
                 entries.push(entry(
                     "rail-group-edit",
-                    "Rename and change colour",
+                    crate::i18n::t("commands.rail_menu.group_edit"),
                     IconName::SquarePen,
                     RailAction::GroupEdit,
                 ));
@@ -336,33 +343,33 @@ impl Shell {
                 entries.push(if unread > 0 {
                     entry(
                         "rail-read",
-                        "Mark all as read",
+                        crate::i18n::t("commands.rail_menu.mark_read"),
                         IconName::CheckCheck,
                         RailAction::MarkRead,
                     )
                 } else {
                     disabled(
                         "rail-read",
-                        "Mark all as read",
+                        crate::i18n::t("commands.rail_menu.mark_read"),
                         IconName::CheckCheck,
-                        "Nothing unread",
+                        crate::i18n::t("commands.rail_menu.nothing_unread"),
                     )
                 });
                 entries.push(entry(
                     "rail-up",
-                    "Move up",
+                    crate::i18n::t("commands.rail_menu.move_up"),
                     IconName::ChevronDown,
                     RailAction::MoveUp,
                 ));
                 entries.push(entry(
                     "rail-down",
-                    "Move down",
+                    crate::i18n::t("commands.rail_menu.move_down"),
                     IconName::ChevronDown,
                     RailAction::MoveDown,
                 ));
                 entries.push(entry(
                     "rail-ungroup",
-                    "Ungroup",
+                    crate::i18n::t("commands.rail_menu.ungroup"),
                     IconName::X,
                     RailAction::Ungroup,
                 ));
@@ -694,7 +701,7 @@ impl Shell {
                     .look(&self.rail_key(account))
                     .glyph
                     .unwrap_or_default(),
-                "An emoji or two letters",
+                crate::i18n::t("commands.rail_edit.placeholder_look"),
             ),
             (RailTarget::Account(account), _) => (
                 self.accounts
@@ -702,14 +709,14 @@ impl Shell {
                     .find(|known| &known.id == account)
                     .map(|known| self.account_name(known))
                     .unwrap_or_default(),
-                "A name for this number",
+                crate::i18n::t("commands.rail_edit.placeholder_number"),
             ),
             (RailTarget::Group(id), _) => (
                 self.rail
                     .group(*id)
                     .map(|group| group.name.clone())
                     .unwrap_or_default(),
-                "A name for this group",
+                crate::i18n::t("commands.rail_edit.placeholder_group"),
             ),
         };
         let input = cx.new(|cx| InputState::new(window, cx).placeholder(placeholder));
@@ -828,12 +835,14 @@ impl Shell {
                     .spawn_blocking(move || -> Result<Vec<u8>, String> {
                         let size = std::fs::metadata(&path).map_err(|e| e.to_string())?.len();
                         if size > 20 * 1024 * 1024 {
-                            return Err("That picture is larger than 20 MB.".to_owned());
+                            return Err(crate::i18n::t("commands.rail_edit.too_large").to_owned());
                         }
                         let bytes = std::fs::read(&path).map_err(|e| e.to_string())?;
                         client_core::thumbnail(&bytes, 128)
                             .map(|small| small.bytes)
-                            .map_err(|_| "That file is not a picture this can show.".to_owned())
+                            .map_err(|_| {
+                                crate::i18n::t("commands.rail_edit.not_a_picture").to_owned()
+                            })
                     })
                     .await
                     .map_err(|e| e.to_string())??;
@@ -896,14 +905,18 @@ impl Shell {
         let edit = self.rail_edit.as_ref()?;
         let (title, field, chosen): (&str, &str, Option<u8>) = match (&edit.target, edit.kind) {
             (RailTarget::Account(account), RailEditKind::Look) => (
-                "Icon and colour",
-                "Emoji or initials",
+                crate::i18n::t("commands.rail_edit.title_look"),
+                crate::i18n::t("commands.rail_edit.field_look"),
                 self.rail.look(&self.rail_key(account)).colour,
             ),
-            (RailTarget::Account(_), _) => ("Name on this computer", "Name", None),
+            (RailTarget::Account(_), _) => (
+                crate::i18n::t("commands.rail_edit.title_label"),
+                crate::i18n::t("commands.rail_edit.field_name"),
+                None,
+            ),
             (RailTarget::Group(id), _) => (
-                "Group",
-                "Name",
+                crate::i18n::t("commands.rail_edit.title_group"),
+                crate::i18n::t("commands.rail_edit.field_name"),
                 self.rail.group(*id).map(|group| group.colour),
             ),
         };
@@ -978,7 +991,10 @@ impl Shell {
                                     .flex()
                                     .flex_col()
                                     .gap_1()
-                                    .child(label("Colour", palette))
+                                    .child(label(
+                                        crate::i18n::t("commands.rail_edit.colour"),
+                                        palette,
+                                    ))
                                     .child(swatches),
                             )
                         })
@@ -988,10 +1004,7 @@ impl Shell {
                                     .text_size(metrics::TEXT_SMALL())
                                     .line_height(px(18.))
                                     .text_color(palette.text_muted)
-                                    .child(
-                                        "Only on this computer. Without any of these the \
-                                         number shows its own WhatsApp picture.",
-                                    ),
+                                    .child(crate::i18n::t("commands.rail_edit.look_note")),
                             )
                         })
                         .children(edit.error.clone().map(|error| {
@@ -1015,7 +1028,7 @@ impl Shell {
                             this.child(
                                 text_button(
                                     "rail-edit-image",
-                                    "Choose a picture",
+                                    crate::i18n::t("commands.rail_edit.choose_picture"),
                                     Some(IconName::Image),
                                     false,
                                     palette,
@@ -1028,21 +1041,36 @@ impl Shell {
                                 )),
                             )
                             .child(
-                                text_button("rail-edit-reset", "Reset", None, false, palette)
-                                    .on_click(cx.listener(|this, _, window, cx| {
+                                text_button(
+                                    "rail-edit-reset",
+                                    crate::i18n::t("commands.rail_edit.reset"),
+                                    None,
+                                    false,
+                                    palette,
+                                )
+                                .on_click(cx.listener(
+                                    |this, _, window, cx| {
                                         cx.stop_propagation();
                                         this.reset_rail_look(cx);
                                         this.close_overlay(window, cx);
-                                    })),
+                                    },
+                                )),
                             )
                         })
                         .child(
-                            text_button("rail-edit-done", "Done", None, true, palette).on_click(
-                                cx.listener(|this, _, window, cx| {
+                            text_button(
+                                "rail-edit-done",
+                                crate::i18n::t("commands.rail_edit.done"),
+                                None,
+                                true,
+                                palette,
+                            )
+                            .on_click(cx.listener(
+                                |this, _, window, cx| {
                                     cx.stop_propagation();
                                     this.finish_rail_edit(window, cx);
-                                }),
-                            ),
+                                },
+                            )),
                         ),
                 ),
         )

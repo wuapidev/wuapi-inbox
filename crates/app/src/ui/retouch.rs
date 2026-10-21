@@ -51,11 +51,11 @@ impl Tool {
     /// What to do with it, said under the tools.
     fn hint(self) -> &'static str {
         match self {
-            Tool::Crop => "Drag over the part to keep.",
-            Tool::Pen => "Draw on the picture.",
-            Tool::Words => "Write, then click where the words go.",
-            Tool::Frame => "Drag a rectangle around something.",
-            Tool::Hide => "Drag over what should not be read.",
+            Tool::Crop => crate::i18n::t("chat.retouch_tools.hint_crop"),
+            Tool::Pen => crate::i18n::t("chat.retouch_tools.hint_pen"),
+            Tool::Words => crate::i18n::t("chat.retouch_tools.hint_words"),
+            Tool::Frame => crate::i18n::t("chat.retouch_tools.hint_frame"),
+            Tool::Hide => crate::i18n::t("chat.retouch_tools.hint_hide"),
         }
     }
 
@@ -257,8 +257,10 @@ impl Shell {
             return;
         }
         if self.retouching.words.is_none() {
-            self.retouching.words =
-                Some(cx.new(|cx| InputState::new(window, cx).placeholder("Words to write")));
+            self.retouching.words = Some(cx.new(|cx| {
+                InputState::new(window, cx)
+                    .placeholder(crate::i18n::t("chat.retouch_tools.words_placeholder"))
+            }));
         }
         let Some(draft) = self.attach.as_mut() else {
             return;
@@ -536,26 +538,45 @@ impl Shell {
             .items_center()
             .gap(px(2.))
             .child(
-                tool("retouch-turn", IconName::RotateCw, "Turn", false).on_click(cx.listener(
-                    |this, _, _, cx| {
-                        cx.stop_propagation();
-                        this.retouch_with(Edit::Turn, cx);
-                    },
-                )),
+                tool(
+                    "retouch-turn",
+                    IconName::RotateCw,
+                    crate::i18n::t("chat.retouch_tools.turn"),
+                    false,
+                )
+                .on_click(cx.listener(|this, _, _, cx| {
+                    cx.stop_propagation();
+                    this.retouch_with(Edit::Turn, cx);
+                })),
             )
-            .child(pick("retouch-crop", IconName::Crop, "Crop", Tool::Crop))
-            .child(pick("retouch-pen", IconName::Pencil, "Draw", Tool::Pen))
-            .child(pick("retouch-words", IconName::Type, "Write", Tool::Words))
+            .child(pick(
+                "retouch-crop",
+                IconName::Crop,
+                crate::i18n::t("chat.retouch_tools.crop"),
+                Tool::Crop,
+            ))
+            .child(pick(
+                "retouch-pen",
+                IconName::Pencil,
+                crate::i18n::t("chat.retouch_tools.draw"),
+                Tool::Pen,
+            ))
+            .child(pick(
+                "retouch-words",
+                IconName::Type,
+                crate::i18n::t("chat.retouch_tools.write"),
+                Tool::Words,
+            ))
             .child(pick(
                 "retouch-frame",
                 IconName::Square,
-                "Rectangle",
+                crate::i18n::t("chat.retouch_tools.rectangle"),
                 Tool::Frame,
             ))
             .child(pick(
                 "retouch-hide",
                 IconName::Grid3x3,
-                "Hide a part",
+                crate::i18n::t("chat.retouch_tools.hide"),
                 Tool::Hide,
             ))
             .child(
@@ -567,22 +588,26 @@ impl Shell {
                     .bg(palette.border),
             )
             .child(
-                tool("retouch-undo", IconName::Undo2, "Undo", false)
-                    .when(edits == 0, |this| this.opacity(0.4))
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        cx.stop_propagation();
-                        this.retouch_undo(cx);
-                    })),
+                tool(
+                    "retouch-undo",
+                    IconName::Undo2,
+                    crate::i18n::t("chat.retouch_tools.undo"),
+                    false,
+                )
+                .when(edits == 0, |this| this.opacity(0.4))
+                .on_click(cx.listener(|this, _, _, cx| {
+                    cx.stop_propagation();
+                    this.retouch_undo(cx);
+                })),
             )
             .child(div().flex_1())
             .child(
                 mono(if item.retouch.busy && edits > 0 {
-                    "APPLYING…".to_owned()
+                    crate::i18n::t("chat.retouch_tools.applying").to_owned()
                 } else {
                     match edits {
                         0 => String::new(),
-                        1 => "1 EDIT".to_owned(),
-                        edits => format!("{edits} EDITS"),
+                        edits => crate::i18n::plural("chat.retouch_tools.edits", edits as u64, &[]),
                     }
                 })
                 .debug_selector(|| "retouch-count".into())

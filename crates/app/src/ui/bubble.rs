@@ -290,7 +290,7 @@ fn message_row(row: &MessageRow, palette: &Palette, in_group: bool, context: &Ro
     let meta = meta_line(row, &side, palette);
     bubble = if message.deleted {
         bubble.child(with_trailing_meta(
-            notice("This message was deleted", &side),
+            notice(crate::i18n::t("chat.bubble.deleted"), &side),
             meta,
         ))
     } else if extras.view_once {
@@ -406,9 +406,9 @@ fn message_row(row: &MessageRow, palette: &Palette, in_group: bool, context: &Ro
         .when_some(failure, |this, reason| {
             this.child(
                 mono(if reason.is_empty() {
-                    "Not sent".to_owned()
+                    crate::i18n::t("chat.bubble.not_sent").to_owned()
                 } else {
-                    format!("Not sent · {reason}")
+                    crate::i18n::tr("chat.bubble.not_sent_reason", &[("reason", &reason)])
                 })
                 .pt(px(4.))
                 .text_color(palette.danger),
@@ -491,7 +491,10 @@ fn react_button(
         .invisible()
         .group_hover(hover, |style| style.visible())
         .hover(|style| style.bg(palette.muted))
-        .tooltip(|window, cx| gpui_kit::component::tooltip::Tooltip::new("React").build(window, cx))
+        .tooltip(|window, cx| {
+            gpui_kit::component::tooltip::Tooltip::new(crate::i18n::t("chat.bubble.react"))
+                .build(window, cx)
+        })
         .on_mouse_down(gpui_kit::MouseButton::Left, |_, _, cx| {
             cx.stop_propagation()
         })
@@ -745,7 +748,7 @@ fn meta_line(row: &MessageRow, side: &Side, palette: &Palette) -> Div {
         })
         .when(message.edited && !message.deleted, |this| {
             this.child(
-                mono("edited")
+                mono(crate::i18n::t("chat.bubble.edited"))
                     .debug_selector(|| "edited-label".into())
                     .text_size(px(10.5)),
             )
@@ -785,12 +788,12 @@ fn quote(
 ) -> gpui_kit::Stateful<Div> {
     let name: SharedString = match &reply.sender_name {
         Some(name) => name.clone().into(),
-        None => "You".into(),
+        None => crate::i18n::t("chat.you").into(),
     };
     let preview: SharedString = reply
         .preview
         .clone()
-        .unwrap_or_else(|| "Message".to_owned())
+        .unwrap_or_else(|| crate::i18n::t("chat.bubble.quote_message").to_owned())
         .into();
     let (bar, ink) = match quoted {
         Quoted::Person(tone) => {
@@ -1015,14 +1018,22 @@ fn image_block(
             div()
                 .size_full()
                 .debug_selector(|| "media-unavailable".into())
-                .child(note(IconName::Ban, "NO LONGER AVAILABLE", Some(reason))),
+                .child(note(
+                    IconName::Ban,
+                    crate::i18n::t("chat.bubble.no_longer_available"),
+                    Some(reason),
+                )),
         ),
         // A kind of sticker nothing here can draw.
         MediaVisual::Unsupported(reason) => frame.child(
             div()
                 .size_full()
                 .debug_selector(|| "media-unavailable".into())
-                .child(note(IconName::Ban, "NOT AVAILABLE", Some(reason))),
+                .child(note(
+                    IconName::Ban,
+                    crate::i18n::t("chat.bubble.not_available"),
+                    Some(reason),
+                )),
         ),
         // Imported with the account's history: the provider has no file.
         MediaVisual::NoFile => frame.child(
@@ -1031,8 +1042,8 @@ fn image_block(
                 .debug_selector(|| "media-unavailable".into())
                 .child(note(
                     IconName::Ban,
-                    "NOT AVAILABLE",
-                    Some("From before this number was linked".into()),
+                    crate::i18n::t("chat.bubble.not_available"),
+                    Some(crate::i18n::t("chat.bubble.before_linking").into()),
                 )),
         ),
         // Not here yet: the round button, in the middle of the box the
@@ -1047,7 +1058,10 @@ fn image_block(
                     Transfer::Download { size },
                     size.map(|size| file_size(size).into()),
                 ),
-                MediaVisual::Failed(reason) => (Transfer::Retry(reason), Some("NOT LOADED".into())),
+                MediaVisual::Failed(reason) => (
+                    Transfer::Retry(reason),
+                    Some(crate::i18n::t("chat.bubble.not_loaded").into()),
+                ),
                 _ => unreachable!("matched above"),
             };
             let (view, shelf) = (context.view.clone(), context.shelf.clone());
@@ -1279,13 +1293,13 @@ fn picture_buttons(media: &Media, message: &Message, context: &RowContext) -> Di
         MediaKind::Sticker => Some((
             "picture-favorite",
             IconName::Star,
-            "Add to favorites",
+            crate::i18n::t("chat.bubble.add_favorite"),
             client_core::LibraryKind::Sticker,
         )),
         _ if super::library_ui::is_gif(media) => Some((
             "picture-save-gif",
             IconName::Film,
-            "Save GIF",
+            crate::i18n::t("chat.bubble.save_gif"),
             client_core::LibraryKind::Gif,
         )),
         _ => None,
@@ -1302,17 +1316,25 @@ fn picture_buttons(media: &Media, message: &Message, context: &RowContext) -> Di
         .invisible()
         .group_hover(group, |style| style.visible())
         .child(
-            button("picture-save", IconName::ArrowDownToLine, "Save as…").on_click(
-                move |_, _, cx| {
-                    cx.stop_propagation();
-                    save_view
-                        .update(cx, |shell, cx| shell.save_as(Some(save_media.clone()), cx))
-                        .ok();
-                },
-            ),
+            button(
+                "picture-save",
+                IconName::ArrowDownToLine,
+                crate::i18n::t("chat.bubble.save_as"),
+            )
+            .on_click(move |_, _, cx| {
+                cx.stop_propagation();
+                save_view
+                    .update(cx, |shell, cx| shell.save_as(Some(save_media.clone()), cx))
+                    .ok();
+            }),
         )
         .child(
-            button("picture-copy", IconName::Copy, "Copy image").on_click(move |_, _, cx| {
+            button(
+                "picture-copy",
+                IconName::Copy,
+                crate::i18n::t("chat.bubble.copy_image"),
+            )
+            .on_click(move |_, _, cx| {
                 cx.stop_propagation();
                 copy_view
                     .update(cx, |shell, cx| shell.copy_media(copy_media.clone(), cx))
@@ -1330,7 +1352,12 @@ fn picture_buttons(media: &Media, message: &Message, context: &RowContext) -> Di
             })
         }))
         .child(
-            button("picture-open", IconName::Image, "Open").on_click(move |_, window, cx| {
+            button(
+                "picture-open",
+                IconName::Image,
+                crate::i18n::t("chat.bubble.open"),
+            )
+            .on_click(move |_, window, cx| {
                 cx.stop_propagation();
                 open_view
                     .update(cx, |shell, cx| {
@@ -1565,10 +1592,11 @@ fn sending_line(message: &Message, side: &Side, context: &RowContext) -> Option<
     }
     let client_id = message.client_id.clone()?;
     let text = match context.engine.upload_progress(&client_id) {
-        Some((sent, total)) if total > 0 => {
-            format!("UPLOADING {}%", (sent.min(total) * 100 / total))
-        }
-        _ => "WAITING TO SEND".to_owned(),
+        Some((sent, total)) if total > 0 => crate::i18n::tr(
+            "chat.bubble.uploading",
+            &[("percent", &(sent.min(total) * 100 / total))],
+        ),
+        _ => crate::i18n::t("chat.bubble.waiting_to_send").to_owned(),
     };
     let view = context.view.clone();
     let colour = side.text;
@@ -1593,7 +1621,7 @@ fn sending_line(message: &Message, side: &Side, context: &RowContext) -> Option<
                         view.update(cx, |shell, cx| shell.cancel_send(client_id.clone(), cx))
                             .ok();
                     })
-                    .child(mono("CANCEL")),
+                    .child(mono(crate::i18n::t("chat.bubble.cancel"))),
             ),
     )
 }
@@ -1670,7 +1698,7 @@ fn file_action(media: &Media, message: &Message, side: &Side, context: &RowConte
         return line
             .debug_selector(|| "media-unavailable".into())
             .child(icon(IconName::Ban, px(13.), side.meta))
-            .child(mono("NOT AVAILABLE · FROM BEFORE THIS NUMBER WAS LINKED"));
+            .child(mono(crate::i18n::t("chat.bubble.file_unavailable")));
     };
     let state = context.shelf.file_state(source.as_str());
     if state == FileState::NotFetched
@@ -1680,13 +1708,16 @@ fn file_action(media: &Media, message: &Message, side: &Side, context: &RowConte
         context.shelf.prefetch(&message.account_id, source.as_str());
     }
     let text = match &state {
-        FileState::NotFetched => "DOWNLOAD AND OPEN".to_owned(),
-        FileState::Loading => "DOWNLOADING…".to_owned(),
-        FileState::Ready => "OPEN".to_owned(),
+        FileState::NotFetched => crate::i18n::t("chat.bubble.download_and_open").to_owned(),
+        FileState::Loading => crate::i18n::t("chat.bubble.downloading").to_owned(),
+        FileState::Ready => crate::i18n::t("chat.bubble.open_caps").to_owned(),
         FileState::Unavailable(_) if context.shelf.file_expired(source.as_str()) => {
-            "NO LONGER AVAILABLE".to_owned()
+            crate::i18n::t("chat.bubble.no_longer_available").to_owned()
         }
-        FileState::Unavailable(reason) => format!("NOT LOADED · {}", reason.to_uppercase()),
+        FileState::Unavailable(reason) => crate::i18n::tr(
+            "chat.bubble.file_not_loaded",
+            &[("reason", &reason.to_uppercase())],
+        ),
     };
     if matches!(state, FileState::Unavailable(_) | FileState::Loading) {
         return line.child(mono(text));
@@ -1735,7 +1766,7 @@ fn file_action(media: &Media, message: &Message, side: &Side, context: &RowConte
                     .ok();
             })
             .child(icon(IconName::ArrowDownToLine, px(13.), text_colour))
-            .child(mono("SAVE AS…"))
+            .child(mono(crate::i18n::t("chat.bubble.save_as_caps")))
     })
 }
 
@@ -1781,7 +1812,7 @@ fn video_block(media: &Media, message: &Message, side: &Side, context: &RowConte
     };
     let mut label = match media.duration_secs {
         Some(secs) => duration(secs),
-        None => "VIDEO".to_owned(),
+        None => crate::i18n::t("chat.bubble.video_caps").to_owned(),
     };
     if state != FileState::Ready {
         if let Some(bytes) = media.size_bytes {
@@ -1864,7 +1895,10 @@ fn video_block(media: &Media, message: &Message, side: &Side, context: &RowConte
                         .invisible()
                         .group_hover(group, |style| style.visible())
                         .tooltip(|window, cx| {
-                            gpui_kit::component::tooltip::Tooltip::new("Save as…").build(window, cx)
+                            gpui_kit::component::tooltip::Tooltip::new(crate::i18n::t(
+                                "chat.bubble.save_as",
+                            ))
+                            .build(window, cx)
                         })
                         .on_mouse_down(gpui_kit::MouseButton::Left, |_, _, cx| {
                             cx.stop_propagation()
@@ -1901,7 +1935,10 @@ fn media_block(media: &Media, message: &Message, side: &Side, context: &RowConte
             let (kind, title) = if media.gif {
                 ("GIF", "GIF")
             } else {
-                ("VIDEO", "Video")
+                (
+                    crate::i18n::t("chat.bubble.video_caps"),
+                    crate::i18n::t("chat.bubble.video_title"),
+                )
             };
             let detail: SharedString = match (media.duration_secs, media.size_bytes) {
                 (Some(secs), Some(bytes)) => {
@@ -1973,20 +2010,22 @@ fn media_block(media: &Media, message: &Message, side: &Side, context: &RowConte
             let name: SharedString = media
                 .file_name
                 .clone()
-                .unwrap_or_else(|| "Document".to_owned())
+                .unwrap_or_else(|| crate::i18n::t("chat.bubble.document").to_owned())
                 .into();
             let kind = media
                 .file_name
                 .as_deref()
                 .and_then(|name| name.rsplit_once('.'))
                 .map(|(_, extension)| extension.to_uppercase())
-                .unwrap_or_else(|| "FILE".to_owned());
+                .unwrap_or_else(|| crate::i18n::t("chat.bubble.file_caps").to_owned());
             let cover = pdf_cover(media, message, context);
             let pages = cover.as_ref().and_then(|(_, pages)| *pages).or(media.pages);
             let mut detail = kind;
             if let Some(pages) = pages {
-                let noun = if pages == 1 { "page" } else { "pages" };
-                detail = format!("{detail} · {pages} {noun}");
+                detail = format!(
+                    "{detail} · {}",
+                    crate::i18n::plural("chat.bubble.pages", pages as u64, &[])
+                );
             }
             if let Some(bytes) = media.size_bytes {
                 detail = format!("{detail} · {}", file_size(bytes));

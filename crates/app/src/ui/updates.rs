@@ -13,6 +13,7 @@ use super::panels::{choice_row, section};
 use super::shell::{Overlay, SettingsSection, Shell};
 use super::voice_record::Phase as VoicePhase;
 use super::widgets::{switch, text_button};
+use crate::i18n;
 use crate::icons::{icon, IconName};
 use crate::product::{LICENCE, MAKER, PRODUCT_NAME, REPOSITORY, VERSION};
 use crate::theme::{metrics, px, Palette};
@@ -75,9 +76,9 @@ impl UpdateUi {
 /// An Applications folder, in words: the system's, or the user's own.
 fn folder_words(folder: &std::path::Path) -> &'static str {
     if folder == std::path::Path::new("/Applications") {
-        "the Applications folder"
+        i18n::t("accounts.about.folder_system")
     } else {
-        "the Applications folder of your home folder"
+        i18n::t("accounts.about.folder_home")
     }
 }
 
@@ -97,28 +98,28 @@ impl Shell {
         let mut busy = Vec::new();
         match self.unsent() {
             0 => {}
-            1 => busy.push("1 message is still on its way out".to_owned()),
-            n => busy.push(format!("{n} messages are still on their way out")),
+            n => busy.push(i18n::plural(
+                "accounts.about.interrupt.messages",
+                n as u64,
+                &[],
+            )),
         }
         if matches!(
             self.voice.phase,
             VoicePhase::Recording | VoicePhase::Preview | VoicePhase::Sending
         ) {
-            busy.push("a voice note is being recorded".to_owned());
+            busy.push(i18n::t("accounts.about.interrupt.voice").to_owned());
         }
         if busy.is_empty() {
             return None;
         }
-        Some(format!(
-            "{}. Messages that are waiting are kept and sent after the restart; a recording \
-             that was not sent is lost.",
-            {
-                let mut said = busy.join(", and ");
-                if let Some(first) = said.get_mut(..1) {
-                    first.make_ascii_uppercase();
-                }
-                said
-            }
+        let mut said = busy.join(i18n::t("accounts.about.interrupt.and"));
+        if let Some(first) = said.get_mut(..1) {
+            first.make_ascii_uppercase();
+        }
+        Some(i18n::tr(
+            "accounts.about.interrupt.text",
+            &[("busy", &said)],
         ))
     }
 
@@ -140,7 +141,10 @@ impl Shell {
         }
         if let Err(error) = update::restart(cx) {
             self.show_problem(
-                format!("{PRODUCT_NAME} could not be restarted: {error}"),
+                i18n::tr(
+                    "accounts.about.restart_failed",
+                    &[("name", &PRODUCT_NAME), ("error", &error)],
+                ),
                 cx,
             );
         }
@@ -176,9 +180,12 @@ impl Shell {
                 Err(why) => {
                     tracing::warn!(%why, "the application was not moved to the Applications folder");
                     this.updates.moving = Moving::Failed(
-                        format!(
-                            "{PRODUCT_NAME} could not be moved: {}. Nothing was changed.",
-                            why.trim().trim_end_matches('.')
+                        i18n::tr(
+                            "accounts.about.move_failed",
+                            &[
+                                ("name", &PRODUCT_NAME),
+                                ("why", &why.trim().trim_end_matches('.')),
+                            ],
                         )
                         .into(),
                     );
@@ -218,9 +225,12 @@ impl Shell {
                 .text_size(metrics::TEXT_SMALL())
                 .line_height(px(18.))
                 .text_color(palette.text)
-                .child(SharedString::from(format!(
-                    "Move {PRODUCT_NAME} to {}? From there it updates by itself.",
-                    folder_words(&offer.folder)
+                .child(SharedString::from(i18n::tr(
+                    "accounts.about.move_offer",
+                    &[
+                        ("name", &PRODUCT_NAME),
+                        ("folder", &folder_words(&offer.folder)),
+                    ],
                 )))
                 .children(self.move_failure().map(|why| {
                     div()
@@ -237,9 +247,9 @@ impl Shell {
                             text_button(
                                 "move-accept",
                                 if working {
-                                    "Moving…"
+                                    i18n::t("accounts.about.moving")
                                 } else {
-                                    "Move to Applications"
+                                    i18n::t("accounts.about.move")
                                 },
                                 None,
                                 true,
@@ -253,14 +263,22 @@ impl Shell {
                         )
                         .when(!working, |this| {
                             this.child(
-                                text_button("move-not-now", "Not now", None, false, palette)
-                                    .on_click(cx.listener(|_, _, _, cx| {
+                                text_button(
+                                    "move-not-now",
+                                    i18n::t("accounts.about.not_now"),
+                                    None,
+                                    false,
+                                    palette,
+                                )
+                                .on_click(cx.listener(
+                                    |_, _, _, cx| {
                                         cx.stop_propagation();
                                         crate::settings::update(cx, |settings| {
                                             settings.move_prompt_done = true
                                         });
                                         cx.notify();
-                                    })),
+                                    },
+                                )),
                             )
                         }),
                 ),
@@ -296,19 +314,21 @@ impl Shell {
                             .text_size(metrics::TEXT_SMALL())
                             .line_height(px(19.))
                             .text_color(palette.text)
-                            .child(SharedString::from(format!(
-                                "Where it was opened from, {PRODUCT_NAME} cannot replace itself \
-                                 with a new version. In {} it updates by itself.",
-                                folder_words(&offer.folder)
+                            .child(SharedString::from(i18n::tr(
+                                "accounts.about.move_explain",
+                                &[
+                                    ("name", &PRODUCT_NAME),
+                                    ("folder", &folder_words(&offer.folder)),
+                                ],
                             ))),
                     )
                     .child(
                         text_button(
                             "update-move",
                             if working {
-                                "Moving…"
+                                i18n::t("accounts.about.moving")
                             } else {
-                                "Move to Applications"
+                                i18n::t("accounts.about.move")
                             },
                             None,
                             true,
@@ -349,9 +369,9 @@ impl Shell {
     fn save_update_url(&mut self, cx: &mut Context<Self>) {
         let typed = self.updates.url_input.read(cx).value().trim().to_owned();
         self.updates.said = Some(match update::set_base_url(cx, &typed) {
-            Ok(()) if typed.is_empty() => "Updates come from the project's releases.".into(),
-            Ok(()) => "Saved. Updates are taken from this address.".into(),
-            Err(why) => format!("Not saved: {why}.").into(),
+            Ok(()) if typed.is_empty() => i18n::t("accounts.about.source_default").into(),
+            Ok(()) => i18n::t("accounts.about.source_saved").into(),
+            Err(why) => i18n::tr("accounts.about.source_not_saved", &[("why", &why)]).into(),
         });
         cx.notify();
     }
@@ -373,7 +393,8 @@ impl Shell {
     ) -> Option<Stateful<Div>> {
         let version = update::ready_version(cx)?;
         let (hover, ring) = (palette.muted, palette.accent);
-        let hint: SharedString = format!("Restart to update to {version}").into();
+        let hint: SharedString =
+            i18n::tr("accounts.about.restart_hint", &[("version", &version)]).into();
         Some(
             div()
                 .id("update-ready")
@@ -426,24 +447,40 @@ impl Shell {
         let interrupts = self.restart_interrupts();
         let warned = self.updates.warned && interrupts.is_some();
 
-        let mut about = section("About", palette)
+        let mut about = section(i18n::t("accounts.settings.section.about"), palette)
             .child(fact(
-                "Version",
+                i18n::t("accounts.about.version"),
                 format!("{PRODUCT_NAME} {VERSION}").into(),
                 palette,
             ))
             .child(
-                fact("Channel", update::CHANNEL.name().into(), palette)
-                    .debug_selector(|| "about-channel".into()),
+                fact(
+                    i18n::t("accounts.about.channel"),
+                    update::CHANNEL.name().into(),
+                    palette,
+                )
+                .debug_selector(|| "about-channel".into()),
             )
             .child(
-                fact("Last checked for updates", checked.into(), palette)
-                    .debug_selector(|| "about-last-check".into()),
+                fact(
+                    i18n::t("accounts.about.last_checked"),
+                    checked.into(),
+                    palette,
+                )
+                .debug_selector(|| "about-last-check".into()),
             )
-            .child(fact("Licence", LICENCE.into(), palette))
-            .child(fact("Built by", MAKER.into(), palette))
             .child(fact(
-                "Source",
+                i18n::t("accounts.about.licence"),
+                LICENCE.into(),
+                palette,
+            ))
+            .child(fact(
+                i18n::t("accounts.about.built_by"),
+                MAKER.into(),
+                palette,
+            ))
+            .child(fact(
+                i18n::t("accounts.about.source"),
                 REPOSITORY.trim_start_matches("https://").into(),
                 palette,
             ));
@@ -480,7 +517,11 @@ impl Shell {
                         this.child(
                             text_button(
                                 "update-check",
-                                if busy { "Checking…" } else { "Check now" },
+                                if busy {
+                                    i18n::t("accounts.about.checking")
+                                } else {
+                                    i18n::t("accounts.about.check_now")
+                                },
                                 Some(IconName::RotateCw),
                                 false,
                                 palette,
@@ -501,9 +542,9 @@ impl Shell {
                             text_button(
                                 "update-restart",
                                 if warned {
-                                    "Restart anyway"
+                                    i18n::t("accounts.about.restart_anyway")
                                 } else {
-                                    "Restart now"
+                                    i18n::t("accounts.about.restart_now")
                                 },
                                 Some(IconName::RotateCw),
                                 true,
@@ -521,7 +562,7 @@ impl Shell {
                         this.child(
                             text_button(
                                 "update-download",
-                                "Download",
+                                i18n::t("accounts.about.download"),
                                 Some(IconName::ExternalLink),
                                 false,
                                 palette,
@@ -599,13 +640,18 @@ impl Shell {
                             .child(SharedString::from(notice)),
                     )
                     .child(
-                        text_button("update-notice-ok", "OK", None, false, palette).on_click(
-                            |_, _, cx| {
-                                cx.stop_propagation();
-                                update::dismiss_notice(cx);
-                                cx.refresh_windows();
-                            },
-                        ),
+                        text_button(
+                            "update-notice-ok",
+                            i18n::t("accounts.about.ok"),
+                            None,
+                            false,
+                            palette,
+                        )
+                        .on_click(|_, _, cx| {
+                            cx.stop_propagation();
+                            update::dismiss_notice(cx);
+                            cx.refresh_windows();
+                        }),
                     ),
             );
         }
@@ -614,9 +660,8 @@ impl Shell {
         if !disabled {
             let automatic = snapshot.automatic;
             about = about.child(choice_row(
-                "Check for updates automatically",
-                "A new version is downloaded in the background, checked against the \
-                 project's signature, and installed the next time the application starts.",
+                i18n::t("accounts.about.automatic"),
+                i18n::t("accounts.about.automatic_text"),
                 switch("update-automatic", automatic, palette).on_click(move |_, _, cx| {
                     cx.stop_propagation();
                     update::set_automatic(cx, !automatic);
@@ -640,15 +685,12 @@ impl Shell {
                         .text_size(metrics::TEXT_SMALL())
                         .line_height(px(19.))
                         .text_color(palette.text_muted)
-                        .child(
-                            "An independent, open-source client. Not affiliated with \
-                             WhatsApp.",
-                        ),
+                        .child(i18n::t("accounts.about.independent")),
                 )
                 .child(
                     text_button(
                         "open-repository",
-                        "Source code",
+                        i18n::t("accounts.about.source_code"),
                         Some(IconName::ExternalLink),
                         false,
                         palette,
@@ -689,7 +731,7 @@ impl Shell {
                 px(14.),
                 palette.icon,
             ))
-            .child("Advanced")
+            .child(i18n::t("accounts.about.advanced"))
             .on_click(cx.listener(|this, _, _, cx| {
                 cx.stop_propagation();
                 this.updates.advanced = !this.updates.advanced;
@@ -701,22 +743,18 @@ impl Shell {
         }
         let state: SharedString = match (&self.updates.said, url_from) {
             (_, UrlFrom::CommandLine) => {
-                format!("Set with --update-url for this run: {base_url}").into()
+                i18n::tr("accounts.about.source_flag", &[("url", &base_url)]).into()
             }
             (Some(said), _) => said.clone(),
-            (None, UrlFrom::Setting) => "Updates are taken from this address.".into(),
-            (None, UrlFrom::Default) => {
-                "Updates come from the project's releases. Another address (https) can be \
-                 a mirror; it must serve the same signed files."
-                    .into()
-            }
+            (None, UrlFrom::Setting) => i18n::t("accounts.about.source_this").into(),
+            (None, UrlFrom::Default) => i18n::t("accounts.about.source_explain").into(),
         };
         block = block
             .child(
                 div()
                     .text_size(metrics::TEXT_BODY())
                     .font_weight(FontWeight::MEDIUM)
-                    .child("Update source"),
+                    .child(i18n::t("accounts.about.update_source")),
             )
             .child(
                 div()
@@ -741,21 +779,34 @@ impl Shell {
                     )
                     .when(url_from != UrlFrom::CommandLine, |this| {
                         this.child(
-                            text_button("update-url-save", "Save", None, false, palette).on_click(
-                                cx.listener(|this, _, _, cx| {
-                                    cx.stop_propagation();
-                                    this.save_update_url(cx);
-                                }),
-                            ),
+                            text_button(
+                                "update-url-save",
+                                i18n::t("accounts.about.save"),
+                                None,
+                                false,
+                                palette,
+                            )
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                cx.stop_propagation();
+                                this.save_update_url(cx);
+                            })),
                         )
                     })
                     .when(url_from == UrlFrom::Setting, |this| {
                         this.child(
-                            text_button("update-url-reset", "Reset", None, false, palette)
-                                .on_click(cx.listener(|this, _, window, cx| {
+                            text_button(
+                                "update-url-reset",
+                                i18n::t("accounts.about.reset"),
+                                None,
+                                false,
+                                palette,
+                            )
+                            .on_click(cx.listener(
+                                |this, _, window, cx| {
                                     cx.stop_propagation();
                                     this.reset_update_url(window, cx);
-                                })),
+                                },
+                            )),
                         )
                     }),
             )

@@ -5,6 +5,7 @@
 //! a hairline around it: what they say never depends on what is behind.
 
 use super::widgets::mono;
+use crate::i18n;
 use crate::theme::px;
 use crate::theme::{hairline, metrics, Palette};
 use gpui_kit::prelude::*;
@@ -42,10 +43,7 @@ pub fn day(text: SharedString, palette: &Palette) -> Div {
 
 /// What the unread divider says.
 pub fn unread_label(count: u32) -> String {
-    match count {
-        1 => "1 unread message".to_owned(),
-        n => format!("{n} unread messages"),
-    }
+    i18n::plural("common.pills.unread", u64::from(count), &[])
 }
 
 /// "3 unread messages", in the accent, on a rule across the thread.

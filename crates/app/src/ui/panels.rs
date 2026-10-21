@@ -9,6 +9,7 @@ use super::connection::connection_words;
 use super::menus::{fact, panel_header};
 use super::shell::{CloudOffer, Home, IdentityState, Overlay, SessionKind, SettingsSection, Shell};
 use super::widgets::{label, led, mono, segmented, status_colour, switch, text_button};
+use crate::i18n::{self, Language, LanguageChoice};
 use crate::icons::IconName;
 use crate::product::MAKER;
 use crate::settings::{
@@ -52,27 +53,51 @@ impl Shell {
             .flex_col()
             .gap(px(2.));
         for (index, (section, name, selector)) in [
-            (SettingsSection::Account, "Account", "settings-account"),
-            (SettingsSection::Sync, "Sync", "settings-sync"),
+            (
+                SettingsSection::Account,
+                i18n::t("accounts.settings.section.account"),
+                "settings-account",
+            ),
+            (
+                SettingsSection::Sync,
+                i18n::t("accounts.settings.section.sync"),
+                "settings-sync",
+            ),
             (
                 SettingsSection::Appearance,
-                "Appearance",
+                i18n::t("accounts.settings.section.appearance"),
                 "settings-appearance",
             ),
             (
                 SettingsSection::Notifications,
-                "Notifications",
+                i18n::t("accounts.settings.section.notifications"),
                 "settings-notifications",
             ),
-            (SettingsSection::Audio, "Audio and video", "settings-audio"),
+            (
+                SettingsSection::Audio,
+                i18n::t("accounts.settings.section.audio"),
+                "settings-audio",
+            ),
             (
                 SettingsSection::Stickers,
-                "Stickers and GIFs",
+                i18n::t("accounts.settings.section.stickers"),
                 "settings-stickers",
             ),
-            (SettingsSection::Keyboard, "Keyboard", "settings-keyboard"),
-            (SettingsSection::Status, "Status", "settings-status"),
-            (SettingsSection::About, "About", "settings-about"),
+            (
+                SettingsSection::Keyboard,
+                i18n::t("accounts.settings.section.keyboard"),
+                "settings-keyboard",
+            ),
+            (
+                SettingsSection::Status,
+                i18n::t("accounts.settings.section.status"),
+                "settings-status",
+            ),
+            (
+                SettingsSection::About,
+                i18n::t("accounts.settings.section.about"),
+                "settings-about",
+            ),
         ]
         .into_iter()
         .enumerate()
@@ -116,11 +141,11 @@ impl Shell {
             .w(px(680.))
             // Tall enough for the longest section, Appearance, without
             // scrolling.
-            .h(px(700.))
+            .h(px(780.))
             .flex()
             .flex_col()
             .child(panel_header(
-                "Settings",
+                i18n::t("accounts.settings.title"),
                 palette,
                 cx.listener(|this, _, window, cx| this.close_overlay(window, cx)),
             ))
@@ -147,20 +172,11 @@ impl Shell {
         };
         let (pick_mode, pick_count) = (pick.clone(), pick);
         let detail = match chosen.history {
-            HistoryChoice::OnOpen => {
-                "The chat list loads on its own. A chat's messages are fetched when you \
-                 open it, and older ones as you scroll back."
-            }
-            HistoryChoice::Recent => {
-                "The latest messages of your most recent chats are fetched in the \
-                 background, so they are there before you open them."
-            }
-            HistoryChoice::Everything => {
-                "Every chat is fetched all the way back, in the background. Slow on a large \
-                 account; search then covers everything."
-            }
+            HistoryChoice::OnOpen => i18n::t("accounts.settings.sync.on_open"),
+            HistoryChoice::Recent => i18n::t("accounts.settings.sync.recent"),
+            HistoryChoice::Everything => i18n::t("accounts.settings.sync.everything"),
         };
-        section("Sync", palette)
+        section(i18n::t("accounts.settings.section.sync"), palette)
             .child(
                 div()
                     .py_2()
@@ -171,14 +187,23 @@ impl Shell {
                         div()
                             .text_size(metrics::TEXT_BODY())
                             .font_weight(FontWeight::MEDIUM)
-                            .child("Message history"),
+                            .child(i18n::t("accounts.settings.sync.history")),
                     )
                     .child(div().flex().child(segmented(
                         "history",
                         &[
-                            (HistoryChoice::OnOpen, "When I open a chat"),
-                            (HistoryChoice::Recent, "Recent chats"),
-                            (HistoryChoice::Everything, "Everything"),
+                            (
+                                HistoryChoice::OnOpen,
+                                i18n::t("accounts.settings.sync.history_on_open"),
+                            ),
+                            (
+                                HistoryChoice::Recent,
+                                i18n::t("accounts.settings.sync.history_recent"),
+                            ),
+                            (
+                                HistoryChoice::Everything,
+                                i18n::t("accounts.settings.sync.history_everything"),
+                            ),
                         ],
                         chosen.history,
                         palette,
@@ -197,16 +222,27 @@ impl Shell {
                     ),
             )
             .child(choice_row(
-                "Download media automatically",
-                "Automatic: everything for numbers on this computer, images through \
-                 Wuapi Cloud. Up to 25 MB each.",
+                i18n::t("accounts.settings.sync.media"),
+                i18n::t("accounts.settings.sync.media_text"),
                 segmented(
                     "media",
                     &[
-                        (MediaChoice::Automatic, "Automatic"),
-                        (MediaChoice::Images, "Images"),
-                        (MediaChoice::Never, "Never"),
-                        (MediaChoice::Everything, "Everything"),
+                        (
+                            MediaChoice::Automatic,
+                            i18n::t("accounts.settings.sync.media_automatic"),
+                        ),
+                        (
+                            MediaChoice::Images,
+                            i18n::t("accounts.settings.sync.media_images"),
+                        ),
+                        (
+                            MediaChoice::Never,
+                            i18n::t("accounts.settings.sync.media_never"),
+                        ),
+                        (
+                            MediaChoice::Everything,
+                            i18n::t("accounts.settings.sync.history_everything"),
+                        ),
                     ],
                     chosen.media,
                     palette,
@@ -219,8 +255,8 @@ impl Shell {
             ))
             .when(chosen.history == HistoryChoice::Recent, |this| {
                 this.child(choice_row(
-                    "How many chats",
-                    "Per linked number, the most recent first.",
+                    i18n::t("accounts.settings.sync.recent_count"),
+                    i18n::t("accounts.settings.sync.recent_count_text"),
                     segmented(
                         "recent",
                         &[(10u32, "10"), (20, "20"), (50, "50"), (100, "100")],
@@ -236,9 +272,8 @@ impl Shell {
             })
             .when(self.caps_here().quiet_read, |this| {
                 this.child(choice_row(
-                    "Send read receipts",
-                    "Tells the other side when you have read their messages. Off: a chat you \
-                     open is still marked as read on your own devices, without the blue ticks.",
+                    i18n::t("accounts.settings.sync.read_receipts"),
+                    i18n::t("accounts.settings.sync.read_receipts_text"),
                     switch("read-receipts", chosen.read_receipts, palette).on_click(|_, _, cx| {
                         cx.stop_propagation();
                         settings::update(cx, |settings| {
@@ -252,13 +287,11 @@ impl Shell {
             // above (nothing is sent while that is off).
             .when(self.caps_here().story_view, |this| {
                 this.child(choice_row(
-                    "Status view receipts",
+                    i18n::t("accounts.settings.sync.story_receipts"),
                     if chosen.read_receipts {
-                        "Tells the person who posted a status that you saw it, when it was \
-                         shown to you. Off: a status you watch is seen here only."
+                        i18n::t("accounts.settings.sync.story_receipts_on")
                     } else {
-                        "Off while Send read receipts is off: a status you watch is seen here \
-                         only."
+                        i18n::t("accounts.settings.sync.story_receipts_off")
                     },
                     switch(
                         "story-receipts",
@@ -287,16 +320,15 @@ impl Shell {
             Some(n) => format!("{audience} ({n})").into(),
             None => audience,
         };
-        section("Status", palette)
+        section(i18n::t("accounts.settings.section.status"), palette)
             .child(choice_row(
-                "Who sees my status",
+                i18n::t("accounts.settings.status.who_sees"),
                 if caps.story_privacy_edit {
-                    "Your contacts, your contacts except some of them, or only some of them."
+                    i18n::t("accounts.settings.status.who_sees_edit")
                 } else if caps.story_privacy {
-                    "How it is set on your phone. Changing it is not available yet from this \
-                     provider."
+                    i18n::t("accounts.settings.status.who_sees_read_only")
                 } else {
-                    "Not available yet from this provider."
+                    i18n::t("accounts.settings.status.who_sees_none")
                 },
                 div()
                     .flex()
@@ -311,19 +343,26 @@ impl Shell {
                     )
                     .when(caps.story_privacy, |this| {
                         this.child(
-                            text_button("status-settings-edit", "View", None, false, palette)
-                                .on_click(cx.listener(|this, _, window, cx| {
+                            text_button(
+                                "status-settings-edit",
+                                i18n::t("accounts.settings.status.view"),
+                                None,
+                                false,
+                                palette,
+                            )
+                            .on_click(cx.listener(
+                                |this, _, window, cx| {
                                     cx.stop_propagation();
                                     this.open_audience(window, cx);
-                                })),
+                                },
+                            )),
                         )
                     }),
                 palette,
             ))
             .child(choice_row(
-                "Notify me of new status",
-                "A notification when a contact posts a status. Off unless you turn it on; not \
-                 delivered yet in this build, like the other notifications.",
+                i18n::t("accounts.settings.status.notify"),
+                i18n::t("accounts.settings.status.notify_text"),
                 switch("notify-status", chosen.story_notifications, palette).on_click(
                     |_, _, cx| {
                         cx.stop_propagation();
@@ -339,23 +378,27 @@ impl Shell {
     /// Who is signed in, the numbers linked to it, and the way out.
     fn render_account(&self, palette: &Palette, cx: &mut Context<Self>) -> Div {
         let provider: SharedString = match self.session {
-            SessionKind::Demo => "Demo data (nothing leaves this computer)".into(),
+            SessionKind::Demo => i18n::t("accounts.settings.account.demo").into(),
             SessionKind::Keychain | SessionKind::Unsaved | SessionKind::Environment => MAKER.into(),
             #[cfg(feature = "provider-native")]
             SessionKind::Local if self.cloud == CloudOffer::Connected => {
-                "WhatsApp from this computer, and Wuapi Cloud".into()
+                i18n::t("accounts.settings.account.local_cloud").into()
             }
             #[cfg(feature = "provider-native")]
-            SessionKind::Local => "WhatsApp, directly from this computer".into(),
+            SessionKind::Local => i18n::t("accounts.settings.account.local").into(),
         };
-        let mut account = section("Account", palette)
-            .child(fact("Provider", provider, palette))
+        let mut account = section(i18n::t("accounts.settings.section.account"), palette)
             .child(fact(
-                "Local database",
+                i18n::t("accounts.settings.account.provider"),
+                provider,
+                palette,
+            ))
+            .child(fact(
+                i18n::t("accounts.settings.account.database"),
                 match (&self.storage_note, self.session) {
-                    (Some(_), _) => "In memory, not saved",
-                    (None, SessionKind::Demo) => "In memory (demo data)",
-                    (None, _) => "Encrypted on this computer",
+                    (Some(_), _) => i18n::t("accounts.settings.account.database_memory"),
+                    (None, SessionKind::Demo) => i18n::t("accounts.settings.account.database_demo"),
+                    (None, _) => i18n::t("accounts.settings.account.database_encrypted"),
                 }
                 .into(),
                 palette,
@@ -365,33 +408,37 @@ impl Shell {
         account = match &self.identity {
             IdentityState::Known(identity) => account
                 .child(fact(
-                    "Organization",
+                    i18n::t("accounts.settings.account.organization"),
                     identity.organization.clone().into(),
                     palette,
                 ))
                 .child(fact(
-                    "Project",
+                    i18n::t("accounts.settings.account.project"),
                     identity
                         .project
                         .clone()
-                        .unwrap_or_else(|| "All projects".to_owned())
+                        .unwrap_or_else(|| {
+                            i18n::t("accounts.settings.account.all_projects").to_owned()
+                        })
                         .into(),
                     palette,
                 ))
                 .child(fact(
-                    "API key",
+                    i18n::t("accounts.settings.account.api_key"),
                     match &identity.key_prefix {
                         Some(prefix) => format!("{prefix}…").into(),
-                        None => "Stored in the system keychain".into(),
+                        None => i18n::t("accounts.settings.account.keychain").into(),
                     },
                     palette,
                 )),
-            IdentityState::Loading => {
-                account.child(fact("Organization", "Loading…".into(), palette))
-            }
+            IdentityState::Loading => account.child(fact(
+                i18n::t("accounts.settings.account.organization"),
+                i18n::t("accounts.settings.account.loading").into(),
+                palette,
+            )),
             IdentityState::Unavailable => account.child(fact(
-                "Organization",
-                "Not available right now".into(),
+                i18n::t("accounts.settings.account.organization"),
+                i18n::t("accounts.settings.account.unavailable").into(),
                 palette,
             )),
             IdentityState::Unknown => account,
@@ -399,39 +446,22 @@ impl Shell {
 
         // Above the numbers, so that it stays in reach however many there are.
         let (note, can_sign_out): (&str, bool) = match self.session {
-            SessionKind::Demo => ("Demo data has no account to sign out of.", false),
-            SessionKind::Keychain => (
-                "Signing out removes the API key and deletes the chats stored on this \
-                 computer.",
-                true,
-            ),
-            SessionKind::Unsaved => (
-                "Signed in for this session only: the API key is not saved, and the next \
-                 start asks again.",
-                true,
-            ),
-            SessionKind::Environment => (
-                "Signed in with WUAPI_API_KEY. Unset it to sign in from here.",
-                false,
-            ),
+            SessionKind::Demo => (i18n::t("accounts.settings.account.note_demo"), false),
+            SessionKind::Keychain => (i18n::t("accounts.settings.account.note_keychain"), true),
+            SessionKind::Unsaved => (i18n::t("accounts.settings.account.note_unsaved"), true),
+            SessionKind::Environment => {
+                (i18n::t("accounts.settings.account.note_environment"), false)
+            }
             #[cfg(feature = "provider-native")]
-            SessionKind::Local if self.cloud == CloudOffer::Connected => (
-                "Signing out of Wuapi Cloud removes its API key and its numbers' chats from \
-                 this computer. The numbers linked to this computer stay.",
-                true,
-            ),
+            SessionKind::Local if self.cloud == CloudOffer::Connected => {
+                (i18n::t("accounts.settings.account.note_cloud"), true)
+            }
             #[cfg(feature = "provider-native")]
-            SessionKind::Local if self.cloud == CloudOffer::Offered => (
-                "Numbers linked to this computer work while this application is open. With \
-                 Wuapi Cloud a number stays connected when the computer is off.",
-                false,
-            ),
+            SessionKind::Local if self.cloud == CloudOffer::Offered => {
+                (i18n::t("accounts.settings.account.note_offered"), false)
+            }
             #[cfg(feature = "provider-native")]
-            SessionKind::Local => (
-                "There is no account to sign out of: each number is linked to this computer \
-                 and is unlinked on its own, under Numbers.",
-                false,
-            ),
+            SessionKind::Local => (i18n::t("accounts.settings.account.note_local"), false),
         };
         account = account.child(
             div()
@@ -453,7 +483,7 @@ impl Shell {
                     this.child(
                         text_button(
                             "connect-cloud",
-                            "Connect Wuapi Cloud",
+                            i18n::t("accounts.settings.account.connect_cloud"),
                             Some(IconName::Globe),
                             false,
                             palette,
@@ -468,7 +498,7 @@ impl Shell {
                     this.child(
                         text_button(
                             "sign-out",
-                            "Sign out",
+                            i18n::t("accounts.settings.account.sign_out"),
                             Some(IconName::LogOut),
                             false,
                             palette,
@@ -489,12 +519,15 @@ impl Shell {
                 .flex()
                 .items_center()
                 .justify_between()
-                .child(label("Linked numbers", palette))
+                .child(label(
+                    i18n::t("accounts.settings.account.linked_numbers"),
+                    palette,
+                ))
                 .when(self.caps_here().link_accounts, |this| {
                     this.child(
                         text_button(
                             "add-number-settings",
-                            "Add number",
+                            i18n::t("accounts.settings.account.add_number"),
                             Some(IconName::Plus),
                             false,
                             palette,
@@ -512,7 +545,7 @@ impl Shell {
                     .py_2()
                     .text_size(metrics::TEXT_SMALL())
                     .text_color(palette.text_muted)
-                    .child("No numbers yet."),
+                    .child(i18n::t("accounts.settings.account.no_numbers")),
             );
         }
         for (index, number) in self.accounts.iter().enumerate() {
@@ -564,12 +597,10 @@ impl Shell {
                                             .text_color(palette.text_muted)
                                             .child(match home {
                                                 Home::Local => {
-                                                    "This computer: connected while this \
-                                                         application is open."
+                                                    i18n::t("accounts.settings.account.home_local")
                                                 }
                                                 Home::Cloud => {
-                                                    "Wuapi Cloud: stays connected when this \
-                                                         computer is off."
+                                                    i18n::t("accounts.settings.account.home_cloud")
                                                 }
                                             })
                                     }))
@@ -601,22 +632,20 @@ impl Shell {
 /// decides what this computer fetches.
 pub(super) fn server_media_line(setting: &ServerMedia) -> String {
     match setting {
-        ServerMedia::OnDemand => {
-            "Server media: on demand. A file is fetched from WhatsApp when it is first opened."
-                .to_owned()
-        }
-        ServerMedia::Everything => {
-            "Server media: everything. Every received file is stored as it arrives.".to_owned()
-        }
+        ServerMedia::OnDemand => i18n::t("accounts.settings.server_media.on_demand").to_owned(),
+        ServerMedia::Everything => i18n::t("accounts.settings.server_media.everything").to_owned(),
         ServerMedia::Some { max_bytes, kinds } => {
             let kinds = if kinds.is_empty() {
-                "no types".to_owned()
+                i18n::t("accounts.settings.server_media.no_types").to_owned()
             } else {
                 kinds.join(", ")
             };
-            format!(
-                "Server media: {kinds} up to {} are stored as they arrive; the rest on demand.",
-                crate::format::file_size(*max_bytes)
+            i18n::tr(
+                "accounts.settings.server_media.some",
+                &[
+                    ("kinds", &kinds),
+                    ("size", &crate::format::file_size(*max_bytes)),
+                ],
             )
         }
     }
@@ -670,16 +699,25 @@ pub(super) fn choice_row(
 
 fn render_appearance(palette: &Palette, cx: &mut Context<Shell>) -> Div {
     let chosen = settings::get(cx);
-    section("Appearance", palette)
+    section(i18n::t("accounts.settings.section.appearance"), palette)
         .child(choice_row(
-            "Theme",
-            "System follows your desktop.",
+            i18n::t("accounts.settings.appearance.theme"),
+            i18n::t("accounts.settings.appearance.theme_text"),
             segmented(
                 "theme",
                 &[
-                    (ThemeChoice::Light, "Light"),
-                    (ThemeChoice::Dark, "Dark"),
-                    (ThemeChoice::System, "System"),
+                    (
+                        ThemeChoice::Light,
+                        i18n::t("accounts.settings.appearance.light"),
+                    ),
+                    (
+                        ThemeChoice::Dark,
+                        i18n::t("accounts.settings.appearance.dark"),
+                    ),
+                    (
+                        ThemeChoice::System,
+                        i18n::t("accounts.settings.appearance.system"),
+                    ),
                 ],
                 chosen.theme,
                 palette,
@@ -691,9 +729,8 @@ fn render_appearance(palette: &Palette, cx: &mut Context<Shell>) -> Div {
             palette,
         ))
         .child(choice_row(
-            "Interface size",
-            "Scales everything together: text, rows, pictures and panes. Ctrl with +, - or \
-             0 does the same from anywhere.",
+            i18n::t("accounts.settings.appearance.scale"),
+            i18n::t("accounts.settings.appearance.scale_text"),
             segmented(
                 "scale",
                 &[
@@ -713,14 +750,23 @@ fn render_appearance(palette: &Palette, cx: &mut Context<Shell>) -> Div {
             palette,
         ))
         .child(choice_row(
-            "Message bubbles",
-            "The colour of your own messages: a quiet lime tint, the lime itself, or none.",
+            i18n::t("accounts.settings.appearance.bubbles"),
+            i18n::t("accounts.settings.appearance.bubbles_text"),
             segmented(
                 "bubbles",
                 &[
-                    (BubbleStyle::Brand, "Brand"),
-                    (BubbleStyle::Lime, "Lime"),
-                    (BubbleStyle::Neutral, "Neutral"),
+                    (
+                        BubbleStyle::Brand,
+                        i18n::t("accounts.settings.appearance.brand"),
+                    ),
+                    (
+                        BubbleStyle::Lime,
+                        i18n::t("accounts.settings.appearance.lime"),
+                    ),
+                    (
+                        BubbleStyle::Neutral,
+                        i18n::t("accounts.settings.appearance.neutral"),
+                    ),
                 ],
                 chosen.bubbles,
                 palette,
@@ -732,13 +778,19 @@ fn render_appearance(palette: &Palette, cx: &mut Context<Shell>) -> Div {
             palette,
         ))
         .child(choice_row(
-            "Chat wallpaper",
-            "What is behind the messages: a faint pattern, or the plain page.",
+            i18n::t("accounts.settings.appearance.wallpaper"),
+            i18n::t("accounts.settings.appearance.wallpaper_text"),
             segmented(
                 "wallpaper",
                 &[
-                    (WallpaperChoice::Pattern, "Pattern"),
-                    (WallpaperChoice::Plain, "Plain"),
+                    (
+                        WallpaperChoice::Pattern,
+                        i18n::t("accounts.settings.appearance.pattern"),
+                    ),
+                    (
+                        WallpaperChoice::Plain,
+                        i18n::t("accounts.settings.appearance.plain"),
+                    ),
                 ],
                 chosen.wallpaper,
                 palette,
@@ -750,21 +802,51 @@ fn render_appearance(palette: &Palette, cx: &mut Context<Shell>) -> Div {
             palette,
         ))
         .child(choice_row(
-            "Motion",
-            "The logo's animation and the entrances. System follows your desktop's \
-             reduced-motion setting; where it has none, motion is on.",
+            i18n::t("accounts.settings.appearance.motion"),
+            i18n::t("accounts.settings.appearance.motion_text"),
             segmented(
                 "motion",
                 &[
-                    (MotionChoice::System, "System"),
-                    (MotionChoice::On, "On"),
-                    (MotionChoice::Off, "Off"),
+                    (
+                        MotionChoice::System,
+                        i18n::t("accounts.settings.appearance.system"),
+                    ),
+                    (MotionChoice::On, i18n::t("accounts.settings.appearance.on")),
+                    (
+                        MotionChoice::Off,
+                        i18n::t("accounts.settings.appearance.off"),
+                    ),
                 ],
                 chosen.motion,
                 palette,
                 |motion, _, cx| {
                     cx.stop_propagation();
                     settings::update(cx, |settings| settings.motion = motion);
+                },
+            ),
+            palette,
+        ))
+        .child(choice_row(
+            i18n::t("accounts.settings.language.title"),
+            i18n::t("accounts.settings.language.text"),
+            segmented(
+                "language",
+                &[
+                    (LanguageChoice::System, i18n::t("common.language.system")),
+                    (
+                        LanguageChoice::Lang(Language::En),
+                        Language::En.native_name(),
+                    ),
+                    (
+                        LanguageChoice::Lang(Language::Es),
+                        Language::Es.native_name(),
+                    ),
+                ],
+                chosen.language,
+                palette,
+                |language, _, cx| {
+                    cx.stop_propagation();
+                    settings::update(cx, |settings| settings.language = language);
                 },
             ),
             palette,
@@ -777,17 +859,13 @@ fn render_appearance(palette: &Palette, cx: &mut Context<Shell>) -> Div {
 /// (`crate::keys`), like the list itself.
 fn render_keyboard(palette: &Palette, cx: &mut Context<Shell>) -> Div {
     use crate::keys::{self, Command};
-    let mut rows = section("Keyboard", palette).child(
+    let mut rows = section(i18n::t("accounts.settings.section.keyboard"), palette).child(
         div()
             .pb_2()
             .text_size(metrics::TEXT_SMALL())
             .line_height(px(19.))
             .text_color(palette.text_muted)
-            .child(
-                "Everything can be done from the keyboard: the palette goes anywhere and \
-                 runs any action, with its keys beside it. From the composer, the up arrow \
-                 goes to the messages; there, single keys act on the message in focus.",
-            ),
+            .child(i18n::t("accounts.settings.keyboard.text")),
     );
     for (index, command) in [
         Command::Palette,
@@ -821,19 +899,26 @@ fn render_keyboard(palette: &Palette, cx: &mut Context<Shell>) -> Div {
                 ),
         );
     }
-    rows.child(div().pt_3().flex().child(
-        text_button("keyboard-show-all", "All shortcuts", None, false, palette).on_click(
-            cx.listener(|this, _, window, cx| {
+    rows.child(
+        div().pt_3().flex().child(
+            text_button(
+                "keyboard-show-all",
+                i18n::t("accounts.settings.keyboard.all"),
+                None,
+                false,
+                palette,
+            )
+            .on_click(cx.listener(|this, _, window, cx| {
                 cx.stop_propagation();
                 this.open_overlay(Overlay::Shortcuts, window, cx);
-            }),
+            })),
         ),
-    ))
+    )
 }
 
 fn render_notifications(palette: &Palette, cx: &mut Context<Shell>) -> Div {
     let chosen = settings::get(cx);
-    section("Notifications", palette)
+    section(i18n::t("accounts.settings.section.notifications"), palette)
         .child(
             div()
                 .debug_selector(|| "notifications-note".into())
@@ -848,15 +933,12 @@ fn render_notifications(palette: &Palette, cx: &mut Context<Shell>) -> Div {
                         .text_size(metrics::TEXT_SMALL())
                         .line_height(px(19.))
                         .text_color(palette.text_muted)
-                        .child(
-                            "Not delivered yet. This build does not show desktop \
-                             notifications; your choices are saved and apply when it does.",
-                        ),
+                        .child(i18n::t("accounts.settings.notifications.note")),
                 ),
         )
         .child(choice_row(
-            "Desktop notifications",
-            "A notification when a message arrives.",
+            i18n::t("accounts.settings.notifications.desktop"),
+            i18n::t("accounts.settings.notifications.desktop_text"),
             switch("notify-desktop", chosen.desktop_notifications, palette).on_click(|_, _, cx| {
                 cx.stop_propagation();
                 settings::update(cx, |settings| {
@@ -866,8 +948,8 @@ fn render_notifications(palette: &Palette, cx: &mut Context<Shell>) -> Div {
             palette,
         ))
         .child(choice_row(
-            "Message previews",
-            "Show the text of the message in the notification.",
+            i18n::t("accounts.settings.notifications.previews"),
+            i18n::t("accounts.settings.notifications.previews_text"),
             switch("notify-previews", chosen.message_previews, palette).on_click(|_, _, cx| {
                 cx.stop_propagation();
                 settings::update(cx, |settings| {

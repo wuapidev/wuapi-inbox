@@ -104,7 +104,7 @@ pub fn letters_for(size: (u32, u32)) -> f32 {
 pub fn open(bytes: &[u8]) -> Result<RgbaImage, String> {
     client_core::upright(bytes, MAX_SIDE)
         .map(|upright| upright.image.into_rgba8())
-        .map_err(|error| format!("The picture could not be read: {error}"))
+        .map_err(|error| crate::i18n::tr("chat.retouch.error_read", &[("error", &error)]))
 }
 
 /// The picture with every edit made, in order.
@@ -326,7 +326,8 @@ fn words(image: &mut RgbaImage, at: (f32, f32), text: &str, size: f32, ink: Ink)
 pub fn encode(image: &RgbaImage, came_as: &str) -> Result<(Vec<u8>, &'static str), String> {
     let see_through = image.pixels().any(|pixel| pixel.0[3] < 255);
     let mut out = Vec::new();
-    let failed = |error: image::ImageError| format!("The picture could not be saved: {error}");
+    let failed =
+        |error: image::ImageError| crate::i18n::tr("chat.retouch.error_save", &[("error", &error)]);
     if came_as == "image/png" || see_through {
         image
             .write_to(&mut std::io::Cursor::new(&mut out), image::ImageFormat::Png)

@@ -597,7 +597,7 @@ impl Shell {
                         "reader-previous",
                         IconName::ChevronLeft,
                         Some(C::ViewerPrevious),
-                        "Previous page",
+                        crate::i18n::t("chat.reader.previous"),
                     )
                     .when(at == 0 && sheet.from <= 0., |this| this.opacity(0.35))
                     .on_click(cx.listener(|this, _, window, cx| {
@@ -617,7 +617,7 @@ impl Shell {
                         "reader-next",
                         IconName::ChevronRight,
                         Some(C::ViewerNext),
-                        "Next page",
+                        crate::i18n::t("chat.reader.next"),
                     )
                     .when(at + 1 >= count, |this| this.opacity(0.35))
                     .on_click(cx.listener(|this, _, window, cx| {
@@ -631,7 +631,7 @@ impl Shell {
                         "reader-zoom-out",
                         IconName::ZoomOut,
                         Some(C::ZoomOut),
-                        "Zoom out",
+                        crate::i18n::t("chat.reader.zoom_out"),
                     )
                     .on_click(cx.listener(|this, _, window, cx| {
                         cx.stop_propagation();
@@ -650,7 +650,7 @@ impl Shell {
                         "reader-zoom-in",
                         IconName::ZoomIn,
                         Some(C::ZoomIn),
-                        "Zoom in",
+                        crate::i18n::t("chat.reader.zoom_in"),
                     )
                     .on_click(cx.listener(|this, _, window, cx| {
                         cx.stop_propagation();
@@ -662,7 +662,7 @@ impl Shell {
                         "reader-fit",
                         IconName::Maximize,
                         Some(C::ZoomFit),
-                        "Fit the window",
+                        crate::i18n::t("chat.reader.fit"),
                     )
                     .on_click(cx.listener(|this, _, window, cx| {
                         cx.stop_propagation();
@@ -677,7 +677,7 @@ impl Shell {
                     "reader-save",
                     IconName::ArrowDownToLine,
                     Some(C::SaveAs),
-                    "Save as…",
+                    crate::i18n::t("chat.reader.save"),
                 )
                 .on_click(cx.listener(|this, _, _, cx| {
                     cx.stop_propagation();
@@ -689,7 +689,7 @@ impl Shell {
                     "reader-open",
                     IconName::ExternalLink,
                     Some(C::Open),
-                    "Open with another application",
+                    crate::i18n::t("chat.reader.open_other"),
                 )
                 .on_click(cx.listener(|this, _, window, cx| {
                     cx.stop_propagation();
@@ -697,12 +697,16 @@ impl Shell {
                 })),
             )
             .child(
-                tool("reader-close", IconName::X, None, "Close (Esc)").on_click(cx.listener(
-                    |this, _, window, cx| {
-                        cx.stop_propagation();
-                        this.close_overlay(window, cx);
-                    },
-                )),
+                tool(
+                    "reader-close",
+                    IconName::X,
+                    None,
+                    crate::i18n::t("chat.reader.close"),
+                )
+                .on_click(cx.listener(|this, _, window, cx| {
+                    cx.stop_propagation();
+                    this.close_overlay(window, cx);
+                })),
             );
         let toolbar = div()
             .debug_selector(|| "reader-toolbar".into())
@@ -759,7 +763,7 @@ impl Shell {
                 self.reader_word(why.clone(), palette).child(
                     text_button(
                         "reader-open-instead",
-                        "Open with another application",
+                        crate::i18n::t("chat.reader.open_other"),
                         Some(IconName::ExternalLink),
                         false,
                         palette,
@@ -782,10 +786,10 @@ impl Shell {
                     }),
                 };
                 let words = match &state {
-                    Some(Transfer::Retry(_)) => "The file could not be downloaded.",
-                    Some(_) => "Downloading the file…",
-                    None if self.media.file_expired(url) => "The file is no longer available.",
-                    None => "Opening…",
+                    Some(Transfer::Retry(_)) => crate::i18n::t("chat.reader.download_failed"),
+                    Some(_) => crate::i18n::t("chat.reader.downloading"),
+                    None if self.media.file_expired(url) => crate::i18n::t("chat.reader.expired"),
+                    None => crate::i18n::t("chat.reader.opening"),
                 };
                 let button = state.map(|state| {
                     let (shelf, account, url) =

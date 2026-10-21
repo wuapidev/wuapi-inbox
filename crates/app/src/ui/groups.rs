@@ -17,6 +17,7 @@ use super::social::{
 };
 use super::widgets::{avatar_or, icon_button, label, mono, segmented, text_button, AvatarKind};
 use crate::format;
+use crate::i18n;
 use crate::icons::{icon, IconName};
 use crate::theme::px;
 use crate::theme::{metrics, Palette};
@@ -31,10 +32,16 @@ use gpui_kit::{div, img, Context, Div, ObjectFit, SharedString, Stateful, Styled
 pub(super) fn title_line(kind: &str, groups: Option<usize>, participants: Option<usize>) -> String {
     match (groups, participants) {
         (Some(0), _) => kind.to_owned(),
-        (Some(1), _) => format!("{kind} · 1 group"),
-        (Some(groups), _) => format!("{kind} · {groups} groups"),
-        (None, Some(1)) => format!("{kind} · 1 participant"),
-        (None, Some(count)) => format!("{kind} · {count} participants"),
+        (Some(groups), _) => i18n::plural(
+            "groups.group.title_groups",
+            groups as u64,
+            &[("kind", &kind)],
+        ),
+        (None, Some(count)) => i18n::plural(
+            "groups.group.title_participants",
+            count as u64,
+            &[("kind", &kind)],
+        ),
         (None, None) => kind.to_owned(),
     }
 }
@@ -103,8 +110,8 @@ impl Shell {
         );
         let count = stored.as_ref().map(|stored| stored.participant_count);
         let kind = match &stored {
-            Some(stored) if stored.group.community => "Community",
-            _ => "Group",
+            Some(stored) if stored.group.community => i18n::t("groups.group.kind_community"),
+            _ => i18n::t("groups.group.kind_group"),
         };
         // A community says how many groups it links, not how many people
         // its own group holds, so that it is told apart from a group.
@@ -127,9 +134,9 @@ impl Shell {
             // Never read: say so instead of showing an empty group.
             return panel.child(div().px_4().py_4().child(hint(
                 if self.caps_here().group_info {
-                    "Reading the group from WhatsApp…"
+                    i18n::t("groups.group.reading")
                 } else {
-                    "This provider does not give a group's details."
+                    i18n::t("groups.group.no_details")
                 },
                 palette,
             )));
@@ -146,14 +153,18 @@ impl Shell {
         let view = cx.entity().downgrade();
         let community = stored.group.community;
         let mut tabs = vec![
-            (GroupTab::Overview, "Overview"),
+            (GroupTab::Overview, i18n::t("groups.group.tab_overview")),
             (
                 GroupTab::People,
-                if community { "Members" } else { "Participants" },
+                if community {
+                    i18n::t("groups.group.tab_members")
+                } else {
+                    i18n::t("groups.group.tab_participants")
+                },
             ),
         ];
         if can_manage {
-            tabs.push((GroupTab::Manage, "Manage"));
+            tabs.push((GroupTab::Manage, i18n::t("groups.group.tab_manage")));
         }
         let tab = match self.social.tab {
             GroupTab::Manage if !can_manage => GroupTab::Overview,
@@ -219,7 +230,7 @@ impl Shell {
 
         if let Some(description) = &details.description {
             page = page.child(
-                block("Description", palette)
+                block(i18n::t("groups.group.description"), palette)
                     .child(paragraph(description.clone(), palette))
                     .debug_selector(|| "group-description".into()),
             );
@@ -227,16 +238,16 @@ impl Shell {
 
         let mut facts = div().px_4().py_1().flex().flex_col();
         let role: SharedString = match (stored.departed, stored.my_role) {
-            (true, _) => "You are no longer in this group".into(),
-            (_, Some(GroupRole::Owner)) => "You created this group".into(),
-            (_, Some(GroupRole::Admin)) => "You are an admin".into(),
-            (_, Some(GroupRole::Member)) => "You are a participant".into(),
+            (true, _) => i18n::t("groups.group.role_departed").into(),
+            (_, Some(GroupRole::Owner)) => i18n::t("groups.group.role_owner").into(),
+            (_, Some(GroupRole::Admin)) => i18n::t("groups.group.role_admin").into(),
+            (_, Some(GroupRole::Member)) => i18n::t("groups.group.role_member").into(),
             // TODO(wuapi-api): a group may list this number under a
             // hidden-number id the account object does not carry.
-            (_, None) => "Not known here".into(),
+            (_, None) => i18n::t("groups.group.role_unknown").into(),
         };
         facts = facts.child(div().debug_selector(|| "group-role".into()).child(fact(
-            "Your role",
+            i18n::t("groups.group.your_role"),
             role,
             palette,
         )));
@@ -250,13 +261,20 @@ impl Shell {
                     .unwrap_or_else(|| format::phone(owner.as_str()))
             });
             let text = match by {
-                Some(by) => format!("{} by {by}", format::date(created)),
+                Some(by) => i18n::tr(
+                    "groups.group.created_by",
+                    &[("date", &format::date(created)), ("by", &by)],
+                ),
                 None => format::date(created),
             };
-            facts = facts.child(fact("Created", text.into(), palette));
+            facts = facts.child(fact(i18n::t("groups.group.created"), text.into(), palette));
         }
         if details.announce {
-            facts = facts.child(fact("Messages", "Only admins can send".into(), palette));
+            facts = facts.child(fact(
+                i18n::t("groups.group.messages"),
+                i18n::t("groups.group.only_admins_send").into(),
+                palette,
+            ));
         }
         page = page.child(facts);
 
@@ -269,16 +287,18 @@ impl Shell {
                 .flatten()
                 .map(|stored| stored.group.subject)
                 .filter(|subject| !subject.is_empty())
-                .unwrap_or_else(|| "Community".to_owned());
+                .unwrap_or_else(|| i18n::t("groups.group.community").to_owned());
             let target = Target::Group {
                 account: account.clone(),
                 group: community.clone(),
             };
-            let line = block("Community", palette).child(
+            let line = block(i18n::t("groups.group.community"), palette).child(
                 action_row("group-community", IconName::Users, name, false, palette)
                     .tooltip(|window, cx| {
-                        gpui_kit::component::tooltip::Tooltip::new("Open community")
-                            .build(window, cx)
+                        gpui_kit::component::tooltip::Tooltip::new(i18n::t(
+                            "groups.group.open_community",
+                        ))
+                        .build(window, cx)
                     })
                     .on_click(cx.listener(move |this, _, window, cx| {
                         cx.stop_propagation();
@@ -286,7 +306,7 @@ impl Shell {
                     }))
                     .when(details.announcements, |this| {
                         this.child(
-                            badge("Announcements", palette)
+                            badge(i18n::t("groups.group.announcements"), palette)
                                 .debug_selector(|| "group-announcements".into()),
                         )
                     })
@@ -299,7 +319,7 @@ impl Shell {
         // an admin adds groups to it and takes them out.
         let can_link = details.community && caps.community_manage && self.can_manage(stored);
         if details.community && (!details.subgroups.is_empty() || can_link) {
-            let mut linked = block("Groups in this community", palette)
+            let mut linked = block(i18n::t("groups.group.community_groups"), palette)
                 .debug_selector(|| "group-subgroups".into());
             if can_link {
                 let (community, name) = (group.clone(), details.subject.clone());
@@ -313,7 +333,7 @@ impl Shell {
                             action_row(
                                 "community-add-group",
                                 IconName::Users,
-                                "Add an existing group",
+                                i18n::t("groups.group.add_existing"),
                                 false,
                                 palette,
                             )
@@ -326,7 +346,7 @@ impl Shell {
                             action_row(
                                 "community-new-group",
                                 IconName::UserPlus,
-                                "New group in this community",
+                                i18n::t("groups.group.new_in_community"),
                                 false,
                                 palette,
                             )
@@ -382,14 +402,20 @@ impl Shell {
                                 .items_center()
                                 .gap_2()
                                 .when(subgroup.announcements, |this| {
-                                    this.child(badge("Announcements", palette).debug_selector(
-                                        move || format!("subgroup-announcements-{index}"),
-                                    ))
+                                    this.child(
+                                        badge(i18n::t("groups.group.announcements"), palette)
+                                            .debug_selector(move || {
+                                                format!("subgroup-announcements-{index}")
+                                            }),
+                                    )
                                 })
                                 .when(!has_chat, |this| {
-                                    this.child(badge("Not joined", palette).debug_selector(
-                                        move || format!("subgroup-unjoined-{index}"),
-                                    ))
+                                    this.child(
+                                        badge(i18n::t("groups.group.not_joined"), palette)
+                                            .debug_selector(move || {
+                                                format!("subgroup-unjoined-{index}")
+                                            }),
+                                    )
                                 })
                                 // The announcement group stays in its
                                 // community.
@@ -398,7 +424,7 @@ impl Shell {
                                         small_button(
                                             ("subgroup-remove", index),
                                             format!("subgroup-remove-{index}"),
-                                            "Remove",
+                                            i18n::t("groups.group.remove"),
                                             palette,
                                         )
                                         .on_click(
@@ -417,10 +443,9 @@ impl Shell {
                     linked = linked.child(
                         question(
                             "subgroup-unlink-question",
-                            format!(
-                                "Take \"{name}\" out of \"{}\"? The group and its chat stay; \
-                                 it is no longer part of the community.",
-                                details.subject
+                            i18n::tr(
+                                "groups.group.unlink_question",
+                                &[("name", &name), ("community", &details.subject)],
                             ),
                             palette,
                         )
@@ -432,7 +457,7 @@ impl Shell {
                                 .child(
                                     text_button(
                                         "subgroup-unlink-cancel",
-                                        "Keep it",
+                                        i18n::t("groups.group.keep_it"),
                                         None,
                                         false,
                                         palette,
@@ -447,7 +472,11 @@ impl Shell {
                                 .child(
                                     text_button(
                                         "subgroup-unlink-confirm",
-                                        if busy { "Removing…" } else { "Remove" },
+                                        if busy {
+                                            i18n::t("groups.group.removing")
+                                        } else {
+                                            i18n::t("groups.group.remove")
+                                        },
                                         None,
                                         false,
                                         palette,
@@ -478,9 +507,9 @@ impl Shell {
                         IconName::BellOff
                     },
                     if muted {
-                        "Unmute notifications"
+                        i18n::t("groups.group.unmute")
                     } else {
-                        "Mute notifications"
+                        i18n::t("groups.group.mute")
                     },
                     false,
                     palette,
@@ -499,7 +528,7 @@ impl Shell {
                 action_row(
                     "group-search",
                     IconName::Search,
-                    "Search in chat",
+                    i18n::t("groups.group.search_in_chat"),
                     false,
                     palette,
                 )
@@ -515,7 +544,7 @@ impl Shell {
                 action_row(
                     "group-leave",
                     IconName::LogOut,
-                    "Leave group",
+                    i18n::t("groups.group.leave"),
                     true,
                     palette,
                 )
@@ -532,11 +561,7 @@ impl Shell {
             page = page.child(
                 question(
                     "group-leave-question",
-                    format!(
-                        "Leave \"{}\"? You will stop receiving its messages, and only an admin \
-                         can add you back. The chat stays in your list.",
-                        details.subject
-                    ),
+                    i18n::tr("groups.group.leave_question", &[("name", &details.subject)]),
                     palette,
                 )
                 .child(
@@ -545,16 +570,28 @@ impl Shell {
                         .justify_end()
                         .gap_2()
                         .child(
-                            text_button("group-leave-cancel", "Stay", None, false, palette)
-                                .on_click(cx.listener(|this, _, window, cx| {
+                            text_button(
+                                "group-leave-cancel",
+                                i18n::t("groups.group.stay"),
+                                None,
+                                false,
+                                palette,
+                            )
+                            .on_click(cx.listener(
+                                |this, _, window, cx| {
                                     cx.stop_propagation();
                                     this.info_back(window, cx);
-                                })),
+                                },
+                            )),
                         )
                         .child(
                             text_button(
                                 "group-leave-confirm",
-                                if busy { "Leaving…" } else { "Leave group" },
+                                if busy {
+                                    i18n::t("groups.group.leaving")
+                                } else {
+                                    i18n::t("groups.group.leave")
+                                },
                                 Some(IconName::LogOut),
                                 false,
                                 palette,
@@ -587,8 +624,8 @@ impl Shell {
             self.engine.want_join_requests(account, group);
             let pending = store.join_requests(account, group).unwrap_or_default();
             if !pending.is_empty() {
-                let mut waiting =
-                    block("Asking to join", palette).debug_selector(|| "join-requests".into());
+                let mut waiting = block(i18n::t("groups.group.asking_to_join"), palette)
+                    .debug_selector(|| "join-requests".into());
                 for (index, request) in pending.into_iter().enumerate() {
                     let name = store
                         .contact(account, &request.contact)
@@ -615,7 +652,7 @@ impl Shell {
                                 small_button(
                                     ("join-approve", index),
                                     format!("join-approve-{index}"),
-                                    "Approve",
+                                    i18n::t("groups.group.approve"),
                                     palette,
                                 )
                                 .on_click(cx.listener(
@@ -629,7 +666,7 @@ impl Shell {
                                 small_button(
                                     ("join-reject", index),
                                     format!("join-reject-{index}"),
-                                    "Reject",
+                                    i18n::t("groups.group.reject"),
                                     palette,
                                 )
                                 .on_click(cx.listener(
@@ -660,7 +697,7 @@ impl Shell {
                 action_row(
                     "group-add-people",
                     IconName::UserPlus,
-                    "Add participants",
+                    i18n::t("groups.group.add_participants"),
                     false,
                     palette,
                 )
@@ -691,9 +728,9 @@ impl Shell {
         if people.is_empty() {
             list = list.child(div().px_2().child(hint(
                 if typed.is_empty() {
-                    "WhatsApp has not listed this group's participants."
+                    i18n::t("groups.group.no_list")
                 } else {
-                    "No participant matches."
+                    i18n::t("groups.group.no_match")
                 },
                 palette,
             )));
@@ -701,7 +738,7 @@ impl Shell {
         if more {
             list = list.child(
                 div().px_2().pt_1().child(
-                    mono("MORE PARTICIPANTS: TYPE TO NARROW")
+                    mono(i18n::t("groups.group.more_participants"))
                         .text_size(px(9.5))
                         .text_color(palette.text_faint),
                 ),
@@ -726,7 +763,7 @@ impl Shell {
         let (account, group) = (&stored.group.account_id, &stored.group.id);
         let _ = group;
         let name = if person.me {
-            "You".to_owned()
+            i18n::t("groups.group.you").to_owned()
         } else {
             person.name.clone()
         };
@@ -755,9 +792,9 @@ impl Shell {
                         .debug_selector(move || format!("participant-admin-{index}"))
                         .child(badge(
                             if person.role == GroupRole::Owner {
-                                "Owner"
+                                i18n::t("groups.group.badge_owner")
                             } else {
-                                "Admin"
+                                i18n::t("groups.group.badge_admin")
                             },
                             palette,
                         )),
@@ -783,7 +820,7 @@ impl Shell {
             small_button(
                 "participant-profile",
                 "participant-profile".into(),
-                "View profile",
+                i18n::t("groups.group.view_profile"),
                 palette,
             )
             .on_click(cx.listener(move |this, _, window, cx| {
@@ -801,7 +838,7 @@ impl Shell {
                 small_button(
                     "participant-promote",
                     "participant-promote".into(),
-                    "Make admin",
+                    i18n::t("groups.group.make_admin"),
                     palette,
                 )
                 .on_click(cx.listener(move |this, _, _, cx| {
@@ -812,7 +849,7 @@ impl Shell {
                 small_button(
                     "participant-demote",
                     "participant-demote".into(),
-                    "Dismiss as admin",
+                    i18n::t("groups.group.dismiss_admin"),
                     palette,
                 )
                 .on_click(cx.listener(move |this, _, _, cx| {
@@ -824,7 +861,7 @@ impl Shell {
                 small_button(
                     "participant-remove",
                     "participant-remove".into(),
-                    "Remove",
+                    i18n::t("groups.group.remove"),
                     palette,
                 )
                 .on_click(cx.listener(move |this, _, _, cx| {
@@ -839,7 +876,10 @@ impl Shell {
             shown = shown.child(
                 question(
                     "participant-remove-question",
-                    format!("Remove {name} from \"{}\"?", stored.group.subject),
+                    i18n::tr(
+                        "groups.group.remove_question",
+                        &[("name", &name), ("group", &stored.group.subject)],
+                    ),
                     palette,
                 )
                 .child(
@@ -850,7 +890,7 @@ impl Shell {
                         .child(
                             text_button(
                                 "participant-remove-cancel",
-                                "Cancel",
+                                i18n::t("groups.group.cancel"),
                                 None,
                                 false,
                                 palette,
@@ -865,7 +905,7 @@ impl Shell {
                         .child(
                             text_button(
                                 "participant-remove-confirm",
-                                "Remove",
+                                i18n::t("groups.group.remove"),
                                 Some(IconName::Trash),
                                 false,
                                 palette,
@@ -907,19 +947,19 @@ impl Shell {
         for (index, (what, title, value, none, button, tip)) in [
             (
                 EditWhat::Subject,
-                "Name",
+                i18n::t("groups.group.name"),
                 details.subject.clone(),
-                "No name yet.",
+                i18n::t("groups.group.no_name"),
                 "group-edit-subject",
-                "Edit name",
+                i18n::t("groups.group.edit_name"),
             ),
             (
                 EditWhat::Description,
-                "Description",
+                i18n::t("groups.group.description"),
                 details.description.clone().unwrap_or_default(),
-                "No description yet.",
+                i18n::t("groups.group.no_description"),
                 "group-edit-description",
-                "Edit description",
+                i18n::t("groups.group.edit_description"),
             ),
         ]
         .into_iter()
@@ -990,12 +1030,12 @@ impl Shell {
                         .flex()
                         .flex_col()
                         .gap_1()
-                        .child(label("Picture", palette))
+                        .child(label(i18n::t("groups.group.picture"), palette))
                         .child(hint(
                             if has_picture {
-                                "Everyone in the group sees it."
+                                i18n::t("groups.group.picture_seen")
                             } else {
-                                "The group has no picture yet."
+                                i18n::t("groups.group.picture_none")
                             },
                             palette,
                         )),
@@ -1003,7 +1043,11 @@ impl Shell {
                 .child(
                     text_button(
                         "group-picture-change",
-                        if has_picture { "Change" } else { "Add" },
+                        if has_picture {
+                            i18n::t("groups.group.change")
+                        } else {
+                            i18n::t("groups.group.add")
+                        },
                         Some(IconName::Camera),
                         false,
                         palette,
@@ -1017,8 +1061,10 @@ impl Shell {
                     this.child(
                         icon_button("group-picture-remove", IconName::Trash, palette)
                             .tooltip(|window, cx| {
-                                gpui_kit::component::tooltip::Tooltip::new("Remove picture")
-                                    .build(window, cx)
+                                gpui_kit::component::tooltip::Tooltip::new(i18n::t(
+                                    "groups.group.remove_picture",
+                                ))
+                                .build(window, cx)
                             })
                             .on_click(cx.listener(|this, _, _, cx| {
                                 cx.stop_propagation();
@@ -1030,17 +1076,17 @@ impl Shell {
         if self.social.confirm == Some(Confirm::RemovePicture) {
             about = about.child(card_row(true, palette).child(self.yes_no(
                 "group-picture-question",
-                "Remove the group's picture?".into(),
-                "Remove",
+                i18n::t("groups.group.remove_picture_question").into(),
+                i18n::t("groups.group.remove"),
                 palette,
                 cx,
             )));
         }
-        page = page.child(section("About", about, palette));
+        page = page.child(section(i18n::t("groups.group.about"), about, palette));
 
         if caps.group_invites {
             page = page.child(section(
-                "Invite link",
+                i18n::t("groups.group.invite_link"),
                 self.render_invite_link(stored, palette, cx),
                 palette,
             ));
@@ -1048,33 +1094,33 @@ impl Shell {
 
         // The settings the provider exposes.
         let mut settings = card(palette);
-        let unknown = "WhatsApp does not say what this is set to; switching sets it.";
+        let unknown = i18n::t("groups.group.setting_unknown");
         for (index, (id, title, detail, on, change)) in [
             (
                 "setting-announce",
-                "Only admins send messages",
-                "Everyone else can read.",
+                i18n::t("groups.group.setting_announce"),
+                i18n::t("groups.group.setting_announce_detail"),
                 Some(details.announce),
                 GroupChange::Announce(!details.announce),
             ),
             (
                 "setting-locked",
-                "Only admins edit group info",
-                "The name, description and picture.",
+                i18n::t("groups.group.setting_locked"),
+                i18n::t("groups.group.setting_locked_detail"),
                 Some(details.locked),
                 GroupChange::Locked(!details.locked),
             ),
             (
                 "setting-approval",
-                "Approve new participants",
-                "An admin lets in whoever asks to join.",
+                i18n::t("groups.group.setting_approval"),
+                i18n::t("groups.group.setting_approval_detail"),
                 details.join_approval,
                 GroupChange::JoinApproval(!details.join_approval.unwrap_or(false)),
             ),
             (
                 "setting-members-add",
-                "Participants can add others",
-                "Off: only admins add people.",
+                i18n::t("groups.group.setting_members_add"),
+                i18n::t("groups.group.setting_members_add_detail"),
                 details.members_can_add,
                 GroupChange::MembersCanAdd(!details.members_can_add.unwrap_or(false)),
             ),
@@ -1098,7 +1144,11 @@ impl Shell {
                 })),
             ));
         }
-        page.child(section("Permissions", settings, palette))
+        page.child(section(
+            i18n::t("groups.group.permissions"),
+            settings,
+            palette,
+        ))
     }
 
     /// The invite link: asked for on a click, then shown with what can be
@@ -1110,11 +1160,7 @@ impl Shell {
         cx: &mut Context<Self>,
     ) -> Div {
         let (account, group) = (stored.group.account_id.clone(), stored.group.id.clone());
-        let about = hint(
-            "Anyone with the link can join the group, or ask to when new \
-             participants need approval.",
-            palette,
-        );
+        let about = hint(i18n::t("groups.group.invite_about"), palette);
         let Some(link) = stored.invite_link.clone() else {
             return card(palette).child(
                 card_row(false, palette)
@@ -1124,9 +1170,9 @@ impl Shell {
                         text_button(
                             "invite-show",
                             if self.social.busy {
-                                "Reading…"
+                                i18n::t("groups.group.reading_link")
                             } else {
-                                "Show link"
+                                i18n::t("groups.group.show_link")
                             },
                             Some(IconName::Link),
                             false,
@@ -1169,19 +1215,27 @@ impl Shell {
                         .child(
                             icon_button("invite-copy", IconName::Copy, palette)
                                 .tooltip(|window, cx| {
-                                    gpui_kit::component::tooltip::Tooltip::new("Copy link")
-                                        .build(window, cx)
+                                    gpui_kit::component::tooltip::Tooltip::new(i18n::t(
+                                        "groups.group.copy_link",
+                                    ))
+                                    .build(window, cx)
                                 })
                                 .on_click(cx.listener(move |this, _, _, cx| {
                                     cx.stop_propagation();
-                                    this.copy_from_panel(copied.clone(), "Invite link copied.", cx);
+                                    this.copy_from_panel(
+                                        copied.clone(),
+                                        i18n::t("groups.group.link_copied"),
+                                        cx,
+                                    );
                                 })),
                         )
                         .child(
                             icon_button("invite-reset", IconName::RotateCw, palette)
                                 .tooltip(|window, cx| {
-                                    gpui_kit::component::tooltip::Tooltip::new("Reset link")
-                                        .build(window, cx)
+                                    gpui_kit::component::tooltip::Tooltip::new(i18n::t(
+                                        "groups.group.reset_link",
+                                    ))
+                                    .build(window, cx)
                                 })
                                 .on_click(cx.listener(|this, _, _, cx| {
                                     cx.stop_propagation();
@@ -1194,12 +1248,11 @@ impl Shell {
         if self.social.confirm == Some(Confirm::ResetLink) {
             shown = shown.child(card_row(true, palette).child(self.yes_no(
                 "invite-reset-question",
-                "Reset the invite link? The current link stops working for everyone who has it."
-                    .into(),
+                i18n::t("groups.group.reset_question").into(),
                 if self.social.busy {
-                    "Resetting…"
+                    i18n::t("groups.group.resetting")
                 } else {
-                    "Reset link"
+                    i18n::t("groups.group.reset_link")
                 },
                 palette,
                 cx,
@@ -1233,7 +1286,7 @@ impl Shell {
                         small_button(
                             "question-cancel",
                             format!("{selector}-cancel"),
-                            "Cancel",
+                            i18n::t("groups.group.cancel"),
                             palette,
                         )
                         .on_click(cx.listener(|this, _, window, cx| {
@@ -1287,17 +1340,26 @@ impl Shell {
                     .justify_end()
                     .gap_2()
                     .child(
-                        text_button("people-cancel", "Cancel", None, false, palette).on_click(
-                            cx.listener(|this, _, window, cx| {
-                                cx.stop_propagation();
-                                this.info_back(window, cx);
-                            }),
-                        ),
+                        text_button(
+                            "people-cancel",
+                            i18n::t("groups.group.cancel"),
+                            None,
+                            false,
+                            palette,
+                        )
+                        .on_click(cx.listener(|this, _, window, cx| {
+                            cx.stop_propagation();
+                            this.info_back(window, cx);
+                        })),
                     )
                     .child(
                         text_button(
                             "people-submit",
-                            if self.social.busy { "Adding…" } else { "Add" },
+                            if self.social.busy {
+                                i18n::t("groups.group.adding")
+                            } else {
+                                i18n::t("groups.group.add")
+                            },
                             Some(IconName::UserPlus),
                             true,
                             palette,
@@ -1331,10 +1393,7 @@ impl Shell {
                     .flex()
                     .flex_col()
                     .child(badge(
-                        &match names.len() {
-                            1 => "1 chosen".to_owned(),
-                            count => format!("{count} chosen"),
-                        },
+                        &i18n::plural("groups.group.chosen", names.len() as u64, &[]),
                         palette,
                     ))
                     .child(hint(names.join(", "), palette)),
@@ -1378,11 +1437,11 @@ impl Shell {
             picker = picker.child(
                 hint(
                     if typed {
-                        "No contact matches."
+                        i18n::t("groups.group.no_contact_match")
                     } else if synced {
-                        "No contacts to choose from."
+                        i18n::t("groups.group.no_contacts")
                     } else {
-                        "Your contacts appear here once the phone has synced them."
+                        i18n::t("groups.group.contacts_syncing")
                     },
                     palette,
                 )
@@ -1414,14 +1473,15 @@ impl Shell {
             .flex()
             .flex_col()
             .gap_2()
-            .child(super::widgets::label("Add a group", palette))
-            .child(hint(
-                "Groups you are an admin of that are not in a community.",
+            .child(super::widgets::label(
+                i18n::t("groups.group.add_a_group"),
                 palette,
-            ));
+            ))
+            .child(hint(i18n::t("groups.group.add_a_group_help"), palette));
         if choices.is_empty() {
             list = list.child(
-                hint("There is no group to add.", palette).debug_selector(|| "link-none".into()),
+                hint(i18n::t("groups.group.no_group_to_add"), palette)
+                    .debug_selector(|| "link-none".into()),
             );
         }
         for (index, (id, subject)) in choices.into_iter().take(PEOPLE_SHOWN).enumerate() {
@@ -1440,14 +1500,21 @@ impl Shell {
                     .child(SharedString::from(subject)),
             );
         }
-        list.child(div().flex().justify_end().child(
-            text_button("link-cancel", "Cancel", None, false, palette).on_click(cx.listener(
-                |this, _, window, cx| {
+        list.child(
+            div().flex().justify_end().child(
+                text_button(
+                    "link-cancel",
+                    i18n::t("groups.group.cancel"),
+                    None,
+                    false,
+                    palette,
+                )
+                .on_click(cx.listener(|this, _, window, cx| {
                     cx.stop_propagation();
                     this.info_back(window, cx);
-                },
-            )),
-        ))
+                })),
+            ),
+        )
     }
 
     /// The people in all of a community's groups, as the provider listed
@@ -1459,11 +1526,11 @@ impl Shell {
         cx: &mut Context<Self>,
     ) -> Div {
         let account = &stored.group.account_id;
-        let mut page = block("Members of the community", palette);
+        let mut page = block(i18n::t("groups.group.community_members"), palette);
         match &self.social.community_people {
             None | Some(CommunityPeople::Loading) => {
                 page = page.child(
-                    hint("Reading the members…", palette)
+                    hint(i18n::t("groups.group.reading_members"), palette)
                         .debug_selector(|| "community-members-loading".into()),
                 );
             }
@@ -1479,7 +1546,7 @@ impl Shell {
                             small_button(
                                 "community-members-retry",
                                 "community-members-retry".into(),
-                                "Try again",
+                                i18n::t("groups.group.try_again"),
                                 palette,
                             )
                             .on_click(cx.listener(|this, _, _, cx| {
@@ -1492,7 +1559,7 @@ impl Shell {
             }
             Some(CommunityPeople::Loaded(people)) if people.is_empty() => {
                 page = page.child(
-                    hint("There are no members to show.", palette)
+                    hint(i18n::t("groups.group.no_members"), palette)
                         .debug_selector(|| "community-members-none".into()),
                 );
             }
@@ -1516,7 +1583,10 @@ impl Shell {
                 }
                 if people.len() > PEOPLE_SHOWN {
                     page = page.child(hint(
-                        format!("And {} more.", people.len() - PEOPLE_SHOWN),
+                        i18n::tr(
+                            "groups.group.and_more",
+                            &[("n", &(people.len() - PEOPLE_SHOWN))],
+                        ),
                         palette,
                     ));
                 }
@@ -1535,11 +1605,21 @@ impl Shell {
     ) -> Option<Stateful<Div>> {
         let form = self.social.new_group.as_ref()?;
         let (title, create, busy) = match &form.kind {
-            GroupKind::Group => ("New group".to_owned(), "Create group", "Creating…"),
-            GroupKind::Community => ("New community".to_owned(), "Create community", "Creating…"),
-            GroupKind::InCommunity { name, .. } => {
-                (format!("New group in {name}"), "Create group", "Creating…")
-            }
+            GroupKind::Group => (
+                i18n::t("groups.group.new_group").to_owned(),
+                i18n::t("groups.group.create_group"),
+                i18n::t("groups.group.creating"),
+            ),
+            GroupKind::Community => (
+                i18n::t("groups.group.new_community").to_owned(),
+                i18n::t("groups.group.create_community"),
+                i18n::t("groups.group.creating"),
+            ),
+            GroupKind::InCommunity { name, .. } => (
+                i18n::tr("groups.group.new_group_in", &[("name", name)]),
+                i18n::t("groups.group.create_group"),
+                i18n::t("groups.group.creating"),
+            ),
         };
         let picture: Div = match &form.picture {
             Some((_, drawn)) => div()
@@ -1602,9 +1682,9 @@ impl Shell {
                                                 "new-group-picture",
                                                 "new-group-picture".into(),
                                                 if form.picture.is_some() {
-                                                    "Change picture"
+                                                    i18n::t("groups.group.change_picture")
                                                 } else {
-                                                    "Add a picture (optional)"
+                                                    i18n::t("groups.group.add_picture")
                                                 },
                                                 palette,
                                             )
@@ -1619,14 +1699,17 @@ impl Shell {
                             ),
                         )
                         .when(form.kind != GroupKind::Community, |this| {
-                            this.child(super::widgets::label("Participants", palette))
-                                .child(self.render_people(
-                                    &form.account,
-                                    &form.people,
-                                    &[],
-                                    palette,
-                                    cx,
-                                ))
+                            this.child(super::widgets::label(
+                                i18n::t("groups.group.tab_participants"),
+                                palette,
+                            ))
+                            .child(self.render_people(
+                                &form.account,
+                                &form.people,
+                                &[],
+                                palette,
+                                cx,
+                            ))
                         })
                         .children(
                             form.error
@@ -1643,11 +1726,19 @@ impl Shell {
                         .justify_end()
                         .gap_2()
                         .child(
-                            text_button("new-group-cancel", "Cancel", None, false, palette)
-                                .on_click(cx.listener(|this, _, window, cx| {
+                            text_button(
+                                "new-group-cancel",
+                                i18n::t("groups.group.cancel"),
+                                None,
+                                false,
+                                palette,
+                            )
+                            .on_click(cx.listener(
+                                |this, _, window, cx| {
                                     cx.stop_propagation();
                                     this.leave_new_group(window, cx);
-                                })),
+                                },
+                            )),
                         )
                         .child(
                             text_button(

@@ -9,6 +9,7 @@
 //!
 //! The screen itself is `ui/numbers.rs`.
 
+use crate::i18n;
 use client_provider::{LinkPlace, LinkStep, Timestamp};
 use std::time::Duration;
 
@@ -99,34 +100,42 @@ pub fn place_name(place: &LinkPlace) -> String {
 pub fn step_text(step: &LinkStep) -> (&'static str, &'static str) {
     match step {
         LinkStep::Starting => (
-            "Starting the session",
-            "The code appears here in a few seconds.",
+            i18n::t("accounts.linking.starting.title"),
+            i18n::t("accounts.linking.starting.text"),
         ),
         LinkStep::Scan { .. } => (
-            "Scan this code with the phone",
-            "On the phone: WhatsApp > Linked devices > Link a device. The code \
-             refreshes by itself.",
+            i18n::t("accounts.linking.scan.title"),
+            i18n::t("accounts.linking.scan.text"),
         ),
         LinkStep::TypeCode { .. } => (
-            "Type this code on the phone",
-            "On the phone: WhatsApp > Linked devices > Link a device > Link with \
-             phone number instead.",
+            i18n::t("accounts.linking.type_code.title"),
+            i18n::t("accounts.linking.type_code.text"),
         ),
-        LinkStep::Finishing => ("Finishing", "The phone accepted. This takes a few seconds."),
-        LinkStep::Linked => ("Linked", "The number is connected."),
-        LinkStep::Stopped { .. } => ("Linking stopped", ""),
+        LinkStep::Finishing => (
+            i18n::t("accounts.linking.finishing.title"),
+            i18n::t("accounts.linking.finishing.text"),
+        ),
+        LinkStep::Linked => (
+            i18n::t("accounts.linking.linked.title"),
+            i18n::t("accounts.linking.linked.text"),
+        ),
+        LinkStep::Stopped { .. } => (i18n::t("accounts.linking.stopped.title"), ""),
     }
 }
 
 /// What the screen says while the number to link with a code is typed.
-pub const PHONE_TITLE: &str = "Link with phone number";
+pub fn phone_title() -> &'static str {
+    i18n::t("accounts.linking.phone_title")
+}
 
 /// What to do on the phone with a pairing code, one step to a line.
-pub const CODE_STEPS: [&str; 3] = [
-    "On the phone, open WhatsApp > Linked devices > Link a device.",
-    "Tap \"Link with phone number instead\".",
-    "Type the code shown here.",
-];
+pub fn code_steps() -> [&'static str; 3] {
+    [
+        i18n::t("accounts.linking.code_step.open"),
+        i18n::t("accounts.linking.code_step.tap"),
+        i18n::t("accounts.linking.code_step.type"),
+    ]
+}
 
 /// The number a pairing code is asked for, in E.164, or what is wrong with
 /// what was typed. Spaces, dashes, dots and brackets are how people write
@@ -134,22 +143,22 @@ pub const CODE_STEPS: [&str; 3] = [
 pub fn pairing_phone(typed: &str) -> Result<String, &'static str> {
     let typed = typed.trim();
     if typed.is_empty() {
-        return Err("Type the number to link, with its country code.");
+        return Err(i18n::t("accounts.linking.phone_error.empty"));
     }
     let written = |c: char| c.is_ascii_digit() || matches!(c, ' ' | '-' | '.' | '(' | ')');
     let rest = typed.strip_prefix('+').unwrap_or(typed);
     if !rest.chars().all(written) {
-        return Err("A phone number has only digits, after the + of its country code.");
+        return Err(i18n::t("accounts.linking.phone_error.not_digits"));
     }
     let digits: String = rest.chars().filter(char::is_ascii_digit).collect();
     if digits.starts_with('0') {
-        return Err("Start with the country code, without zeros in front: +58 412 123 4567.");
+        return Err(i18n::t("accounts.linking.phone_error.zeros"));
     }
     if digits.len() < 8 {
-        return Err("That number is too short. Include the country code: +58 412 123 4567.");
+        return Err(i18n::t("accounts.linking.phone_error.short"));
     }
     if digits.len() > 15 {
-        return Err("That number is too long: a phone number has at most 15 digits.");
+        return Err(i18n::t("accounts.linking.phone_error.long"));
     }
     Ok(format!("+{digits}"))
 }

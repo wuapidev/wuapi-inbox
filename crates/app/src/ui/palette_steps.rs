@@ -24,9 +24,17 @@ use client_provider::{AccountId, ChatChange, ChatKind, LiveUpdates, MessageId, P
 use gpui_kit::{Context, SharedString, Window};
 
 /// Why a command of a conversation is not offered without one.
-const NO_CHAT: &str = "Open a chat first";
-const NOT_HERE: &str = "Not available with this provider";
-const NO_NUMBER: &str = "There is no number yet";
+fn no_chat() -> &'static str {
+    crate::i18n::t("commands.why.no_chat")
+}
+
+fn not_here() -> &'static str {
+    crate::i18n::t("commands.why.not_here")
+}
+
+fn no_number() -> &'static str {
+    crate::i18n::t("commands.why.no_number")
+}
 
 /// The commands of a message the palette offers while one is in focus.
 pub(super) const OF_A_MESSAGE: [Command; 21] = [
@@ -72,6 +80,7 @@ pub(super) enum Value {
     Wallpaper(WallpaperChoice),
     Motion(MotionChoice),
     Language(LanguageChoice),
+    UiLanguage(crate::i18n::LanguageChoice),
     Media(MediaChoice),
     History(HistoryChoice),
     /// Seconds, or until it is unmuted.
@@ -95,7 +104,11 @@ pub(super) struct Choice {
 fn choice(label: impl Into<SharedString>, current: bool, value: Value) -> Choice {
     Choice {
         label: label.into(),
-        detail: if current { "now".into() } else { "".into() },
+        detail: if current {
+            crate::i18n::t("commands.step.now").into()
+        } else {
+            "".into()
+        },
         current,
         value,
     }
@@ -125,28 +138,33 @@ pub(super) struct Step {
     pub(super) chat: Option<ChatSummary>,
 }
 
-/// The lengths a chat can be muted for.
+/// The lengths a chat can be muted for: the catalog key of each, and its
+/// seconds.
 const MUTES: [(&str, Option<u64>); 4] = [
-    ("8 hours", Some(8 * 3600)),
-    ("1 week", Some(7 * 24 * 3600)),
-    ("1 year", Some(365 * 24 * 3600)),
-    ("Until I unmute it", None),
+    ("commands.mute.8_hours", Some(8 * 3600)),
+    ("commands.mute.1_week", Some(7 * 24 * 3600)),
+    ("commands.mute.1_year", Some(365 * 24 * 3600)),
+    ("commands.mute.always", None),
 ];
 
 /// How live updates arrive, in the words of the Connection panel.
 pub(super) fn live_words(live: LiveUpdates) -> &'static str {
     match live {
-        LiveUpdates::Stream => "Stream",
-        LiveUpdates::Reconnecting => "Stream, reconnecting",
-        LiveUpdates::Polling(PollingReason::Chosen) => "Polling",
+        LiveUpdates::Stream => crate::i18n::t("commands.live.stream"),
+        LiveUpdates::Reconnecting => crate::i18n::t("commands.live.reconnecting"),
+        LiveUpdates::Polling(PollingReason::Chosen) => crate::i18n::t("commands.live.polling"),
         LiveUpdates::Polling(PollingReason::Unavailable) => {
-            "Polling (the stream is not available yet)"
+            crate::i18n::t("commands.live.polling_unavailable")
         }
         LiveUpdates::Polling(PollingReason::ConnectionLimit) => {
-            "Polling (too many stream connections are open)"
+            crate::i18n::t("commands.live.polling_limit")
         }
-        LiveUpdates::Polling(PollingReason::Refused) => "Polling (the stream refused this key)",
-        LiveUpdates::Polling(PollingReason::Failing) => "Polling (the stream keeps failing)",
+        LiveUpdates::Polling(PollingReason::Refused) => {
+            crate::i18n::t("commands.live.polling_refused")
+        }
+        LiveUpdates::Polling(PollingReason::Failing) => {
+            crate::i18n::t("commands.live.polling_failing")
+        }
     }
 }
 
@@ -157,65 +175,80 @@ pub(super) fn push_live_line(
     live: Option<LiveUpdates>,
 ) {
     if let Some(live) = live {
-        lines.push(("Live updates".into(), live_words(live).into()));
+        lines.push((
+            crate::i18n::t("commands.live.title").into(),
+            live_words(live).into(),
+        ));
     }
 }
 
 fn on_off(on: bool) -> SharedString {
-    if on { "On" } else { "Off" }.into()
+    if on {
+        crate::i18n::t("commands.choice.on")
+    } else {
+        crate::i18n::t("commands.choice.off")
+    }
+    .into()
 }
 
 fn theme_name(theme: ThemeChoice) -> &'static str {
     match theme {
-        ThemeChoice::Light => "Light",
-        ThemeChoice::Dark => "Dark",
-        ThemeChoice::System => "System",
+        ThemeChoice::Light => crate::i18n::t("commands.choice.light"),
+        ThemeChoice::Dark => crate::i18n::t("commands.choice.dark"),
+        ThemeChoice::System => crate::i18n::t("commands.choice.system"),
     }
 }
 
 fn motion_name(motion: MotionChoice) -> &'static str {
     match motion {
-        MotionChoice::System => "System",
-        MotionChoice::On => "On",
-        MotionChoice::Off => "Off",
+        MotionChoice::System => crate::i18n::t("commands.choice.system"),
+        MotionChoice::On => crate::i18n::t("commands.choice.on"),
+        MotionChoice::Off => crate::i18n::t("commands.choice.off"),
     }
 }
 
 fn bubbles_name(style: BubbleStyle) -> &'static str {
     match style {
-        BubbleStyle::Brand => "Brand",
-        BubbleStyle::Lime => "Lime",
-        BubbleStyle::Neutral => "Neutral",
+        BubbleStyle::Brand => crate::i18n::t("commands.choice.brand"),
+        BubbleStyle::Lime => crate::i18n::t("commands.choice.lime"),
+        BubbleStyle::Neutral => crate::i18n::t("commands.choice.neutral"),
     }
 }
 
 fn wallpaper_name(wallpaper: WallpaperChoice) -> &'static str {
     match wallpaper {
-        WallpaperChoice::Pattern => "Pattern",
-        WallpaperChoice::Plain => "Plain",
+        WallpaperChoice::Pattern => crate::i18n::t("commands.choice.pattern"),
+        WallpaperChoice::Plain => crate::i18n::t("commands.choice.plain"),
     }
 }
 
 fn media_name(media: MediaChoice) -> &'static str {
     match media {
-        MediaChoice::Automatic => "Automatic",
-        MediaChoice::Images => "Images, stickers and GIFs",
-        MediaChoice::Never => "Nothing",
-        MediaChoice::Everything => "Everything",
+        MediaChoice::Automatic => crate::i18n::t("commands.choice.automatic"),
+        MediaChoice::Images => crate::i18n::t("commands.choice.images"),
+        MediaChoice::Never => crate::i18n::t("commands.choice.nothing"),
+        MediaChoice::Everything => crate::i18n::t("commands.choice.everything"),
     }
 }
 
 fn history_name(history: HistoryChoice) -> &'static str {
     match history {
-        HistoryChoice::OnOpen => "When a chat is opened",
-        HistoryChoice::Recent => "The recent chats",
-        HistoryChoice::Everything => "Everything",
+        HistoryChoice::OnOpen => crate::i18n::t("commands.choice.on_open"),
+        HistoryChoice::Recent => crate::i18n::t("commands.choice.recent"),
+        HistoryChoice::Everything => crate::i18n::t("commands.choice.everything"),
+    }
+}
+
+fn ui_language_name(language: crate::i18n::LanguageChoice) -> String {
+    match language {
+        crate::i18n::LanguageChoice::System => crate::i18n::t("common.language.system").to_owned(),
+        crate::i18n::LanguageChoice::Lang(lang) => lang.native_name().to_owned(),
     }
 }
 
 fn language_name(language: LanguageChoice) -> String {
     match language {
-        LanguageChoice::System => "System".to_owned(),
+        LanguageChoice::System => crate::i18n::t("commands.choice.system").to_owned(),
         LanguageChoice::Lang(lang) => lang.label().to_owned(),
     }
 }
@@ -278,19 +311,25 @@ impl Shell {
                     super::message_menu::CommandState::Hidden => Hidden,
                 };
             }
-            When::Chat if self.open.is_none() => return Disabled(NO_CHAT),
+            When::Chat if self.open.is_none() => return Disabled(no_chat()),
             // The chat is behind Status: nothing is done to it unseen.
-            When::Chat if self.status_active() => return Disabled("Show the chats first"),
+            When::Chat if self.status_active() => {
+                return Disabled(crate::i18n::t("commands.why.show_chats"))
+            }
             // Status: its list and its viewer, where they are on screen.
-            When::Status if !self.status_active() => return Disabled("Open Status first"),
-            When::Story if !self.story_is_open() => return Disabled("Open a status first"),
+            When::Status if !self.status_active() => {
+                return Disabled(crate::i18n::t("commands.why.open_status"))
+            }
+            When::Story if !self.story_is_open() => {
+                return Disabled(crate::i18n::t("commands.why.open_a_status"))
+            }
             _ => {}
         }
-        let state = |on: bool| if on { Enabled } else { Disabled(NOT_HERE) };
+        let state = |on: bool| if on { Enabled } else { Disabled(not_here()) };
         let numbered = |on: bool| match self.current_account() {
             Some(_) if on => Enabled,
-            Some(_) => Disabled(NOT_HERE),
-            None => Disabled(NO_NUMBER),
+            Some(_) => Disabled(not_here()),
+            None => Disabled(no_number()),
         };
         match command {
             // The palette itself, and keys that mean nothing as a row.
@@ -314,10 +353,10 @@ impl Shell {
                     updater::Phase::Disabled(_)
                 ) =>
             {
-                Disabled("Updates are off in this build")
+                Disabled(crate::i18n::t("commands.why.updates_off"))
             }
             C::RestartToUpdate if crate::update::ready_version(cx).is_none() => {
-                Disabled("No update is waiting")
+                Disabled(crate::i18n::t("commands.why.no_update"))
             }
             C::SignOut => {
                 let signed_in = matches!(
@@ -330,14 +369,14 @@ impl Shell {
                     Hidden
                 }
             }
-            C::Attach | C::Paste if !self.can_attach() => Disabled(super::attach::NOT_AVAILABLE),
+            C::Attach | C::Paste if !self.can_attach() => Disabled(super::attach::not_available()),
             C::StickerPicker | C::GifPicker if !self.can_attach() => {
-                Disabled(super::attach::NOT_AVAILABLE)
+                Disabled(super::attach::not_available())
             }
             C::FavoriteSticker if !self.sticker_in_hand() => {
-                Disabled("Open the stickers, or put a sticker message in focus")
+                Disabled(crate::i18n::t("commands.why.no_sticker"))
             }
-            C::RecordVoice if !self.can_record() => Disabled(super::voice_record::NOT_AVAILABLE),
+            C::RecordVoice if !self.can_record() => Disabled(super::voice_record::not_available()),
             C::MuteChat
             | C::ArchiveChat
             | C::PinChat
@@ -348,7 +387,7 @@ impl Shell {
             | C::MuteAChat
             | C::MarkAChat => state(caps.chat_state),
             // In the menus too, as an entry that says the same.
-            C::DeleteChat => Disabled(super::shell::NOT_YET),
+            C::DeleteChat => Disabled(super::shell::not_yet()),
             // Only where the chat's number has them: a cloud feature is
             // not listed as missing everywhere else.
             C::IncomingWebhooks => {
@@ -364,16 +403,16 @@ impl Shell {
             }
             C::InsertMention => match &self.open {
                 Some(open) if open.chat.kind == ChatKind::Group => Enabled,
-                _ => Disabled("Only in a group"),
+                _ => Disabled(crate::i18n::t("commands.why.only_group")),
             },
             C::JumpToFirstUnread => match self.first_unread_row() {
                 Some(_) => Enabled,
-                None => Disabled("Nothing unread here"),
+                None => Disabled(crate::i18n::t("commands.why.nothing_unread")),
             },
             C::SwitchNumber if self.linked_accounts().count() < 2 => {
-                Disabled("There is one number")
+                Disabled(crate::i18n::t("commands.why.one_number"))
             }
-            C::FocusConversation if self.open.is_none() => Disabled(NO_CHAT),
+            C::FocusConversation if self.open.is_none() => Disabled(no_chat()),
             C::RenameNumber
             | C::NumberLook
             | C::MoveNumberUp
@@ -381,37 +420,37 @@ impl Shell {
             | C::MuteNumber => numbered(true),
             C::RemoveNumber => match self.current_account() {
                 Some(account) if account.never_linked() => state(caps.manage_accounts),
-                Some(_) => Disabled("Only a number that never was linked"),
-                None => Disabled(NO_NUMBER),
+                Some(_) => Disabled(crate::i18n::t("commands.why.never_linked")),
+                None => Disabled(no_number()),
             },
             C::LeaveRailGroup => match self.current_account() {
                 Some(account) if self.rail.group_of(&self.rail_key(&account.id)).is_some() => {
                     Enabled
                 }
-                Some(_) => Disabled("This number is in no group"),
-                None => Disabled(NO_NUMBER),
+                Some(_) => Disabled(crate::i18n::t("commands.why.in_no_group")),
+                None => Disabled(no_number()),
             },
             C::GroupNumberWith if self.linked_accounts().count() < 2 => {
-                Disabled("Needs another number")
+                Disabled(crate::i18n::t("commands.why.needs_another"))
             }
             C::ToggleRailGroup | C::EditRailGroup | C::Ungroup if self.rail.groups().is_empty() => {
-                Disabled("There are no groups in the rail")
+                Disabled(crate::i18n::t("commands.why.no_rail_groups"))
             }
             C::EditProfile => numbered(caps.profile_edit),
             C::ReconnectNumber | C::LogOutNumber => numbered(caps.manage_accounts),
             C::LinkNumber => match self.current_account() {
                 Some(account) if account.never_linked() => state(caps.link_accounts),
-                Some(_) => Disabled("This number is linked"),
-                None => Disabled(NO_NUMBER),
+                Some(_) => Disabled(crate::i18n::t("commands.why.is_linked")),
+                None => Disabled(no_number()),
             },
             C::MoveNumberToGroup => match self.current_account() {
                 Some(_) if self.rail.groups().is_empty() => {
-                    Disabled("There are no groups in the rail")
+                    Disabled(crate::i18n::t("commands.why.no_rail_groups"))
                 }
                 Some(_) => Enabled,
-                None => Disabled(NO_NUMBER),
+                None => Disabled(no_number()),
             },
-            C::ToggleReadReceipts if !caps.read_receipts => Disabled(NOT_HERE),
+            C::ToggleReadReceipts if !caps.read_receipts => Disabled(not_here()),
             C::ShowStatus => state(caps.story_list || caps.story_post || caps.story_contacts),
             C::ToggleStatusStrip => {
                 state(caps.story_list || caps.story_post || caps.story_contacts)
@@ -419,7 +458,9 @@ impl Shell {
             C::NewStatus => state(caps.story_post),
             C::SettingsStatus => state(caps.story_privacy),
             C::ToggleStoryReceipts => state(caps.story_view),
-            C::ShowChats if !self.status_active() => Disabled("The chats are showing"),
+            C::ShowChats if !self.status_active() => {
+                Disabled(crate::i18n::t("commands.why.chats_showing"))
+            }
             _ => {
                 let _ = cx;
                 Enabled
@@ -438,6 +479,7 @@ impl Shell {
             C::SetBubbles => bubbles_name(chosen.bubbles).into(),
             C::SetWallpaper => wallpaper_name(chosen.wallpaper).into(),
             C::SetMotion => motion_name(chosen.motion).into(),
+            C::SetLanguage => ui_language_name(chosen.language).into(),
             C::SetEmojiLanguage => language_name(prefs::language(cx)).into(),
             C::SetMediaDownload => media_name(chosen.media).into(),
             C::SetHistory => history_name(chosen.history).into(),
@@ -446,13 +488,28 @@ impl Shell {
             C::ToggleDesktopNotifications => on_off(chosen.desktop_notifications),
             C::ToggleMessagePreviews => on_off(chosen.message_previews),
             C::PinChat => chat.map_or("".into(), |chat| {
-                if chat.pinned { "Pinned" } else { "Not pinned" }.into()
+                if chat.pinned {
+                    crate::i18n::t("commands.palette.pinned")
+                } else {
+                    crate::i18n::t("commands.palette.not_pinned")
+                }
+                .into()
             }),
             C::MuteChat | C::MuteFor => chat.map_or("".into(), |chat| {
-                if chat.muted { "Muted" } else { "Not muted" }.into()
+                if chat.muted {
+                    crate::i18n::t("commands.palette.muted")
+                } else {
+                    crate::i18n::t("commands.palette.not_muted")
+                }
+                .into()
             }),
             C::ArchiveChat => chat.map_or("".into(), |chat| {
-                if chat.archived { "Archived" } else { "" }.into()
+                if chat.archived {
+                    crate::i18n::t("commands.palette.archived")
+                } else {
+                    ""
+                }
+                .into()
             }),
             _ => "".into(),
         }
@@ -487,7 +544,7 @@ impl Shell {
         };
         match command {
             C::SetTheme => choices(
-                "Theme",
+                crate::i18n::t("commands.step.theme"),
                 [ThemeChoice::Light, ThemeChoice::Dark, ThemeChoice::System]
                     .into_iter()
                     .map(|theme| {
@@ -500,7 +557,7 @@ impl Shell {
                     .collect(),
             ),
             C::SetInterfaceSize => choices(
-                "Interface size",
+                crate::i18n::t("commands.step.interface_size"),
                 SCALE_STEPS
                     .into_iter()
                     .map(|step| {
@@ -513,7 +570,7 @@ impl Shell {
                     .collect(),
             ),
             C::SetBubbles => choices(
-                "Message bubbles",
+                crate::i18n::t("commands.step.bubbles"),
                 [BubbleStyle::Brand, BubbleStyle::Lime, BubbleStyle::Neutral]
                     .into_iter()
                     .map(|style| {
@@ -526,7 +583,7 @@ impl Shell {
                     .collect(),
             ),
             C::SetWallpaper => choices(
-                "Chat wallpaper",
+                crate::i18n::t("commands.step.wallpaper"),
                 [WallpaperChoice::Pattern, WallpaperChoice::Plain]
                     .into_iter()
                     .map(|wallpaper| {
@@ -539,7 +596,7 @@ impl Shell {
                     .collect(),
             ),
             C::SetMotion => choices(
-                "Motion",
+                crate::i18n::t("commands.step.motion"),
                 [MotionChoice::System, MotionChoice::On, MotionChoice::Off]
                     .into_iter()
                     .map(|motion| {
@@ -551,10 +608,27 @@ impl Shell {
                     })
                     .collect(),
             ),
+            C::SetLanguage => choices(
+                crate::i18n::t("commands.step.language"),
+                std::iter::once(crate::i18n::LanguageChoice::System)
+                    .chain(
+                        crate::i18n::Language::ALL
+                            .into_iter()
+                            .map(crate::i18n::LanguageChoice::Lang),
+                    )
+                    .map(|language| {
+                        choice(
+                            ui_language_name(language),
+                            chosen.language == language,
+                            Value::UiLanguage(language),
+                        )
+                    })
+                    .collect(),
+            ),
             C::SetEmojiLanguage => {
                 let now = prefs::language(cx);
                 choices(
-                    "Emoji search language",
+                    crate::i18n::t("commands.step.emoji_language"),
                     std::iter::once(LanguageChoice::System)
                         .chain(Lang::ALL.into_iter().map(LanguageChoice::Lang))
                         .map(|language| {
@@ -568,7 +642,7 @@ impl Shell {
                 )
             }
             C::SetMediaDownload => choices(
-                "Download automatically",
+                crate::i18n::t("commands.step.media"),
                 [
                     MediaChoice::Automatic,
                     MediaChoice::Images,
@@ -586,7 +660,7 @@ impl Shell {
                 .collect(),
             ),
             C::SetHistory => choices(
-                "History to fetch",
+                crate::i18n::t("commands.step.history"),
                 [
                     HistoryChoice::OnOpen,
                     HistoryChoice::Recent,
@@ -609,13 +683,19 @@ impl Shell {
                 Some(Step {
                     command,
                     title: match &subject {
-                        Some(chat) => format!("Mute {} for", chat.title).into(),
-                        None => "Mute for".into(),
+                        Some(chat) => crate::i18n::tr(
+                            "commands.step.mute_chat_for",
+                            &[("title", &chat.title)],
+                        )
+                        .into(),
+                        None => crate::i18n::t("commands.step.mute_for").into(),
                     },
                     kind: StepKind::Choices(
                         MUTES
                             .into_iter()
-                            .map(|(label, seconds)| choice(label, false, Value::Mute(seconds)))
+                            .map(|(label, seconds)| {
+                                choice(crate::i18n::t(label), false, Value::Mute(seconds))
+                            })
                             .collect(),
                     ),
                     chat: subject,
@@ -624,10 +704,10 @@ impl Shell {
             C::PinAChat | C::ArchiveAChat | C::MuteAChat | C::MarkAChat => Some(Step {
                 command,
                 title: match command {
-                    C::PinAChat => "Pin or unpin",
-                    C::ArchiveAChat => "Archive or unarchive",
-                    C::MuteAChat => "Mute",
-                    _ => "Mark as read or unread",
+                    C::PinAChat => crate::i18n::t("commands.step.pin"),
+                    C::ArchiveAChat => crate::i18n::t("commands.step.archive"),
+                    C::MuteAChat => crate::i18n::t("commands.step.mute"),
+                    _ => crate::i18n::t("commands.step.mark"),
                 }
                 .into(),
                 kind: StepKind::Chat,
@@ -635,12 +715,12 @@ impl Shell {
             }),
             C::NewChat => Some(Step {
                 command,
-                title: "New chat with".into(),
+                title: crate::i18n::t("commands.step.new_chat_with").into(),
                 kind: StepKind::Contact,
                 chat: None,
             }),
             C::SwitchNumber => choices(
-                "Number",
+                crate::i18n::t("commands.step.number"),
                 self.linked_accounts()
                     .map(|account| {
                         choice(
@@ -652,7 +732,7 @@ impl Shell {
                     .collect(),
             ),
             C::GroupNumberWith => choices(
-                "Group with",
+                crate::i18n::t("commands.step.group_with"),
                 self.linked_accounts()
                     .filter(|account| self.account.as_ref() != Some(&account.id))
                     .map(|account| {
@@ -666,9 +746,9 @@ impl Shell {
             ),
             C::ToggleRailGroup | C::EditRailGroup | C::Ungroup => choices(
                 match command {
-                    C::ToggleRailGroup => "Expand or collapse",
-                    C::EditRailGroup => "Rename",
-                    _ => "Ungroup",
+                    C::ToggleRailGroup => crate::i18n::t("commands.step.toggle_group"),
+                    C::EditRailGroup => crate::i18n::t("commands.step.rename_group"),
+                    _ => crate::i18n::t("commands.step.ungroup"),
                 },
                 self.rail
                     .groups()
@@ -677,7 +757,7 @@ impl Shell {
                     .collect(),
             ),
             C::MoveNumberToGroup => choices(
-                "Move to",
+                crate::i18n::t("commands.step.move_to"),
                 self.rail
                     .groups()
                     .into_iter()
@@ -701,11 +781,11 @@ impl Shell {
                     }
                 }
                 days.reverse();
-                choices("Go to", days)
+                choices(crate::i18n::t("commands.step.go_to"), days)
             }
             C::Diagnostics => Some(Step {
                 command,
-                title: "Connection".into(),
+                title: crate::i18n::t("commands.step.connection").into(),
                 kind: StepKind::Lines(self.diagnostics()),
                 chat: None,
             }),
@@ -724,7 +804,10 @@ impl Shell {
             })
             .collect();
         if lines.is_empty() {
-            lines.push(("Numbers".into(), "None yet".into()));
+            lines.push((
+                crate::i18n::t("commands.diagnostics.numbers").into(),
+                crate::i18n::t("commands.diagnostics.none_yet").into(),
+            ));
         }
         let waiting = self
             .engine
@@ -733,23 +816,22 @@ impl Shell {
             .map(|pending| pending.len())
             .unwrap_or(0);
         lines.push((
-            "Waiting to be sent".into(),
+            crate::i18n::t("commands.diagnostics.waiting").into(),
             match waiting {
-                0 => "Nothing".into(),
-                1 => "1 message".into(),
-                n => format!("{n} messages").into(),
+                0 => crate::i18n::t("commands.diagnostics.nothing").into(),
+                n => crate::i18n::plural("commands.diagnostics.messages", n as u64, &[]).into(),
             },
         ));
         lines.push((
-            "Sending files".into(),
+            crate::i18n::t("commands.diagnostics.uploads").into(),
             match self.engine.uploads_available() {
-                Some(true) => "Available".into(),
-                Some(false) => "Not available".into(),
-                None => "Not checked yet".into(),
+                Some(true) => crate::i18n::t("commands.diagnostics.available").into(),
+                Some(false) => crate::i18n::t("commands.diagnostics.not_available").into(),
+                None => crate::i18n::t("commands.diagnostics.not_checked").into(),
             },
         ));
         lines.push((
-            "Provider".into(),
+            crate::i18n::t("commands.diagnostics.provider").into(),
             self.engine.provider_id().to_owned().into(),
         ));
         push_live_line(&mut lines, self.engine.live_updates());
@@ -774,6 +856,9 @@ impl Shell {
             Value::Motion(motion) => settings::update(cx, |settings| settings.motion = motion),
             Value::Media(media) => settings::update(cx, |settings| settings.media = media),
             Value::History(history) => settings::update(cx, |settings| settings.history = history),
+            Value::UiLanguage(language) => {
+                settings::update(cx, |settings| settings.language = language);
+            }
             Value::Language(language) => {
                 prefs::update(cx, |chosen| chosen.language = language);
                 cx.refresh_windows();

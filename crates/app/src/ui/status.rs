@@ -15,6 +15,7 @@
 
 use super::shell::{Overlay, Shell};
 use super::widgets::{avatar_or, icon_button, label, mono, text_button, AvatarKind};
+use crate::i18n;
 use crate::icons::{icon, IconName};
 use crate::keys::Command;
 use crate::stories::{age_label, describe};
@@ -32,11 +33,6 @@ use gpui_kit::{
 };
 use std::collections::HashMap;
 use std::time::Duration;
-
-/// What the list says when the provider does not deliver contacts'
-/// updates.
-pub(super) const NO_CONTACT_UPDATES: &str =
-    "Your contacts' status updates are not available yet from this provider.";
 
 /// How many authors' first story is fetched ahead.
 const PREFETCH_AUTHORS: usize = 12;
@@ -62,9 +58,9 @@ pub(super) enum Part {
 impl Part {
     fn title(self) -> &'static str {
         match self {
-            Self::Recent => "Recent updates",
-            Self::Viewed => "Viewed updates",
-            Self::Muted => "Muted",
+            Self::Recent => i18n::t("status.list.part.recent"),
+            Self::Viewed => i18n::t("status.list.part.viewed"),
+            Self::Muted => i18n::t("status.list.part.muted"),
         }
     }
 }
@@ -125,24 +121,23 @@ impl Updates {
     pub(super) fn words(self) -> (&'static str, &'static str) {
         match self {
             Self::Listed => ("", ""),
-            Self::Loading => ("Checking for updates…", ""),
+            Self::Loading => (i18n::t("status.list.loading.title"), ""),
             Self::Offline => (
-                "This number is offline",
-                "Updates from your contacts appear when it is connected again.",
+                i18n::t("status.list.offline.title"),
+                i18n::t("status.list.offline.text"),
             ),
             Self::Unavailable => (
-                "Not available for this number yet",
-                "Status updates from your contacts are not turned on for this number yet. \
-                 Your own status works.",
+                i18n::t("status.list.unavailable.title"),
+                i18n::t("status.list.unavailable.text"),
             ),
-            Self::NotOffered => ("", NO_CONTACT_UPDATES),
+            Self::NotOffered => ("", i18n::t("status.list.no_contact_updates")),
             Self::Failed => (
-                "Could not check for updates",
-                "The connection dropped. It is tried again by itself.",
+                i18n::t("status.list.failed.title"),
+                i18n::t("status.list.failed.text"),
             ),
             Self::Empty => (
-                "No updates yet",
-                "Updates from your contacts in the last 24 hours appear here.",
+                i18n::t("status.list.empty.title"),
+                i18n::t("status.list.empty.text"),
             ),
         }
     }
@@ -229,20 +224,22 @@ impl StatusUi {
             TextareaState::new(window, cx)
                 .auto_grow(1, 3)
                 .submit_on_enter(true)
-                .placeholder("Reply")
+                .placeholder(i18n::t("status.reply.placeholder"))
         });
         let words = cx.new(|cx| {
             TextareaState::new(window, cx)
                 .auto_grow(2, 8)
-                .placeholder("Type a status")
+                .placeholder(i18n::t("status.post.words_placeholder"))
         });
         let caption = cx.new(|cx| {
             TextareaState::new(window, cx)
                 .auto_grow(1, 4)
                 .submit_on_enter(true)
-                .placeholder("Add a caption")
+                .placeholder(i18n::t("status.post.caption_placeholder"))
         });
-        let query = cx.new(|cx| InputState::new(window, cx).placeholder("Search a name"));
+        let query = cx.new(|cx| {
+            InputState::new(window, cx).placeholder(i18n::t("status.list.search_placeholder"))
+        });
         let subs =
             vec![
                 cx.subscribe_in(&query, window, |this, field, event: &InputEvent, _, cx| {
@@ -635,7 +632,9 @@ impl Shell {
             .cursor_pointer()
             .child(super::story_ring::outset(ring, side, palette))
             .child(face)
-            .tooltip(|window, cx| Tooltip::new("Watch their status").build(window, cx))
+            .tooltip(|window, cx| {
+                Tooltip::new(i18n::t("status.list.watch_tooltip")).build(window, cx)
+            })
             .on_click(cx.listener(move |this, _, window, cx| {
                 cx.stop_propagation();
                 this.watch_status_of(&contact, window, cx);
@@ -1040,9 +1039,9 @@ impl Shell {
             .font_weight(FontWeight::SEMIBOLD)
             .text_color(palette.text)
             .child(if self.status_active() {
-                "Status"
+                i18n::t("status.title")
             } else {
-                "Chats"
+                i18n::t("status.chats_title")
             })
     }
 
@@ -1055,13 +1054,13 @@ impl Shell {
         let button = icon_button("new-status", IconName::Plus, palette);
         if self.caps_now().story_post {
             button
-                .tooltip(tooltip_with_keys("New status", Command::NewStatus))
+                .tooltip(tooltip_with_keys(i18n::t("status.new"), Command::NewStatus))
                 .on_click(cx.listener(|this, _, window, cx| this.open_status_post(window, cx)))
         } else {
             super::widgets::unavailable_button(
                 "new-status",
                 IconName::Plus,
-                "Posting a status is not available yet from this provider",
+                i18n::t("status.post.unavailable_tooltip"),
                 palette,
             )
         }
@@ -1234,7 +1233,7 @@ impl Shell {
                             this.child(
                                 text_button(
                                     "status-post-first",
-                                    "Post a status",
+                                    i18n::t("status.list.post_first"),
                                     Some(IconName::Plus),
                                     true,
                                     palette,
@@ -1246,14 +1245,22 @@ impl Shell {
                         })
                         .when(updates.can_check(), |this| {
                             this.child(
-                                text_button("status-check", "Check again", None, false, palette)
-                                    .tooltip(tooltip_with_keys(
-                                        "Check again",
-                                        Command::StatusRefresh,
-                                    ))
-                                    .on_click(cx.listener(|this, _, _, cx| {
+                                text_button(
+                                    "status-check",
+                                    i18n::t("status.list.check_again"),
+                                    None,
+                                    false,
+                                    palette,
+                                )
+                                .tooltip(tooltip_with_keys(
+                                    i18n::t("status.list.check_again"),
+                                    Command::StatusRefresh,
+                                ))
+                                .on_click(cx.listener(
+                                    |this, _, _, cx| {
                                         this.check_status_again(cx);
-                                    })),
+                                    },
+                                )),
                             )
                         }),
                 ),
@@ -1271,7 +1278,7 @@ impl Shell {
         let count = self.status.feed.muted.len();
         let open = self.status.muted_open;
         let name = match part {
-            Part::Muted => format!("Muted ({count})"),
+            Part::Muted => i18n::tr("status.list.muted_heading", &[("count", &count)]),
             other => other.title().to_owned(),
         };
         let heading = div()
@@ -1338,18 +1345,17 @@ impl Shell {
                     .story
                     .view_count
                     .filter(|_| self.caps_now().story_viewers)
-                    .map(|count| match count {
-                        1 => " · 1 view".to_owned(),
-                        n => format!(" · {n} views"),
-                    })
+                    .map(|count| i18n::plural("status.list.views", count as u64, &[]))
                     .unwrap_or_default();
                 match &item.post {
-                    Some(client_core::StoryPostState::Failed(_)) => "Not posted. Tap to see".into(),
-                    Some(client_core::StoryPostState::Queued) => "Posting…".into(),
+                    Some(client_core::StoryPostState::Failed(_)) => {
+                        i18n::t("status.list.mine_failed").into()
+                    }
+                    Some(client_core::StoryPostState::Queued) => i18n::t("status.posting").into(),
                     None => format!("{}{views}", age_label(item.story.posted_at, now)).into(),
                 }
             }
-            None => "Add status".into(),
+            None => i18n::t("status.list.mine_add").into(),
         };
         div()
             .id("status-mine")
@@ -1379,7 +1385,7 @@ impl Shell {
                             .truncate()
                             .text_size(metrics::TEXT_NAME())
                             .font_weight(FontWeight::SEMIBOLD)
-                            .child("My status"),
+                            .child(i18n::t("status.mine")),
                     )
                     .child(
                         div()
@@ -1392,7 +1398,7 @@ impl Shell {
             )
             .child(
                 icon_button("status-add", IconName::Plus, palette)
-                    .tooltip(tooltip_with_keys("New status", Command::NewStatus))
+                    .tooltip(tooltip_with_keys(i18n::t("status.new"), Command::NewStatus))
                     .on_click(cx.listener(|this, _, window, cx| {
                         cx.stop_propagation();
                         if this.caps_now().story_post {
@@ -1511,7 +1517,11 @@ impl Shell {
                                 move |style| style.bg(hover)
                             })
                             .tooltip(tooltip_with_keys(
-                                if muted { "Unmute" } else { "Mute" },
+                                if muted {
+                                    i18n::t("status.list.unmute")
+                                } else {
+                                    i18n::t("status.list.mute")
+                                },
                                 Command::StatusMute,
                             ))
                             .on_click(cx.listener(move |this, _, _, cx| {
@@ -1586,24 +1596,20 @@ impl Shell {
                         div()
                             .text_size(metrics::TEXT_TITLE())
                             .font_weight(FontWeight::SEMIBOLD)
-                            .child("Status"),
+                            .child(i18n::t("status.title")),
                     )
                     .child(
                         div()
                             .text_size(metrics::TEXT_BODY())
                             .line_height(px(22.))
                             .text_color(palette.text_muted)
-                            .child(
-                                "Pick an update from the list to watch it. Updates last a day, \
-                                 and the person who posted one sees that you saw it unless \
-                                 view receipts are off.",
-                            ),
+                            .child(i18n::t("status.pane.hint")),
                     ),
             )
             .child(if can_post {
                 text_button(
                     "status-new",
-                    "New status",
+                    i18n::t("status.new"),
                     Some(IconName::Plus),
                     true,
                     palette,
@@ -1615,16 +1621,19 @@ impl Shell {
                     .debug_selector(|| "status-new-unavailable".into())
                     .text_size(metrics::TEXT_SMALL())
                     .text_color(palette.text_faint)
-                    .child("Posting a status is not available yet from this provider.")
+                    .child(i18n::t("status.pane.unavailable"))
                     .into_any_element()
             })
             .child(
                 div()
                     .text_size(metrics::TEXT_SMALL())
                     .text_color(palette.text_faint)
-                    .child(SharedString::from(format!(
-                        "{} to come back to the chats",
-                        crate::keys::keys_label(Command::ShowChats).unwrap_or_default()
+                    .child(SharedString::from(i18n::tr(
+                        "status.pane.back_keys",
+                        &[(
+                            "keys",
+                            &crate::keys::keys_label(Command::ShowChats).unwrap_or_default(),
+                        )],
                     ))),
             )
     }

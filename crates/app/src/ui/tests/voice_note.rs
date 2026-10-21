@@ -6,7 +6,7 @@ use super::*;
 use crate::audio::tests::{FakeOutput, Tape};
 use crate::record::tests::{FakeInput, Mic};
 use crate::record::Format;
-use crate::ui::voice_record::{Phase, NOT_AVAILABLE};
+use crate::ui::voice_record::{not_available, Phase};
 use client_provider::MediaKind;
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -308,7 +308,7 @@ fn where_files_cannot_be_sent_nothing_is_recorded(cx: &mut TestAppContext) {
         "the microphone was never opened"
     );
     let problem = cx.update(|cx| harness.shell.read(cx).problem.clone().unwrap());
-    assert!(problem.contains(NOT_AVAILABLE), "{problem}");
+    assert!(problem.contains(not_available()), "{problem}");
 }
 
 #[gpui_kit::test]

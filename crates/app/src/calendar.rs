@@ -22,31 +22,27 @@ fn range_in<Tz: TimeZone>(
 where
     Tz::Offset: std::fmt::Display,
 {
-    const DAY: &str = "%a %-d %b %Y";
+    let day_of = |at: &DateTime<Tz>, year: bool| crate::format::weekday_date(at, year);
     let start = zone(event.starts_at?)?;
     let end = event
         .ends_at
         .filter(|end| *end > event.starts_at.unwrap_or_default())
         .and_then(zone);
     Some(match end {
-        None => format!("{} · {}", start.format(DAY), start.format("%H:%M")),
+        None => format!("{} · {}", day_of(&start, true), start.format("%H:%M")),
         Some(end) if end.date_naive() == start.date_naive() => format!(
             "{} · {} – {}",
-            start.format(DAY),
+            day_of(&start, true),
             start.format("%H:%M"),
             end.format("%H:%M")
         ),
         Some(end) => {
-            let day = if end.year() == start.year() {
-                "%a %-d %b"
-            } else {
-                DAY
-            };
+            let year = end.year() != start.year();
             format!(
                 "{} {} – {} {}",
-                start.format(day),
+                day_of(&start, year),
                 start.format("%H:%M"),
-                end.format(DAY),
+                day_of(&end, true),
                 end.format("%H:%M")
             )
         }

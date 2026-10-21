@@ -35,10 +35,10 @@ pub(super) const PIN_CHOICES: [PinChoice; 4] = [
 impl PinChoice {
     fn label(self) -> &'static str {
         match self {
-            Self::For(PinFor::Day) => "24 hours",
-            Self::For(PinFor::Week) => "7 days",
-            Self::For(PinFor::Month) => "30 days",
-            Self::Cancel => "Cancel",
+            Self::For(PinFor::Day) => crate::i18n::t("chat.pins.day"),
+            Self::For(PinFor::Week) => crate::i18n::t("chat.pins.week"),
+            Self::For(PinFor::Month) => crate::i18n::t("chat.pins.month"),
+            Self::Cancel => crate::i18n::t("chat.pins.cancel"),
         }
     }
 
@@ -150,7 +150,7 @@ impl Shell {
             .flex()
             .flex_col()
             .child(panel_header(
-                "Pin for how long?",
+                crate::i18n::t("chat.pins.title"),
                 palette,
                 cx.listener(|this, _, window, cx| this.close_overlay(window, cx)),
             ))
@@ -165,11 +165,9 @@ impl Shell {
                             .text_size(metrics::TEXT_SMALL())
                             .line_height(px(19.))
                             .text_color(palette.text_muted)
-                            .child(format!(
-                                "Everyone in the chat sees it at the top. A chat keeps {} \
-                                 pinned messages: one more replaces the one that ends first. \
-                                 You can unpin it at any time.",
-                                client_core::PINS_PER_CHAT
+                            .child(crate::i18n::tr(
+                                "chat.pins.explain",
+                                &[("max", &client_core::PINS_PER_CHAT)],
                             )),
                     )
                     .child(buttons),
@@ -217,7 +215,7 @@ impl Shell {
         let message = *pinned.get(open.pinned_shown % count.max(1))?;
         let at = open.pinned_shown % count;
         let who = match message.direction {
-            client_provider::Direction::Outgoing => "You".to_owned(),
+            client_provider::Direction::Outgoing => crate::i18n::t("chat.you").to_owned(),
             client_provider::Direction::Incoming => message
                 .sender_name
                 .clone()
@@ -258,9 +256,12 @@ impl Shell {
                         }))
                         .child(
                             mono(if count > 1 {
-                                format!("PINNED · {} OF {count}", at + 1)
+                                crate::i18n::tr(
+                                    "chat.pins.bar_of",
+                                    &[("n", &(at + 1)), ("count", &count)],
+                                )
                             } else {
-                                "PINNED".to_owned()
+                                crate::i18n::t("chat.pins.bar").to_owned()
                             })
                             .text_color(palette.text_muted),
                         )

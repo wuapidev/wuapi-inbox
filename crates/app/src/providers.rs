@@ -1,6 +1,7 @@
 //! Choosing and constructing the provider for this session.
 
 use crate::cli::{Options, ProviderKind};
+use crate::i18n;
 use crate::login::{BoxFuture, Identity, IdentityLoader, KeySaved, LoginFlow, Session};
 use crate::product;
 use crate::settings::{self, Settings};
@@ -427,7 +428,7 @@ fn native_provider(
     ))?;
     let archive =
         provider_native::archive::Archive::open(&dir.join("native-archive.db"), Some(&key))
-            .map_err(|error| format!("cannot open the sessions' archive: {error}"))?;
+            .map_err(|error| i18n::tr("common.providers.archive_open", &[("error", &error)]))?;
     Ok(provider_native::NativeProvider::new(
         Arc::new(sessions),
         archive,
@@ -478,7 +479,7 @@ fn launch_both(
         // them: a start without the network forgets nothing.
         let known = store
             .accounts_of(provider.id())
-            .map_err(|error| format!("cannot read the local database: {error}"))?;
+            .map_err(|error| i18n::tr("common.providers.db_read", &[("error", &error)]))?;
         hub.attach(provider.clone(), Some(known));
         identity = Some(identity_of(provider, runtime.clone()));
     }
@@ -575,7 +576,10 @@ impl LoginFlow for CloudLogin {
             let accounts = match provider.list_accounts().await {
                 Ok(accounts) => accounts,
                 Err(ProviderError::Unauthorized(reason)) => {
-                    return Err(format!("wuapi did not accept the new API key: {reason}"))
+                    return Err(i18n::tr(
+                        "common.providers.key_refused",
+                        &[("reason", &reason)],
+                    ))
                 }
                 Err(error) => {
                     tracing::debug!(%error, "the accounts are not available yet");
@@ -611,7 +615,7 @@ impl LoginFlow for CloudLogin {
         Box::pin(async move {
             forgotten
                 .await
-                .map_err(|error| format!("The API key could not be removed: {error}"))
+                .map_err(|error| i18n::tr("common.providers.key_not_removed", &[("error", &error)]))
         })
     }
 
@@ -792,7 +796,10 @@ impl LoginFlow for WuapiLogin {
             let accounts = match provider.list_accounts().await {
                 Ok(accounts) => accounts,
                 Err(ProviderError::Unauthorized(reason)) => {
-                    return Err(format!("wuapi did not accept the new API key: {reason}"))
+                    return Err(i18n::tr(
+                        "common.providers.key_refused",
+                        &[("reason", &reason)],
+                    ))
                 }
                 Err(error) => {
                     tracing::debug!(%error, "the accounts are not available yet");
@@ -826,7 +833,7 @@ impl LoginFlow for WuapiLogin {
             if !accounts.is_empty() {
                 store
                     .upsert_accounts(provider.id(), &accounts)
-                    .map_err(|error| format!("cannot write the local database: {error}"))?;
+                    .map_err(|error| i18n::tr("common.providers.db_write", &[("error", &error)]))?;
             }
             // The grant already says who signed in: no need to ask again.
             let identity = Identity {
@@ -870,10 +877,17 @@ impl LoginFlow for WuapiLogin {
             .unwrap_or_else(|error| Err(error.to_string()));
             match (key, data) {
                 (Ok(()), Ok(())) => Ok(()),
-                (Err(key), Ok(())) => Err(format!("The API key could not be removed: {key}")),
-                (Ok(()), Err(data)) => Err(format!("Some local data could not be removed: {data}")),
-                (Err(key), Err(data)) => Err(format!(
-                    "The API key could not be removed ({key}), nor some local data ({data})"
+                (Err(key), Ok(())) => Err(i18n::tr(
+                    "common.providers.key_not_removed",
+                    &[("error", &key)],
+                )),
+                (Ok(()), Err(data)) => Err(i18n::tr(
+                    "common.providers.data_not_removed",
+                    &[("error", &data)],
+                )),
+                (Err(key), Err(data)) => Err(i18n::tr(
+                    "common.providers.both_not_removed",
+                    &[("key", &key), ("data", &data)],
                 )),
             }
         });
@@ -912,8 +926,12 @@ fn start_over(home: &Database) -> Storage {
 
 /// The database file for a provider inside `dir`, creating the directory.
 fn database_in(dir: &Path, provider: &str) -> Result<PathBuf, String> {
-    std::fs::create_dir_all(dir)
-        .map_err(|error| format!("cannot create {}: {error}", dir.display()))?;
+    std::fs::create_dir_all(dir).map_err(|error| {
+        i18n::tr(
+            "common.providers.cannot_create",
+            &[("path", &dir.display()), ("error", &error)],
+        )
+    })?;
     Ok(dir.join(format!("{provider}.db")))
 }
 

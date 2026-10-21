@@ -308,7 +308,9 @@ impl EmojiUi {
         cx: &mut Context<Shell>,
     ) -> Self {
         prefs::init(cx);
-        let search = cx.new(|cx| InputState::new(window, cx).placeholder("Search emoji"));
+        let search = cx.new(|cx| {
+            InputState::new(window, cx).placeholder(crate::i18n::t("chat.emoji_picker.search"))
+        });
         let own_window = window.window_handle();
         let view = cx.weak_entity();
         let subscriptions = vec![
@@ -555,11 +557,11 @@ impl Shell {
                     })
                     .collect();
                 if !used.is_empty() {
-                    layout.section("Frequently used", FREQUENT_GLYPH);
+                    layout.section(crate::i18n::t("chat.emoji_picker.frequent"), FREQUENT_GLYPH);
                     layout.fill(used);
                 }
                 for (at, group) in loaded.set.groups.iter().enumerate() {
-                    layout.section(&group.name, GROUP_GLYPHS.get(at).copied().unwrap_or("•"));
+                    layout.section(group.title(), GROUP_GLYPHS.get(at).copied().unwrap_or("•"));
                     layout.fill(group.range.clone().filter_map(&cell).collect());
                     layout.drop_empty_section();
                 }
@@ -1186,8 +1188,10 @@ impl Shell {
     ) -> Stateful<Div> {
         let anchor = self.emoji.anchor.clone();
         let hint: SharedString = match keys::keys_label(Command::EmojiPicker) {
-            Some(keys) => format!("Emoji ({keys})").into(),
-            None => "Emoji".into(),
+            Some(keys) => {
+                crate::i18n::tr("chat.emoji_picker.emoji_keys", &[("keys", &keys)]).into()
+            }
+            None => crate::i18n::t("chat.emoji_picker.emoji").into(),
         };
         icon_button("emoji", IconName::FaceSlightlySmiling, palette)
             .relative()
@@ -1213,7 +1217,10 @@ impl Shell {
         cx: &mut Context<Self>,
     ) -> Stateful<Div> {
         let anchor = self.emoji.anchor.clone();
-        let hint = super::hints::with_keys("Emoji", Some(Command::EmojiPicker));
+        let hint = super::hints::with_keys(
+            crate::i18n::t("chat.emoji_picker.emoji"),
+            Some(Command::EmojiPicker),
+        );
         icon_button("caption-emoji", IconName::FaceSlightlySmiling, palette)
             .relative()
             .rounded_full()
@@ -1382,10 +1389,11 @@ impl Shell {
         if let Some(found) = &self.emoji.results {
             let cells = self.emoji.layout.cells.len();
             let said = match cells {
-                0 if found.is_empty() => "Nothing found".to_owned(),
-                0 => "Nothing this computer's fonts can draw".to_owned(),
-                1 => "1 emoji".to_owned(),
-                n => format!("{n} emoji"),
+                0 if found.is_empty() => {
+                    crate::i18n::t("chat.emoji_picker.nothing_found").to_owned()
+                }
+                0 => crate::i18n::t("chat.emoji_picker.nothing_drawable").to_owned(),
+                n => crate::i18n::plural("chat.emoji_picker.found_count", n as u64, &[]),
             };
             return bar.px(px(4.)).child(
                 mono(said.to_uppercase())
@@ -1484,9 +1492,9 @@ impl Shell {
             self.emoji.layout.cells.get(self.emoji.cursor),
         ) else {
             let said = if self.emoji.loaded.is_none() {
-                "Loading…"
+                crate::i18n::t("chat.emoji_picker.loading")
             } else {
-                "Try another word, or a shortcode like :fire:"
+                crate::i18n::t("chat.emoji_picker.try_another")
             };
             return strip.child(
                 div()
@@ -1535,16 +1543,19 @@ impl Shell {
             )
             .when(!emoji.variants.is_empty(), |this| {
                 this.child(
-                    mono(format!(
-                        "{} tones",
-                        keys::Chord {
-                            key: "down",
-                            secondary: false,
-                            shift: false,
-                            alt: true,
-                            control: false,
-                        }
-                        .label()
+                    mono(crate::i18n::tr(
+                        "chat.emoji_picker.tones",
+                        &[(
+                            "keys",
+                            &keys::Chord {
+                                key: "down",
+                                secondary: false,
+                                shift: false,
+                                alt: true,
+                                control: false,
+                            }
+                            .label(),
+                        )],
                     ))
                     .flex_none()
                     .text_size(px(10.))
@@ -1665,7 +1676,9 @@ impl Shell {
             .justify_center()
             .cursor_pointer()
             .hover(move |style| style.bg(hover))
-            .tooltip(|window, cx| Tooltip::new("All emoji").build(window, cx))
+            .tooltip(|window, cx| {
+                Tooltip::new(crate::i18n::t("chat.emoji_picker.all_emoji")).build(window, cx)
+            })
             .on_click(cx.listener(|this, _, _, cx| {
                 cx.stop_propagation();
                 this.emoji_expand(cx);
@@ -1756,7 +1769,10 @@ impl Shell {
         cx: &mut Context<Self>,
     ) -> Stateful<Div> {
         let anchor = self.emoji.anchor.clone();
-        let hint = super::hints::with_keys("Emoji", Some(Command::EmojiPicker));
+        let hint = super::hints::with_keys(
+            crate::i18n::t("chat.emoji_picker.emoji"),
+            Some(Command::EmojiPicker),
+        );
         icon_button("status-emoji", IconName::FaceSlightlySmiling, palette)
             .relative()
             .rounded_full()
@@ -2041,7 +2057,11 @@ pub(super) fn language_row(palette: &Palette, cx: &mut Context<Shell>) -> Div {
     let system = if cfg!(test) { None } else { locale::system() };
     let detected = locale::resolve(LanguageChoice::System, system.as_ref()).lang;
     let label: SharedString = match chosen {
-        LanguageChoice::System => format!("System ({})", detected.label()).into(),
+        LanguageChoice::System => crate::i18n::tr(
+            "chat.emoji_picker.language_system",
+            &[("language", &detected.label())],
+        )
+        .into(),
         LanguageChoice::Lang(lang) => lang.label().into(),
     };
     let step = |id: &'static str, glyph: IconName, by: usize| {
@@ -2075,16 +2095,14 @@ pub(super) fn language_row(palette: &Palette, cx: &mut Context<Shell>) -> Div {
                     div()
                         .text_size(metrics::TEXT_BODY())
                         .font_weight(FontWeight::MEDIUM)
-                        .child("Emoji search language"),
+                        .child(crate::i18n::t("chat.emoji_picker.language_title")),
                 )
                 .child(
                     div()
                         .text_size(metrics::TEXT_SMALL())
                         .line_height(px(18.))
                         .text_color(palette.text_muted)
-                        .child(
-                            "What emoji are called when you search them. English always works too.",
-                        ),
+                        .child(crate::i18n::t("chat.emoji_picker.language_detail")),
                 ),
         )
         .child(

@@ -37,24 +37,33 @@ const PREVIEW_MAX: u64 = 600 * 1024;
 const TIMEOUT: Duration = Duration::from_secs(20);
 
 /// Why a search or a download did not work, in words for the user.
-#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum GifError {
     /// The service refused the key.
-    #[error("The service did not accept the API key. Check it in Settings.")]
     Key,
     /// Too many requests.
-    #[error("The service says too many searches were made. Try again in a moment.")]
     Limit,
     /// No connection, or the service did not answer.
-    #[error("The search could not reach the service.")]
     Offline,
     /// An answer this application cannot read.
-    #[error("The service answered something unexpected.")]
     Unexpected,
     /// A file that is not what it should be, or too large.
-    #[error("{0}")]
     File(String),
 }
+
+impl std::fmt::Display for GifError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Key => f.write_str(crate::i18n::t("chat.gifs.error_key")),
+            Self::Limit => f.write_str(crate::i18n::t("chat.gifs.error_limit")),
+            Self::Offline => f.write_str(crate::i18n::t("chat.gifs.error_offline")),
+            Self::Unexpected => f.write_str(crate::i18n::t("chat.gifs.error_unexpected")),
+            Self::File(why) => f.write_str(why),
+        }
+    }
+}
+
+impl std::error::Error for GifError {}
 
 /// One GIF found online.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -264,7 +273,9 @@ impl Giphy {
     /// A file of a result, at most `max` bytes.
     pub async fn fetch(&self, url: &str, max: u64) -> Result<(Vec<u8>, Option<String>), GifError> {
         if !self.trusted(url) {
-            return Err(GifError::File("That file is not on the service.".into()));
+            return Err(GifError::File(
+                crate::i18n::t("chat.gifs.error_not_on_service").into(),
+            ));
         }
         let response = self
             .http
@@ -276,7 +287,9 @@ impl Giphy {
             return Err(GifError::Offline);
         }
         if response.content_length().is_some_and(|length| length > max) {
-            return Err(GifError::File("The GIF is too large.".into()));
+            return Err(GifError::File(
+                crate::i18n::t("chat.gifs.error_too_large").into(),
+            ));
         }
         let mime = response
             .headers()
@@ -295,7 +308,9 @@ impl Giphy {
         let mut response = response;
         while let Some(chunk) = response.chunk().await.map_err(|_| GifError::Offline)? {
             if bytes.len() as u64 + chunk.len() as u64 > max {
-                return Err(GifError::File("The GIF is too large.".into()));
+                return Err(GifError::File(
+                    crate::i18n::t("chat.gifs.error_too_large").into(),
+                ));
             }
             bytes.extend_from_slice(&chunk);
         }

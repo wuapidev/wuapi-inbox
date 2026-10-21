@@ -11,6 +11,7 @@
 //! The views read and drive these; none of it knows about GPUI, so it is
 //! tested with a clock that is only ever told how much time passed.
 
+use crate::i18n;
 use client_core::{StoryAuthor, StoryItem};
 use client_provider::{MediaKind, MessageId, StoryBody, StoryFont, Timestamp};
 use std::time::Duration;
@@ -534,14 +535,62 @@ pub enum Family {
 /// typewriter (mono), 9 rounded (bold slanted), 10 display (serif bold).
 pub fn face_of(font: StoryFont) -> Face {
     let (name, family, bold, italic, caps) = match font.0 {
-        1 => ("Serif", Family::Serif, false, false, false),
-        2 => ("Script", Family::Sans, false, true, false),
-        6 => ("Bold", Family::Sans, true, false, false),
-        7 => ("Capitals", Family::Sans, true, false, true),
-        8 => ("Typewriter", Family::Mono, false, false, false),
-        9 => ("Rounded", Family::Sans, true, true, false),
-        10 => ("Display", Family::Serif, true, false, false),
-        _ => ("Sans", Family::Sans, false, false, false),
+        1 => (
+            i18n::t("status.font.serif"),
+            Family::Serif,
+            false,
+            false,
+            false,
+        ),
+        2 => (
+            i18n::t("status.font.script"),
+            Family::Sans,
+            false,
+            true,
+            false,
+        ),
+        6 => (
+            i18n::t("status.font.bold"),
+            Family::Sans,
+            true,
+            false,
+            false,
+        ),
+        7 => (
+            i18n::t("status.font.capitals"),
+            Family::Sans,
+            true,
+            false,
+            true,
+        ),
+        8 => (
+            i18n::t("status.font.typewriter"),
+            Family::Mono,
+            false,
+            false,
+            false,
+        ),
+        9 => (
+            i18n::t("status.font.rounded"),
+            Family::Sans,
+            true,
+            true,
+            false,
+        ),
+        10 => (
+            i18n::t("status.font.display"),
+            Family::Serif,
+            true,
+            false,
+            false,
+        ),
+        _ => (
+            i18n::t("status.font.sans"),
+            Family::Sans,
+            false,
+            false,
+            false,
+        ),
     };
     Face {
         name,
@@ -617,14 +666,21 @@ pub fn with_shortcodes(text: &str) -> String {
 /// or its words.
 pub fn describe(body: &StoryBody) -> String {
     match SlideKind::of(body) {
-        SlideKind::Text => body.words().unwrap_or("Status").to_owned(),
+        SlideKind::Text => body
+            .words()
+            .unwrap_or(i18n::t("status.kind.status"))
+            .to_owned(),
         SlideKind::Image => body
             .words()
-            .map_or("Photo".to_owned(), |c| format!("Photo: {c}")),
+            .map_or(i18n::t("status.kind.photo").to_owned(), |c| {
+                i18n::tr("status.kind.photo_caption", &[("caption", &c)])
+            }),
         SlideKind::Video => body
             .words()
-            .map_or("Video".to_owned(), |c| format!("Video: {c}")),
-        SlideKind::Voice => "Voice message".to_owned(),
+            .map_or(i18n::t("status.kind.video").to_owned(), |c| {
+                i18n::tr("status.kind.video_caption", &[("caption", &c)])
+            }),
+        SlideKind::Voice => i18n::t("status.kind.voice").to_owned(),
     }
 }
 
@@ -633,9 +689,9 @@ pub fn describe(body: &StoryBody) -> String {
 pub fn age_label(at: Timestamp, now: Timestamp) -> String {
     let minutes = ((now.as_millis() - at.as_millis()).max(0) / 60_000) as u64;
     match minutes {
-        0 => "Just now".to_owned(),
-        1..=59 => format!("{minutes} min ago"),
-        60..=1439 => format!("{} h ago", minutes / 60),
+        0 => i18n::t("status.age.now").to_owned(),
+        1..=59 => i18n::tr("status.age.minutes", &[("minutes", &minutes)]),
+        60..=1439 => i18n::tr("status.age.hours", &[("hours", &(minutes / 60))]),
         _ => crate::format::clock(at),
     }
 }
@@ -648,9 +704,9 @@ pub fn expires_label(expires_at: Timestamp, now: Timestamp) -> Option<String> {
         return None;
     }
     Some(match minutes {
-        i64::MIN..=0 => "Expires in less than a minute".to_owned(),
-        1..=59 => format!("Expires in {minutes} min"),
-        _ => format!("Expires in {} h", minutes / 60),
+        i64::MIN..=0 => i18n::t("status.expires.soon").to_owned(),
+        1..=59 => i18n::tr("status.expires.minutes", &[("minutes", &minutes)]),
+        _ => i18n::tr("status.expires.hours", &[("hours", &(minutes / 60))]),
     })
 }
 

@@ -11,6 +11,7 @@ use super::numbers::{error_line, input_box, said, small_button};
 use super::shell::{Overlay, Shell};
 use super::social::{hint, question};
 use super::widgets::{icon_button, label, mono, text_button};
+use crate::i18n;
 use crate::icons::IconName;
 use crate::theme::px;
 use crate::theme::{metrics, Palette};
@@ -89,7 +90,8 @@ impl Shell {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let name = cx.new(|cx| InputState::new(window, cx).placeholder("A name, like Signups"));
+        let name = cx
+            .new(|cx| InputState::new(window, cx).placeholder(i18n::t("chat.hooks.name_example")));
         let subscription =
             cx.subscribe_in(&name, window, |this, _, event: &InputEvent, window, cx| {
                 if matches!(event, InputEvent::PressEnter { .. }) {
@@ -126,11 +128,11 @@ impl Shell {
         };
         let typed = sheet.name.read(cx).value().trim().to_owned();
         if typed.is_empty() {
-            sheet.error = Some("Type a name for the webhook.".into());
+            sheet.error = Some(i18n::t("chat.hooks.name_missing").into());
             return cx.notify();
         }
         if typed.chars().count() > 60 {
-            sheet.error = Some("The name can be up to 60 characters.".into());
+            sheet.error = Some(i18n::t("chat.hooks.name_long").into());
             return cx.notify();
         }
         self.hook_work(HookJob::Create(typed), window, cx);
@@ -158,7 +160,9 @@ impl Shell {
             .find(|hook| hook.id == id)
             .map(|hook| hook.name.clone())
             .unwrap_or_default();
-        let field = cx.new(|cx| InputState::new(window, cx).placeholder("A name for the webhook"));
+        let field = cx.new(|cx| {
+            InputState::new(window, cx).placeholder(i18n::t("chat.hooks.name_placeholder"))
+        });
         field.update(cx, |field, cx| {
             field.set_value(current, window, cx);
             field.focus(window, cx);
@@ -190,11 +194,11 @@ impl Shell {
         let typed = renaming.field.read(cx).value().trim().to_owned();
         let id = renaming.id.clone();
         if typed.is_empty() {
-            sheet.error = Some("Type a name for the webhook.".into());
+            sheet.error = Some(i18n::t("chat.hooks.name_missing").into());
             return cx.notify();
         }
         if typed.chars().count() > 60 {
-            sheet.error = Some("The name can be up to 60 characters.".into());
+            sheet.error = Some(i18n::t("chat.hooks.name_long").into());
             return cx.notify();
         }
         let unchanged = sheet
@@ -241,7 +245,7 @@ impl Shell {
     fn copy_hook_url(&mut self, url: String, cx: &mut Context<Self>) {
         cx.write_to_clipboard(ClipboardItem::new_string(url));
         if let Some(sheet) = self.hooks.as_mut() {
-            sheet.note = Some("URL copied.".into());
+            sheet.note = Some(i18n::t("chat.hooks.copied").into());
             sheet.error = None;
         }
         cx.notify();
@@ -300,11 +304,7 @@ impl Shell {
                             HookDone::Listed(listed) => *hooks = listed,
                             HookDone::Made(hook) => {
                                 hooks.push(hook);
-                                sheet.note = Some(
-                                    "Your webhook is ready. Anyone with its URL can send as \
-                                     this number to this chat: keep it private."
-                                        .into(),
-                                );
+                                sheet.note = Some(i18n::t("chat.hooks.ready").into());
                                 sheet
                                     .name
                                     .update(cx, |field, cx| field.set_value("", window, cx));
@@ -328,9 +328,7 @@ impl Shell {
                         }
                     }
                     Ok(Err(SyncError::Provider(ProviderError::Unsupported(_)))) => {
-                        sheet.error = Some(
-                            "This deployment of Wuapi does not have incoming webhooks yet.".into(),
-                        )
+                        sheet.error = Some(i18n::t("chat.hooks.unsupported").into())
                     }
                     Ok(Err(error)) => sheet.error = Some(said(&error)),
                     Err(error) => sheet.error = Some(error.to_string().into()),
@@ -350,20 +348,14 @@ impl Shell {
     ) -> Option<Stateful<Div>> {
         let sheet = self.hooks.as_ref()?;
         let about = hint(
-            format!(
-                "A URL that sends a WhatsApp message to {} when something posts to it: \
-                 JSON {{\"text\": \"…\"}} or plain text, no key needed. Anyone with the URL \
-                 can send there, and only there.",
-                sheet.title
-            ),
+            i18n::tr("chat.hooks.about", &[("title", &sheet.title)]),
             palette,
         );
         let list: Div = match &sheet.hooks {
-            None if sheet.busy => hint("Reading…", palette),
-            None => hint("The webhooks could not be read.", palette),
+            None if sheet.busy => hint(i18n::t("chat.hooks.reading"), palette),
+            None => hint(i18n::t("chat.hooks.unreadable"), palette),
             Some(hooks) if hooks.is_empty() => {
-                hint("This chat has no incoming webhooks yet.", palette)
-                    .debug_selector(|| "hooks-none".into())
+                hint(i18n::t("chat.hooks.none"), palette).debug_selector(|| "hooks-none".into())
             }
             Some(hooks) => {
                 let mut rows = div()
@@ -384,7 +376,7 @@ impl Shell {
             .flex()
             .flex_col()
             .gap_1()
-            .child(label("New webhook", palette))
+            .child(label(i18n::t("chat.hooks.new"), palette))
             .child(
                 div()
                     .flex()
@@ -400,9 +392,9 @@ impl Shell {
                         text_button(
                             "hook-create",
                             if sheet.busy {
-                                "Working…"
+                                i18n::t("chat.hooks.working")
                             } else {
-                                "Create webhook"
+                                i18n::t("chat.hooks.create")
                             },
                             Some(IconName::Plus),
                             true,
@@ -421,7 +413,7 @@ impl Shell {
                 .flex()
                 .flex_col()
                 .child(panel_header(
-                    "Incoming webhooks",
+                    i18n::t("chat.hooks.title"),
                     palette,
                     cx.listener(|this, _, window, cx| {
                         cx.stop_propagation();
@@ -484,7 +476,7 @@ impl Shell {
                     small_button(
                         ("hook-rename-save", index),
                         format!("hook-{index}-rename-save"),
-                        "Save",
+                        i18n::t("chat.hooks.save"),
                         palette,
                     )
                     .on_click(cx.listener(|this, _, window, cx| {
@@ -496,7 +488,7 @@ impl Shell {
                     small_button(
                         ("hook-rename-cancel", index),
                         format!("hook-{index}-rename-cancel"),
-                        "Cancel",
+                        i18n::t("chat.hooks.cancel"),
                         palette,
                     )
                     .on_click(cx.listener(|this, _, _, cx| {
@@ -524,13 +516,17 @@ impl Shell {
             })
             .child(
                 div().flex().items_center().gap_2().child(name).child(
-                    mono(if enabled { "ACTIVE" } else { "PAUSED" })
-                        .debug_selector(move || format!("hook-{index}-state"))
-                        .text_color(if enabled {
-                            palette.text_muted
-                        } else {
-                            palette.danger
-                        }),
+                    mono(if enabled {
+                        i18n::t("chat.hooks.active")
+                    } else {
+                        i18n::t("chat.hooks.paused")
+                    })
+                    .debug_selector(move || format!("hook-{index}-state"))
+                    .text_color(if enabled {
+                        palette.text_muted
+                    } else {
+                        palette.danger
+                    }),
                 ),
             )
             .child(
@@ -557,8 +553,10 @@ impl Shell {
                         icon_button("hook-copy", IconName::Copy, palette)
                             .id(("hook-copy", index))
                             .tooltip(|window, cx| {
-                                gpui_kit::component::tooltip::Tooltip::new("Copy URL")
-                                    .build(window, cx)
+                                gpui_kit::component::tooltip::Tooltip::new(i18n::t(
+                                    "chat.hooks.copy_url",
+                                ))
+                                .build(window, cx)
                             })
                             .on_click(cx.listener(move |this, _, _, cx| {
                                 cx.stop_propagation();
@@ -575,7 +573,7 @@ impl Shell {
                         small_button(
                             ("hook-rename", index),
                             format!("hook-{index}-rename"),
-                            "Rename",
+                            i18n::t("chat.hooks.rename"),
                             palette,
                         )
                         .on_click(cx.listener(
@@ -589,7 +587,11 @@ impl Shell {
                         small_button(
                             ("hook-pause", index),
                             format!("hook-{index}-pause"),
-                            if enabled { "Pause" } else { "Resume" },
+                            if enabled {
+                                i18n::t("chat.hooks.pause")
+                            } else {
+                                i18n::t("chat.hooks.resume")
+                            },
                             palette,
                         )
                         .on_click(cx.listener(
@@ -608,7 +610,7 @@ impl Shell {
                         small_button(
                             ("hook-rotate", index),
                             format!("hook-{index}-rotate"),
-                            "New URL",
+                            i18n::t("chat.hooks.new_url"),
                             palette,
                         )
                         .on_click(cx.listener(move |this, _, _, cx| {
@@ -620,7 +622,7 @@ impl Shell {
                         small_button(
                             ("hook-delete", index),
                             format!("hook-{index}-delete"),
-                            "Delete",
+                            i18n::t("chat.hooks.delete"),
                             palette,
                         )
                         .on_click(cx.listener(move |this, _, _, cx| {
@@ -632,13 +634,12 @@ impl Shell {
         if let Some((_, ask)) = sheet.ask.as_ref().filter(|(asked, _)| *asked == id) {
             let (words, yes) = match ask {
                 HookAsk::NewUrl => (
-                    "Make a new URL? The current one stops working at once: whatever still \
-                     uses it gets an error until you paste the new one.",
-                    "New URL",
+                    i18n::t("chat.hooks.ask_new_url"),
+                    i18n::t("chat.hooks.new_url"),
                 ),
                 HookAsk::Delete => (
-                    "Delete this webhook? Its URL stops working for good.",
-                    "Delete",
+                    i18n::t("chat.hooks.ask_delete"),
+                    i18n::t("chat.hooks.delete"),
                 ),
             };
             row = row.child(
@@ -654,7 +655,7 @@ impl Shell {
                                 small_button(
                                     "hook-no",
                                     "hook-question-cancel".into(),
-                                    "Cancel",
+                                    i18n::t("chat.hooks.cancel"),
                                     palette,
                                 )
                                 .on_click(cx.listener(

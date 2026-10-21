@@ -10,6 +10,7 @@
 use super::conversation::{colophon, fact_row, framed_rows, mark_frame};
 use super::shell::{CloudOffer, Overlay, SessionKind, Shell, ShellEvent};
 use super::widgets::{mono, reveal, tag, text_button, MarkPlay};
+use crate::i18n;
 use crate::icons::IconName;
 use crate::motion;
 use crate::product::PRODUCT_NAME;
@@ -20,14 +21,22 @@ use gpui_kit::prelude::*;
 use gpui_kit::{div, Context, Div, FontWeight, KeyDownEvent, Window};
 
 /// How a phone links a device, in the order WhatsApp has it.
-const STEPS: [(&str, &str); 3] = [
-    ("Step 1", "Open WhatsApp on your phone."),
-    (
-        "Step 2",
-        "Open Linked devices, from the menu or from Settings, and tap Link a device.",
-    ),
-    ("Step 3", "Point the phone at the code this window shows."),
-];
+fn steps() -> [(&'static str, &'static str); 3] {
+    [
+        (
+            i18n::t("accounts.onboarding.step1.name"),
+            i18n::t("accounts.onboarding.step1.text"),
+        ),
+        (
+            i18n::t("accounts.onboarding.step2.name"),
+            i18n::t("accounts.onboarding.step2.text"),
+        ),
+        (
+            i18n::t("accounts.onboarding.step3.name"),
+            i18n::t("accounts.onboarding.step3.text"),
+        ),
+    ]
+}
 
 impl Shell {
     /// There is no number yet, and this is what the conversation pane
@@ -109,19 +118,16 @@ impl Shell {
         let cramped = viewport.height < if offered { px(700.) } else { px(560.) };
 
         let (light, status) = if self.cloud == CloudOffer::Connected {
-            (palette.accent, "Wuapi Cloud connected, no numbers yet")
+            (palette.accent, i18n::t("accounts.onboarding.status_cloud"))
         } else {
-            (palette.text_faint, "No numbers yet")
+            (palette.text_faint, i18n::t("accounts.onboarding.status"))
         };
         let line = if can_link {
-            format!(
-                "{PRODUCT_NAME} is a WhatsApp client for this computer. \
-                 Link a number to see its chats here."
-            )
+            i18n::tr("accounts.onboarding.line_link", &[("name", &PRODUCT_NAME)])
         } else {
-            format!(
-                "{PRODUCT_NAME} is a WhatsApp client for this computer. \
-                 There is no number yet, and this provider does not link one from here."
+            i18n::tr(
+                "accounts.onboarding.line_no_link",
+                &[("name", &PRODUCT_NAME)],
             )
         };
 
@@ -141,7 +147,8 @@ impl Shell {
                     .items_center()
                     .justify_between()
                     .child(reveal(
-                        tag("Start", None, palette).when(narrow, |this| this.invisible()),
+                        tag(i18n::t("accounts.onboarding.tag"), None, palette)
+                            .when(narrow, |this| this.invisible()),
                         step(4),
                     ))
                     .child(reveal(
@@ -183,7 +190,7 @@ impl Shell {
                                     .text_size(metrics::TEXT_DISPLAY())
                                     .font_weight(FontWeight::SEMIBOLD)
                                     .text_color(palette.text)
-                                    .child("Link your first number"),
+                                    .child(i18n::t("accounts.onboarding.title")),
                                 step(1),
                             ))
                             .child(reveal(
@@ -208,7 +215,7 @@ impl Shell {
                                         .child(
                                             text_button(
                                                 "onboarding-link",
-                                                "Link a WhatsApp number",
+                                                i18n::t("accounts.onboarding.link"),
                                                 Some(IconName::Plus),
                                                 true,
                                                 palette,
@@ -223,7 +230,7 @@ impl Shell {
                                         .child(
                                             div()
                                                 .text_color(palette.text_faint)
-                                                .child(mono("Or press Enter")),
+                                                .child(mono(i18n::t("accounts.onboarding.enter"))),
                                         ),
                                     step(3),
                                 ))
@@ -233,9 +240,15 @@ impl Shell {
                                         framed_rows(
                                             step(3),
                                             palette,
-                                            STEPS.map(|(name, text)| {
-                                                let row =
-                                                    fact_row(name, text, name != "Step 1", palette);
+                                            steps().map(|(name, text)| {
+                                                let row = fact_row(
+                                                    name,
+                                                    text,
+                                                    name != i18n::t(
+                                                        "accounts.onboarding.step1.name",
+                                                    ),
+                                                    palette,
+                                                );
                                                 if narrow {
                                                     row.flex_col().items_start().gap_1()
                                                 } else {
@@ -304,17 +317,13 @@ impl Shell {
                             .text_size(metrics::TEXT_SMALL())
                             .line_height(px(19.))
                             .text_color(palette.text_muted)
-                            .child(
-                                "A number linked on this computer only works while this \
-                                 application is open. With Wuapi Cloud it stays connected \
-                                 when the computer is off, and a team shares the same numbers.",
-                            ),
+                            .child(i18n::t("accounts.onboarding.cloud_text")),
                     ),
             )
             .child(
                 text_button(
                     "onboarding-cloud",
-                    "Connect Wuapi Cloud",
+                    i18n::t("accounts.onboarding.connect_cloud"),
                     None,
                     false,
                     palette,

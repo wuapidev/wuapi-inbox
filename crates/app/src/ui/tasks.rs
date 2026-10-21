@@ -16,6 +16,7 @@ use super::menus::panel_header;
 use super::shell::{Overlay, Shell};
 use super::social::hint;
 use super::widgets::{icon_button, label, mono, text_button};
+use crate::i18n;
 use crate::icons::{icon, IconName};
 use crate::settings;
 use crate::theme::px;
@@ -84,10 +85,10 @@ impl QuickDay {
 
     fn label(self) -> &'static str {
         match self {
-            Self::None => "No date",
-            Self::Today => "Today",
-            Self::Tomorrow => "Tomorrow",
-            Self::NextWeek => "Next week",
+            Self::None => i18n::t("groups.tasks.no_date"),
+            Self::Today => i18n::t("groups.tasks.today"),
+            Self::Tomorrow => i18n::t("groups.tasks.tomorrow"),
+            Self::NextWeek => i18n::t("groups.tasks.next_week"),
         }
     }
 
@@ -139,13 +140,13 @@ pub(super) fn due_words(due: Timestamp, today: NaiveDate) -> String {
     let day = day_of(due);
     let ahead = (day - today).num_days();
     match ahead {
-        0 => "Today".into(),
-        1 => "Tomorrow".into(),
-        -1 => "Yesterday".into(),
-        ahead if ahead < 0 => format!("{} days late", -ahead),
-        2..=6 => day.format("%A").to_string(),
-        _ if day.year() == today.year() => day.format("%-d %b").to_string(),
-        _ => day.format("%-d %b %Y").to_string(),
+        0 => i18n::t("groups.tasks.today").into(),
+        1 => i18n::t("groups.tasks.tomorrow").into(),
+        -1 => i18n::t("groups.tasks.yesterday").into(),
+        ahead if ahead < 0 => i18n::plural("groups.tasks.days_late", (-ahead) as u64, &[]),
+        2..=6 => crate::format::weekday(day.weekday()).to_owned(),
+        _ if day.year() == today.year() => crate::format::day_short(&day, false),
+        _ => crate::format::day_short(&day, true),
     }
 }
 
@@ -254,7 +255,9 @@ impl Shell {
         if let Some((field, _)) = &self.tasks.quick {
             return field.clone();
         }
-        let field = cx.new(|cx| InputState::new(window, cx).placeholder("Add a task…"));
+        let field = cx.new(|cx| {
+            InputState::new(window, cx).placeholder(i18n::t("groups.tasks.add_placeholder"))
+        });
         let subscription = cx.subscribe_in(&field, window, |this, field, event, window, cx| {
             if let InputEvent::PressEnter { .. } = event {
                 let title = field.read(cx).value().to_string();
@@ -441,14 +444,15 @@ impl Shell {
         cx: &mut Context<Self>,
     ) {
         let title_field = cx.new(|cx| {
-            let mut field = InputState::new(window, cx).placeholder("What is to be done");
+            let mut field =
+                InputState::new(window, cx).placeholder(i18n::t("groups.tasks.title_placeholder"));
             field.set_value(title, window, cx);
             field
         });
         let notes_field = cx.new(|cx| {
             let mut field = TextareaState::new(window, cx)
                 .auto_grow(2, 6)
-                .placeholder("Notes");
+                .placeholder(i18n::t("groups.tasks.notes_placeholder"));
             if let Some(notes) = &notes {
                 field.set_value(notes.clone(), window, cx);
             }
@@ -498,7 +502,7 @@ impl Shell {
         };
         if draft.title.trim().is_empty() {
             if let Some(sheet) = &mut self.tasks.sheet {
-                sheet.error = Some("Write what is to be done.".into());
+                sheet.error = Some(i18n::t("groups.tasks.title_missing").into());
             }
             cx.notify();
             return;
@@ -581,8 +585,11 @@ impl Shell {
                     .flex_col()
                     .gap_1()
                     .child(
-                        mono(format!("FROM {}", chat.to_uppercase()))
-                            .text_color(palette.text_muted),
+                        mono(i18n::tr(
+                            "groups.tasks.from_chat",
+                            &[("chat", &chat.to_uppercase())],
+                        ))
+                        .text_color(palette.text_muted),
                     )
                     .child(
                         div()
@@ -624,7 +631,7 @@ impl Shell {
             .flex()
             .flex_wrap()
             .gap_2()
-            .child(label("Due", palette));
+            .child(label(i18n::t("groups.tasks.due"), palette));
         days = div().flex().flex_col().gap_2().child(days);
         let mut chips = div().flex().flex_wrap().gap_2();
         for quick in QuickDay::ALL {
@@ -649,7 +656,7 @@ impl Shell {
                 "task-due-pick",
                 match custom {
                     Some(day) => due_words(start_of(day), today),
-                    None => "Pick a day…".to_owned(),
+                    None => i18n::t("groups.tasks.pick_day").to_owned(),
                 },
                 Some(IconName::Calendar),
                 custom.is_some(),
@@ -681,7 +688,7 @@ impl Shell {
             buttons = buttons.child(
                 text_button(
                     "task-sheet-delete",
-                    "Delete",
+                    i18n::t("groups.tasks.delete"),
                     Some(IconName::Trash),
                     false,
                     palette,
@@ -698,20 +705,25 @@ impl Shell {
         buttons = buttons
             .child(div().flex_1())
             .child(
-                text_button("task-sheet-cancel", "Cancel", None, false, palette).on_click(
-                    cx.listener(|this, _, window, cx| {
-                        cx.stop_propagation();
-                        this.close_overlay(window, cx);
-                    }),
-                ),
+                text_button(
+                    "task-sheet-cancel",
+                    i18n::t("groups.tasks.cancel"),
+                    None,
+                    false,
+                    palette,
+                )
+                .on_click(cx.listener(|this, _, window, cx| {
+                    cx.stop_propagation();
+                    this.close_overlay(window, cx);
+                })),
             )
             .child(
                 text_button(
                     "task-sheet-save",
                     if editing.is_some() {
-                        "Save"
+                        i18n::t("groups.tasks.save")
                     } else {
-                        "Create task"
+                        i18n::t("groups.tasks.create")
                     },
                     Some(IconName::Check),
                     true,
@@ -730,9 +742,9 @@ impl Shell {
                 .flex_col()
                 .child(panel_header(
                     if editing.is_some() {
-                        "Edit task"
+                        i18n::t("groups.tasks.edit_title")
                     } else {
-                        "New task"
+                        i18n::t("groups.tasks.new_title")
                     },
                     palette,
                     cx.listener(|this, _, window, cx| this.close_overlay(window, cx)),
@@ -754,7 +766,15 @@ impl Shell {
         let lead = first.weekday().num_days_from_monday() as i64;
         let start = first - Days::days(lead);
         let mut grid = div().flex().flex_wrap().w(px(7. * 36.));
-        for name in ["M", "T", "W", "T", "F", "S", "S"] {
+        for name in [
+            i18n::t("groups.tasks.weekday_mon"),
+            i18n::t("groups.tasks.weekday_tue"),
+            i18n::t("groups.tasks.weekday_wed"),
+            i18n::t("groups.tasks.weekday_thu"),
+            i18n::t("groups.tasks.weekday_fri"),
+            i18n::t("groups.tasks.weekday_sat"),
+            i18n::t("groups.tasks.weekday_sun"),
+        ] {
             grid = grid.child(
                 div()
                     .w(px(36.))
@@ -824,7 +844,7 @@ impl Shell {
                     .child(
                         div()
                             .text_size(metrics::TEXT_SMALL())
-                            .child(SharedString::from(first.format("%B %Y").to_string())),
+                            .child(SharedString::from(crate::format::month_of(&first))),
                     )
                     .child(
                         icon_button("task-month-next", IconName::ChevronRight, palette).on_click(
@@ -900,7 +920,7 @@ impl Shell {
                     .flex_1()
                     .min_w_0()
                     .font_weight(gpui_kit::FontWeight::MEDIUM)
-                    .child("Tasks"),
+                    .child(i18n::t("groups.tasks.heading")),
             )
             .child(
                 mono(to_do.len().to_string())
@@ -910,8 +930,10 @@ impl Shell {
             .child(
                 icon_button("tasks-new", IconName::Plus, palette)
                     .tooltip(|window, cx| {
-                        gpui_kit::component::tooltip::Tooltip::new("New task with a date and notes")
-                            .build(window, cx)
+                        gpui_kit::component::tooltip::Tooltip::new(i18n::t(
+                            "groups.tasks.new_tooltip",
+                        ))
+                        .build(window, cx)
                     })
                     .on_click(cx.listener(|this, _, window, cx| {
                         cx.stop_propagation();
@@ -921,8 +943,10 @@ impl Shell {
             .child(
                 icon_button("tasks-close", IconName::X, palette)
                     .tooltip(|window, cx| {
-                        gpui_kit::component::tooltip::Tooltip::new("Close (Alt+T)")
-                            .build(window, cx)
+                        gpui_kit::component::tooltip::Tooltip::new(i18n::t(
+                            "groups.tasks.close_tooltip",
+                        ))
+                        .build(window, cx)
                     })
                     .on_click(cx.listener(|this, _, window, cx| {
                         cx.stop_propagation();
@@ -962,7 +986,10 @@ impl Shell {
             .when_some(open_chat.clone(), |this, (_, _, title)| {
                 this.child(super::widgets::segmented(
                     "tasks-filter",
-                    &[(false, "All"), (true, "This chat")],
+                    &[
+                        (false, i18n::t("groups.tasks.filter_all")),
+                        (true, i18n::t("groups.tasks.filter_this_chat")),
+                    ],
                     this_chat,
                     palette,
                     {
@@ -978,7 +1005,7 @@ impl Shell {
                 ))
                 .when(this_chat, |this| {
                     this.child(hint(
-                        format!("Tasks made from messages of {title}."),
+                        i18n::tr("groups.tasks.from_messages_of", &[("title", &title)]),
                         palette,
                     ))
                 })
@@ -999,23 +1026,20 @@ impl Shell {
                     .child(icon(IconName::SquareCheck, px(28.), palette.icon))
                     .child(hint(
                         if this_chat {
-                            "No tasks from this chat."
+                            i18n::t("groups.tasks.empty_chat")
                         } else {
-                            "Nothing to do."
+                            i18n::t("groups.tasks.empty")
                         },
                         palette,
                     ))
-                    .child(hint(
-                        "Write one above, or press T on a message (or \"Create task\" in its menu) to make one from it.",
-                        palette,
-                    )),
+                    .child(hint(i18n::t("groups.tasks.empty_help"), palette)),
             );
         }
         for (group, title) in [
-            (When::Late, "Late"),
-            (When::Today, "Today"),
-            (When::Later, "Coming up"),
-            (When::Undated, "No date"),
+            (When::Late, i18n::t("groups.tasks.group_late")),
+            (When::Today, i18n::t("groups.tasks.today")),
+            (When::Later, i18n::t("groups.tasks.group_later")),
+            (When::Undated, i18n::t("groups.tasks.no_date")),
         ] {
             let in_group: Vec<&Task> = to_do
                 .iter()
@@ -1065,7 +1089,10 @@ impl Shell {
                         px(14.),
                         palette.icon,
                     ))
-                    .child(label(&format!("Done · {}", done.len()), palette)),
+                    .child(label(
+                        &i18n::tr("groups.tasks.done", &[("n", &done.len())]),
+                        palette,
+                    )),
             );
             if open {
                 for task in done {
@@ -1266,20 +1293,22 @@ impl Shell {
                     .invisible()
                     .group_hover(group, |style| style.visible())
                     .child(
-                        action("task-edit", IconName::Pencil, "Edit").on_click(cx.listener(
-                            move |this, _, window, cx| {
+                        action("task-edit", IconName::Pencil, i18n::t("groups.tasks.edit"))
+                            .on_click(cx.listener(move |this, _, window, cx| {
                                 cx.stop_propagation();
                                 this.begin_edit_task(&edit_id, window, cx);
-                            },
-                        )),
+                            })),
                     )
                     .child(
-                        action("task-delete", IconName::Trash, "Delete").on_click(cx.listener(
-                            move |this, _, _, cx| {
-                                cx.stop_propagation();
-                                this.delete_task(&delete_id, cx);
-                            },
-                        )),
+                        action(
+                            "task-delete",
+                            IconName::Trash,
+                            i18n::t("groups.tasks.delete"),
+                        )
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            cx.stop_propagation();
+                            this.delete_task(&delete_id, cx);
+                        })),
                     ),
             )
     }
@@ -1336,9 +1365,8 @@ impl Shell {
                     .when(open, |this| this.bg(palette.muted))
                     .tooltip(move |window, cx| {
                         let words = match due {
-                            0 => "Tasks (Alt+T)".to_owned(),
-                            1 => "Tasks: 1 due today or late (Alt+T)".to_owned(),
-                            n => format!("Tasks: {n} due today or late (Alt+T)"),
+                            0 => i18n::t("groups.tasks.tooltip_none").to_owned(),
+                            n => i18n::plural("groups.tasks.tooltip_due", n as u64, &[]),
                         };
                         gpui_kit::component::tooltip::Tooltip::new(words).build(window, cx)
                     })
