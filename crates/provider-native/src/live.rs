@@ -47,8 +47,8 @@ use whatsapp_rust::wacore::types::presence::{ChatActivity, PresenceStatus, Recei
 use whatsapp_rust::wacore::types::wire_enums::MemberAddMode;
 use whatsapp_rust::waproto::whatsapp as wa;
 use whatsapp_rust::{
-    CreateCommunityOptions, GroupMetadata, Jid, MessageId, MessageRef, MessageSecret, PollRef,
-    PreviousDescription, ProfilePictureRequest, ProfilePictureTarget, StatusSendOptions,
+    GroupMetadata, Jid, MessageId, MessageRef, MessageSecret, PollRef, PreviousDescription,
+    ProfilePictureRequest, ProfilePictureTarget, StatusSendOptions,
 };
 
 /// What the phone calls this device in its list of linked devices.
@@ -628,7 +628,27 @@ impl Hearing {
         };
         let mut subject = None;
         let mut community = None;
+        let mut created_ms = None;
         let line = match &*update.action {
+            // A group just made, here, on the phone or by whoever added the
+            // account: its chat is listed before anybody writes in it. A
+            // community has no chat; the groups made with it do.
+            GroupNotificationAction::Create { raw } => {
+                if let Some(group) = raw
+                    .get_optional_child("group")
+                    .filter(|group| group.get_optional_child("parent").is_none())
+                {
+                    subject = group
+                        .attrs()
+                        .optional_string("subject")
+                        .map(|subject| subject.into_owned());
+                    community = group
+                        .get_optional_child("linked_parent")
+                        .and_then(|linked| linked.attrs().optional_jid("jid"));
+                    created_ms = Some(at_ms);
+                }
+                None
+            }
             GroupNotificationAction::Add { participants, .. } => {
                 let targets = people(participants);
                 // Somebody who added themselves joined.
@@ -696,6 +716,7 @@ impl Hearing {
             notice,
             subject,
             community,
+            created_ms,
         });
     }
 
@@ -1743,10 +1764,24 @@ impl Session for LiveSession {
     ) -> SessionResult<Group> {
         bounded(REQUEST_TIMEOUT, async {
             let metadata = if new.community {
-                let options = CreateCommunityOptions::new(new.subject.clone()).map_err(invalid)?;
+                let subject = GroupSubject::new(new.subject.clone()).map_err(invalid)?;
+                // WhatsApp answers 400 bad-request to whatsapp-rust's own
+                // community create: it carries a plain group's settings
+                // (link and add modes, disappearing messages, join approval
+                // off) and a `<parent/>` without
+                // `default_membership_approval_mode`. What is sent here is
+                // what WhatsApp Web sends, as Baileys and whatsmeow do.
+                let mut options = GroupCreateOptions::new(subject.into_string());
+                options.member_link_mode = None;
+                options.member_add_mode = None;
+                options.membership_approval_mode = None;
+                options.ephemeral_expiration = None;
+                options.is_parent = true;
+                options.closed = true;
+                options.create_general_chat = true;
                 self.client
-                    .community()
-                    .create(options)
+                    .groups()
+                    .create_group(options)
                     .await
                     .map_err(failed)?
                     .metadata

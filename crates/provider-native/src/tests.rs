@@ -1605,3 +1605,38 @@ async fn the_clients_engine_runs_on_this_provider() {
     assert_eq!(world.sent().len(), 1, "and one message on WhatsApp");
     engine.shutdown();
 }
+
+#[tokio::test]
+async fn a_group_made_in_a_community_is_listed_before_anybody_writes_in_it() {
+    let world = world().await;
+    let mut events = listen(&world).await;
+    world.hear(Inbound::GroupChanged {
+        group: jid("120363429692313207@g.us"),
+        notice: None,
+        subject: Some("Zavu Labs".into()),
+        community: Some(jid("120363431815384518@g.us")),
+        created_ms: Some(1_000),
+    });
+    let chats = world
+        .provider
+        .list_chats(&world.account, None)
+        .await
+        .unwrap();
+    assert_eq!(chats.items.len(), 1);
+    assert_eq!(chats.items[0].title, "Zavu Labs");
+    let mut community = None;
+    for _ in 0..3 {
+        if let ProviderEvent::CommunityChanged {
+            community_id,
+            groups,
+            ..
+        } = events.next().await.unwrap()
+        {
+            community = Some((community_id, groups));
+            break;
+        }
+    }
+    let (community_id, groups) = community.expect("the community is told");
+    assert_eq!(community_id.as_str(), "120363431815384518@g.us");
+    assert_eq!(groups, vec![chats.items[0].id.clone()]);
+}

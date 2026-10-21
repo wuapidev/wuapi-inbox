@@ -302,8 +302,11 @@ pub enum Inbound {
         notice: Option<(String, i64, SystemEvent)>,
         /// Its new subject, when that is what changed.
         subject: Option<String>,
-        /// The community it was linked to or unlinked from.
+        /// The community it was linked to or unlinked from, or made in.
         community: Option<Jid>,
+        /// When it was made, when that is what happened: its chat is
+        /// listed from then on.
+        created_ms: Option<i64>,
     },
     /// A vote in a poll, decrypted.
     PollVote {

@@ -519,6 +519,15 @@ impl SyncEngine {
         let listed = self.bounded(inner.provider.list_groups(account)).await;
         let groups = self.noted(listed)?;
         inner.store.put_groups(&groups, Timestamp::now())?;
+        // A community's groups are in the chat list although nobody has
+        // written in them: its announcements and its general chat are made
+        // with it, and no message brings them.
+        for group in groups
+            .iter()
+            .filter(|group| !group.community && group.community_id.is_some())
+        {
+            self.group_chat(account, &group.id, &group.subject)?;
+        }
         self.social()
             .listed
             .lock()
@@ -650,25 +659,26 @@ impl SyncEngine {
             .ask(|| inner.provider.create_group(account, &new))
             .await?;
         inner.store.put_group(&created, Timestamp::now())?;
-        if !created.community && inner.store.chat(account, &created.id)?.is_none() {
-            inner.store.upsert_chat(
-                &Chat {
-                    id: created.id.clone(),
-                    account_id: account.clone(),
-                    kind: ChatKind::Group,
-                    title: created.subject.clone(),
-                    avatar: None,
-                    unread_count: 0,
-                    pinned: false,
-                    muted: false,
-                    archived: false,
-                    last_message: None,
-                    unknown: ChatUnknown::default(),
-                    picture_id: None,
-                    pinned_at: None,
-                },
-                true,
-            )?;
+        let new_chat = |id: &ChatId, title: &str| self.group_chat(account, id, title);
+        if created.community {
+            // The groups WhatsApp makes with a community (its announcements,
+            // and its general chat) are what the chat list shows of it:
+            // nobody has written in them yet, so nothing else brings them.
+            self.reread(account, std::slice::from_ref(&created.id))
+                .await;
+            let linked = inner
+                .store
+                .group(account, &created.id)?
+                .map(|stored| stored.group.subgroups)
+                .unwrap_or_default();
+            for subgroup in &linked {
+                new_chat(&subgroup.id, &subgroup.subject)?;
+            }
+            // Each is read, so that its chat says it is in the community.
+            let ids: Vec<ChatId> = linked.into_iter().map(|subgroup| subgroup.id).collect();
+            self.reread(account, &ids).await;
+        } else {
+            new_chat(&created.id, &created.subject)?;
         }
         if let Some(community) = &new.in_community {
             self.reread(account, std::slice::from_ref(community)).await;
@@ -687,6 +697,33 @@ impl SyncEngine {
             chat: created.id,
             missing,
         })
+    }
+
+    /// Makes the chat of a group nobody has written in, when there is
+    /// none yet.
+    fn group_chat(&self, account: &AccountId, id: &ChatId, title: &str) -> Result<(), SyncError> {
+        let store = &self.inner.store;
+        if store.chat(account, id)?.is_none() {
+            store.upsert_chat(
+                &Chat {
+                    id: id.clone(),
+                    account_id: account.clone(),
+                    kind: ChatKind::Group,
+                    title: title.to_owned(),
+                    avatar: None,
+                    unread_count: 0,
+                    pinned: false,
+                    muted: false,
+                    archived: false,
+                    last_message: None,
+                    unknown: ChatUnknown::default(),
+                    picture_id: None,
+                    pinned_at: None,
+                },
+                true,
+            )?;
+        }
+        Ok(())
     }
 
     /// Links an existing group to a community. When this returns the

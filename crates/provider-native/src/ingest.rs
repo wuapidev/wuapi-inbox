@@ -214,10 +214,16 @@ impl Inner {
                 notice,
                 subject,
                 community,
+                created_ms,
             } => {
                 let group_id = id_of(&group);
                 if let Some(subject) = subject {
-                    self.change_chat(&id, &group, |stored| stored.name = Some(subject.clone()));
+                    self.change_chat(&id, &group, |stored| {
+                        stored.name = Some(subject.clone());
+                        if let Some(at_ms) = created_ms {
+                            stored.last_ms = stored.last_ms.max(at_ms);
+                        }
+                    });
                 }
                 if let Some((message, at_ms, notice)) = notice {
                     self.keep_notice(&id, &group_id, &message, at_ms, &notice, false);

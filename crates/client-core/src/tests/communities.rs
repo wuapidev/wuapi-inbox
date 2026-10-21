@@ -656,6 +656,14 @@ async fn a_group_is_created_in_a_community_and_a_community_without_a_chat() {
             .group
             .community
     );
+    // Its announcement group, made with it, is in the chat list at once,
+    // as the community's.
+    let announcements = ChatId::new(format!("{}announcements", made.chat.as_str()));
+    let chat = store.chat(&account, &announcements).unwrap().unwrap();
+    let community = chat.community.unwrap();
+    assert_eq!(community.id, made.chat);
+    assert_eq!(community.name, "Neighbours");
+    assert!(community.announcements);
 }
 
 #[tokio::test(start_paused = true)]
@@ -687,4 +695,24 @@ async fn only_groups_an_admin_could_link_are_offered_to_link() {
     store.set_departed(&account, &class, true).unwrap();
     let offered = store.groups_to_link(&account).unwrap();
     assert!(offered.iter().all(|(id, _)| *id != class));
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_listing_of_groups_lists_a_communitys_groups_nobody_wrote_in() {
+    let mock = MockProvider::quiet();
+    let engine = engine_for(&mock);
+    let store = engine.store().clone();
+    let (account, community, announcements, _) = mock_ids();
+    // None of its chats are known.
+    assert!(store.chat(&account, &announcements).unwrap().is_none());
+
+    engine.sync_groups(&account).await.unwrap();
+
+    let found = community_in(&store, &account, &announcements).unwrap();
+    assert_eq!(found.id, community);
+    assert!(found.announcements);
+    assert!(
+        store.chat(&account, &community).unwrap().is_none(),
+        "a community has no chat"
+    );
 }
