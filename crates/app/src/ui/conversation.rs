@@ -272,9 +272,9 @@ impl Shell {
                     .gap_3()
                     .cursor_pointer()
                     .hover(move |style| style.bg(hover))
-                    .on_click(
-                        cx.listener(move |this, _, _, cx| this.jump_to_message(target.clone(), cx)),
-                    )
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.jump_to_message(target.clone(), |_, _| {}, cx)
+                    }))
                     .child(mono(list_time(message.timestamp, now)).text_color(palette.text_muted))
                     .child(
                         div()

@@ -2100,13 +2100,23 @@ impl SyncEngine {
             if sent >= total && !upload.running {
                 uploads.remove(client_id);
             }
-            tell
+            tell.then_some(sent >= total)
         };
-        if tell {
-            if let Ok(Some(chat)) = self.inner.store.outbox_chat(client_id) {
-                self.inner.store.notify(StoreChange::Messages {
-                    account_id: chat.0,
-                    chat_id: chat.1,
+        if let Some(done) = tell {
+            if let Ok(Some((account_id, chat_id))) = self.inner.store.outbox_chat(client_id) {
+                // Several times a second while a large file goes: a
+                // repaint, not the chat read again. The end is a change
+                // of the message.
+                self.inner.store.notify(if done {
+                    StoreChange::Messages {
+                        account_id,
+                        chat_id,
+                    }
+                } else {
+                    StoreChange::Upload {
+                        account_id,
+                        chat_id,
+                    }
                 });
             }
         }
@@ -3097,9 +3107,7 @@ impl SyncEngine {
 
     async fn load_media(&self, job: &MediaJob) -> Result<(), MediaFailure> {
         let inner = &self.inner;
-        if matches!(inner.store.media_size(&job.key), Ok(Some(_)))
-            || matches!(inner.store.media(&job.key, Timestamp::now()), Ok(Some(_)))
-        {
+        if inner.store.has_media(&job.key).unwrap_or(false) {
             return Ok(());
         }
         let limit = client_provider::MediaLimit {

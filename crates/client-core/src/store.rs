@@ -191,6 +191,15 @@ pub enum StoreChange {
         /// The chat whose messages changed.
         chat_id: ChatId,
     },
+    /// A file of a chat's is on its way up: how far, the engine says
+    /// (`upload_progress`). Nothing stored changed, so nothing needs to be
+    /// read again; the bubble is drawn again.
+    Upload {
+        /// The account.
+        account_id: AccountId,
+        /// The chat.
+        chat_id: ChatId,
+    },
     /// Somebody started or stopped typing in a chat.
     Presence {
         /// The account.
@@ -443,6 +452,14 @@ pub struct Store {
     /// history takes a while, and the views' reads do not wait behind it.
     /// `None` for in-memory databases.
     searcher: Option<Mutex<Connection>>,
+    /// The interface's own connection, for the reads made on its thread
+    /// (see [`reserve_reader`](Self::reserve_reader)): the engine reads a
+    /// large file to upload it, or a page of history, on the other one,
+    /// and the interface never waits for that. `None` for in-memory
+    /// databases.
+    view: Option<Mutex<Connection>>,
+    /// The thread `view` is for, once one has asked for it.
+    view_thread: std::sync::OnceLock<std::thread::ThreadId>,
     changes: broadcast::Sender<StoreChange>,
 }
 
@@ -496,9 +513,12 @@ impl Store {
             conn.busy_timeout(std::time::Duration::from_secs(5))?;
             Ok(conn)
         };
-        let (reader, searcher) = (read_only()?, read_only()?);
+        let (reader, searcher, view) = (read_only()?, read_only()?, read_only()?);
 
-        Ok(Self::with_connections(writer, Some((reader, searcher))))
+        Ok(Self::with_connections(
+            writer,
+            Some((reader, searcher, view)),
+        ))
     }
 
     /// The schema version of the database at `path`, read without
@@ -601,15 +621,30 @@ impl Store {
         Ok(Self::with_connections(writer, None))
     }
 
-    fn with_connections(writer: Connection, readers: Option<(Connection, Connection)>) -> Self {
+    fn with_connections(
+        writer: Connection,
+        readers: Option<(Connection, Connection, Connection)>,
+    ) -> Self {
         let (changes, _) = broadcast::channel(256);
-        let (reader, searcher) = readers.unzip();
+        let (reader, searcher, view) = match readers {
+            Some((reader, searcher, view)) => (Some(reader), Some(searcher), Some(view)),
+            None => (None, None, None),
+        };
         Self {
             writer: Mutex::new(writer),
             reader: reader.map(Mutex::new),
             searcher: searcher.map(Mutex::new),
+            view: view.map(Mutex::new),
+            view_thread: std::sync::OnceLock::new(),
             changes,
         }
+    }
+
+    /// Gives the calling thread a connection of its own for reading: the
+    /// interface's, so that what it reads while drawing never waits behind
+    /// a long read of the engine's. Only the first thread to ask gets it.
+    pub fn reserve_reader(&self) {
+        let _ = self.view_thread.set(std::thread::current().id());
     }
 
     /// Subscribes to change notifications.
@@ -631,8 +666,16 @@ impl Store {
     }
 
     pub(crate) fn read<T>(&self, f: impl FnOnce(&Connection) -> StoreResult<T>) -> StoreResult<T> {
-        let conn = Self::lock(self.reader.as_ref().unwrap_or(&self.writer));
-        f(&conn)
+        let mine = self
+            .view_thread
+            .get()
+            .is_some_and(|thread| *thread == std::thread::current().id());
+        let reader = match (&self.view, &self.reader) {
+            (Some(view), _) if mine => view,
+            (_, Some(reader)) => reader,
+            _ => &self.writer,
+        };
+        f(&Self::lock(reader))
     }
 
     /// A read on the search's connection, so that a long one holds up
@@ -876,16 +919,33 @@ impl Store {
                 )
                 .optional()?)
         })?;
+        // Only a hint for the eviction order: never waited for. A large
+        // file being written holds the writer for a while, and a view
+        // reading a picture meanwhile must not stop with it.
         if found.is_some() {
-            self.write(|tx| {
-                tx.execute(
+            if let Ok(conn) = self.writer.try_lock() {
+                conn.execute(
                     "UPDATE media_cache SET last_used = ?2 WHERE key = ?1",
                     params![key, now.as_millis()],
                 )?;
-                Ok(())
-            })?;
+            }
         }
         Ok(found)
+    }
+
+    /// Whether a media payload is cached, without reading it: a file can
+    /// be hundreds of megabytes.
+    pub fn has_media(&self, key: &str) -> StoreResult<bool> {
+        self.read(|conn| {
+            Ok(conn
+                .query_row(
+                    "SELECT 1 FROM media_cache WHERE key = ?1",
+                    params![key],
+                    |_| Ok(()),
+                )
+                .optional()?
+                .is_some())
+        })
     }
 
     /// The pixel size of a cached image, without reading it.
@@ -1300,8 +1360,10 @@ impl Store {
             let mut stmt = conn.prepare_cached(&sql)?;
             let mut rows = stmt.query(params![account.as_str(), pattern])?;
             let mut chats = Vec::new();
+            // One for the whole list: who is who is asked once per person.
+            let mut people = People::new(conn);
             while let Some(row) = rows.next()? {
-                chats.push(chat_summary_from_row(conn, row)?);
+                chats.push(chat_summary_from_row(&mut people, row)?);
             }
             Ok(chats)
         })
@@ -1322,6 +1384,22 @@ impl Store {
         })
     }
 
+    /// Whether some chat of an account outside the archive is in a
+    /// community: what [`chats`](Self::chats) would say, without reading
+    /// them.
+    pub fn has_communities(&self, account: &AccountId) -> StoreResult<bool> {
+        self.read(|conn| {
+            Ok(conn.query_row(
+                "SELECT EXISTS (SELECT 1 FROM chats c
+                   JOIN groups g ON g.account_id = c.account_id AND g.id = c.id
+                   WHERE c.account_id = ?1 AND c.archived = 0
+                     AND g.community_id IS NOT NULL)",
+                params![account.as_str()],
+                |row| row.get(0),
+            )?)
+        })
+    }
+
     /// The archived chats of an account, most recently active first.
     pub fn archived_chats(&self, account: &AccountId) -> StoreResult<Vec<ChatSummary>> {
         self.read(|conn| {
@@ -1335,8 +1413,10 @@ impl Store {
             let mut stmt = conn.prepare_cached(&sql)?;
             let mut rows = stmt.query(params![account.as_str()])?;
             let mut chats = Vec::new();
+            // One for the whole list: who is who is asked once per person.
+            let mut people = People::new(conn);
             while let Some(row) = rows.next()? {
-                chats.push(chat_summary_from_row(conn, row)?);
+                chats.push(chat_summary_from_row(&mut people, row)?);
             }
             Ok(chats)
         })
@@ -1400,7 +1480,7 @@ impl Store {
             let mut stmt = conn.prepare_cached(&sql)?;
             let mut rows = stmt.query(params![account.as_str(), chat.as_str()])?;
             match rows.next()? {
-                Some(row) => Ok(Some(chat_summary_from_row(conn, row)?)),
+                Some(row) => Ok(Some(chat_summary_from_row(&mut People::new(conn), row)?)),
                 None => Ok(None),
             }
         })
@@ -1872,6 +1952,31 @@ impl Store {
         })
     }
 
+    /// How many of a chat's messages are as new as `message` or newer:
+    /// the window of [`messages`](Self::messages) that reaches it. `None`
+    /// when it is not stored.
+    pub fn messages_since(
+        &self,
+        account: &AccountId,
+        chat: &ChatId,
+        message: &MessageId,
+    ) -> StoreResult<Option<usize>> {
+        self.read(|conn| {
+            let count: Option<i64> = conn
+                .query_row(
+                    "SELECT (SELECT COUNT(*) FROM messages m
+                             WHERE m.account_id = t.account_id AND m.chat_id = t.chat_id
+                               AND (m.ts > t.ts OR (m.ts = t.ts AND m.pk >= t.pk)))
+                     FROM messages t
+                     WHERE t.account_id = ?1 AND t.chat_id = ?2 AND t.id = ?3",
+                    params![account.as_str(), chat.as_str(), message.as_str()],
+                    |row| row.get(0),
+                )
+                .optional()?;
+            Ok(count.map(|count| count as usize))
+        })
+    }
+
     /// One stored message by its provider id.
     pub fn message(&self, account: &AccountId, id: &MessageId) -> StoreResult<Option<Message>> {
         self.read(|conn| {
@@ -1948,6 +2053,27 @@ impl Store {
         query: &str,
         limit: usize,
     ) -> StoreResult<Vec<SearchHit>> {
+        self.search_in(account, None, query, limit)
+    }
+
+    /// [`search_messages`](Self::search_messages) in one chat.
+    pub fn search_chat_messages(
+        &self,
+        account: &AccountId,
+        chat: &ChatId,
+        query: &str,
+        limit: usize,
+    ) -> StoreResult<Vec<SearchHit>> {
+        self.search_in(account, Some(chat), query, limit)
+    }
+
+    fn search_in(
+        &self,
+        account: &AccountId,
+        chat: Option<&ChatId>,
+        query: &str,
+        limit: usize,
+    ) -> StoreResult<Vec<SearchHit>> {
         let Some(fts_query) = fts_query(query) else {
             return Ok(Vec::new());
         };
@@ -1962,10 +2088,16 @@ impl Store {
                  CROSS JOIN messages m ON m.pk = f.rowid
                  CROSS JOIN chats c ON c.account_id = m.account_id AND c.id = m.chat_id
                  WHERE messages_fts MATCH ?1 AND m.account_id = ?2 AND m.deleted = 0
+                   AND (?4 IS NULL OR m.chat_id = ?4)
                  ORDER BY m.ts DESC LIMIT ?3"
             );
             let mut stmt = conn.prepare_cached(&sql)?;
-            let mut rows = stmt.query(params![fts_query, account.as_str(), limit as i64])?;
+            let mut rows = stmt.query(params![
+                fts_query,
+                account.as_str(),
+                limit as i64,
+                chat.map(ChatId::as_str)
+            ])?;
             let mut hits = Vec::new();
             let mut people = People::new(conn);
             while let Some(row) = rows.next()? {
@@ -2184,7 +2316,7 @@ fn message_from_row(row: &Row<'_>, base: usize) -> StoreResult<Message> {
 /// Where [`COMMUNITY_COLUMNS`] start in a chat list row.
 const COMMUNITY_AT: usize = 9 + MESSAGE_COLUMN_COUNT;
 
-fn chat_summary_from_row(conn: &Connection, row: &Row<'_>) -> StoreResult<ChatSummary> {
+fn chat_summary_from_row(people: &mut People<'_>, row: &Row<'_>) -> StoreResult<ChatSummary> {
     // The joined message columns are all NULL when the chat has no message.
     let has_message = row.get::<_, Option<String>>(9)?.is_some();
     let last_message = if has_message {
@@ -2192,7 +2324,7 @@ fn chat_summary_from_row(conn: &Connection, row: &Row<'_>) -> StoreResult<ChatSu
         // The line reads in the list as it does in the conversation: the
         // sender, the people mentioned and who a notice is about go by
         // the same names.
-        People::new(conn).name_message(&mut message)?;
+        people.name_message(&mut message)?;
         Some(MessagePreview {
             text: message_preview(&message),
             outgoing: message.direction == Direction::Outgoing,

@@ -156,6 +156,8 @@ pub struct AudioView {
 /// Messages loaded when a chat is opened, and added per step when the user
 /// scrolls back.
 const MESSAGE_WINDOW: usize = 120;
+/// The row of the conversation that, scrolled to, asks for older messages.
+const OLDER_AT: usize = 2;
 /// Message search results shown under the matching chats.
 const MAX_HITS: usize = 40;
 /// The shortest search that looks through the messages. A single letter
@@ -167,8 +169,6 @@ const MIN_MESSAGE_SEARCH: usize = 2;
 const MAX_CONTACT_HITS: usize = 20;
 /// The chats are asked for again while searching, at most this often.
 const SEARCH_REFRESH_EVERY: Duration = Duration::from_secs(30);
-/// How many of an account's matches are read to find those of one chat.
-const THREAD_SEARCH_SCAN: usize = 400;
 
 /// Where the session's credentials come from, which decides what the
 /// settings menu offers.
@@ -440,6 +440,8 @@ pub(super) struct ThreadSearch {
     /// The match the conversation is on, among `hits` (newest first).
     pub(super) current: usize,
     _subscription: Subscription,
+    /// The question on its way to the store.
+    _search: Option<Task<()>>,
 }
 
 /// What the shell asks of whoever owns it.
@@ -473,6 +475,130 @@ pub(super) struct CommunityHeading {
     pub(super) id: ChatId,
     /// What the heading reads: the community's name, once it is known.
     pub(super) name: SharedString,
+}
+
+/// What the chat list is read for: the numbers, the one on screen, its
+/// search and filter, and the chat that is open.
+struct ChatListAsked {
+    /// Each number, and whether a phone was ever linked to it.
+    accounts: Vec<(AccountId, bool)>,
+    account: Option<AccountId>,
+    query: String,
+    filter: ChatFilter,
+    open: Option<(AccountId, ChatId)>,
+}
+
+impl ChatListAsked {
+    /// What decides which rows are listed.
+    fn of(&self) -> (Option<AccountId>, String, ChatFilter) {
+        (self.account.clone(), self.query.clone(), self.filter)
+    }
+}
+
+/// The chat list, as read off the interface's thread.
+struct ChatListRead {
+    /// What it was read for ([`ChatListAsked::of`]).
+    of: (Option<AccountId>, String, ChatFilter),
+    /// Unread messages per number, for the rail.
+    unread: HashMap<AccountId, u32>,
+    /// Whether the number on screen has communities, when this read says.
+    has_communities: Option<bool>,
+    /// The chats of the number on screen (searched, or the archive),
+    /// before the filter chips; `None` when they could not be read.
+    chats: Option<Vec<ChatSummary>>,
+    /// Address-book contacts that match the search.
+    contacts: Vec<Contact>,
+    /// The open chat as stored now.
+    open: Option<ChatSummary>,
+}
+
+/// Reads the chat list. Blocking.
+fn read_chat_list(store: &Store, asked: &ChatListAsked) -> ChatListRead {
+    let mut unread = HashMap::new();
+    // Whether the number on screen has communities is read off its list
+    // when that is the whole list, as it mostly is.
+    let whole = asked.query.is_empty() && asked.filter != ChatFilter::Archived;
+    let mut has_communities = match &asked.account {
+        None => Some(false),
+        Some(account) if !whole => Some(store.has_communities(account).unwrap_or(false)),
+        Some(_) => None,
+    };
+    let mut chats = None;
+    for (account, never_linked) in &asked.accounts {
+        // Nothing is listed for a number no phone was linked to.
+        if *never_linked {
+            continue;
+        }
+        if Some(account) != asked.account.as_ref() {
+            // Of the other numbers only the rail's count is shown: their
+            // chats are not read to count them.
+            match store.unread_total(account) {
+                Ok(0) => {}
+                Ok(total) => {
+                    unread.insert(account.clone(), total);
+                }
+                Err(error) => tracing::error!(%error, "could not count unread messages"),
+            }
+            continue;
+        }
+        let filter = Some(asked.query.as_str()).filter(|query| !query.is_empty());
+        let listed = if asked.filter == ChatFilter::Archived {
+            store.archived_chats(account).map(|mut chats| {
+                if let Some(query) = filter {
+                    let query = query.to_lowercase();
+                    chats.retain(|chat| chat.title.to_lowercase().contains(&query));
+                }
+                chats
+            })
+        } else {
+            store.chats(account, filter)
+        };
+        let listed = match listed {
+            Ok(chats) => chats,
+            Err(error) => {
+                tracing::error!(%error, "could not read chats");
+                continue;
+            }
+        };
+        // The rail's count for the number: every unread message of its
+        // chats outside the archive, whatever the list is filtered to,
+        // and for the number on screen too.
+        let narrowed = filter.is_some() || asked.filter == ChatFilter::Archived;
+        let total: u32 = if narrowed {
+            store.unread_total(account).unwrap_or(0)
+        } else {
+            listed.iter().map(|chat| chat.unread_count).sum()
+        };
+        if total > 0 {
+            unread.insert(account.clone(), total);
+        }
+        if whole {
+            has_communities = Some(listed.iter().any(|chat| chat.community.is_some()));
+        }
+        chats = Some(listed);
+    }
+    // Under Communities too: with no community left, the list falls back
+    // to all chats, which lists the contacts.
+    let contacts = match (&asked.account, asked.filter) {
+        (Some(account), ChatFilter::All | ChatFilter::Communities) if !asked.query.is_empty() => {
+            store
+                .contacts(account, Some(&asked.query), MAX_CONTACT_HITS)
+                .unwrap_or_default()
+        }
+        _ => Vec::new(),
+    };
+    let open = asked
+        .open
+        .as_ref()
+        .and_then(|(account, chat)| store.chat(account, chat).ok().flatten());
+    ChatListRead {
+        of: asked.of(),
+        unread,
+        has_communities,
+        chats,
+        contacts,
+        open,
+    }
 }
 
 /// The rows of [`ChatFilter::Communities`]: for each community, in the
@@ -557,6 +683,9 @@ fn list_found(rows: &mut Vec<ListRow>, hits: &[SearchHit]) {
     }
 }
 
+/// What waits for a window of messages to be on screen.
+type AfterReading = Box<dyn FnOnce(&mut Shell, &mut Context<Shell>)>;
+
 /// The chat shown in the conversation pane.
 pub(super) struct OpenChat {
     pub(super) chat: ChatSummary,
@@ -578,6 +707,12 @@ pub(super) struct OpenChat {
     limit: usize,
     /// A page of older history has been requested from the provider.
     awaiting_older: bool,
+    /// The read of the messages under way, off the interface's thread.
+    reading: Option<Task<()>>,
+    /// Asked to read again while one was under way.
+    stale: bool,
+    /// What waits for the rows being read to be on screen.
+    then: Vec<AfterReading>,
 }
 
 /// What was unread in a chat when it was opened.
@@ -611,6 +746,10 @@ pub struct Shell {
     /// Some chat of the number on screen is in a community: the
     /// [`ChatFilter::Communities`] chip is offered.
     pub(super) has_communities: bool,
+    /// The read of the chat list under way, off the interface's thread.
+    chats_reading: Option<Task<()>>,
+    /// Asked to read the chat list again while one was under way.
+    chats_stale: bool,
     pub(super) chat_scroll: UniformListScrollHandle,
     pub(super) search: Entity<InputState>,
 
@@ -796,6 +935,9 @@ impl Shell {
         cx: &mut Context<Self>,
     ) -> Self {
         let store = engine.store().clone();
+        // What is read while drawing has a connection of its own: a long
+        // read of the engine's (a large file to upload) never holds it up.
+        store.reserve_reader();
         let picker_store = store.clone();
         engine.set_read_receipts(settings::get(cx).read_receipts);
         // Whether files can be sent is asked now, so the answer is there
@@ -1030,6 +1172,8 @@ impl Shell {
             unread: HashMap::new(),
             filter: ChatFilter::All,
             has_communities: false,
+            chats_reading: None,
+            chats_stale: false,
             query: String::new(),
             found: FoundMessages::default(),
             search_refreshed: None,
@@ -1105,8 +1249,10 @@ impl Shell {
             _subscriptions: subscriptions,
             _changes: changes,
         };
-        // Whatever is already in the store shows up in the first frame.
+        // Whatever is already in the store shows up in the first frame:
+        // the chat list is read at once this time.
         this.reload_accounts(cx);
+        this.reload_chats_now(cx);
         this.reload_tasks();
         // The stories the store holds too: the rings, the strip above the
         // chats and the dot on Status are there before anything is asked
@@ -1146,7 +1292,7 @@ impl Shell {
                 }
                 // Presence is read from the engine while rendering, and so
                 // are the calls that ring or are on.
-                StoreChange::Presence { .. } => {}
+                StoreChange::Presence { .. } | StoreChange::Upload { .. } => {}
                 StoreChange::Calls { .. } => self.watch_calls(cx),
                 // Pictures and media are looked up again by whoever draws
                 // them; the repaint below is all it takes.
@@ -1247,104 +1393,96 @@ impl Shell {
         });
     }
 
+    /// Reads the chat list again, off this thread: it is read at every
+    /// message that arrives, and a long list takes a while. The list
+    /// changes when the read is done; what was asked meanwhile is read
+    /// once more after it.
     pub(super) fn reload_chats(&mut self, cx: &mut Context<Self>) {
-        self.unread.clear();
-        // Whether the number on screen has communities is read off its
-        // list when that is the whole list, as it mostly is: every chat is
-        // read once, not twice.
-        let whole = self.query.is_empty() && self.filter != ChatFilter::Archived;
-        if !whole {
-            self.has_communities = self
-                .account
-                .as_ref()
-                .and_then(|account| self.store.chats(account, None).ok())
-                .is_some_and(|chats| chats.iter().any(|chat| chat.community.is_some()));
+        if self.chats_reading.is_some() {
+            self.chats_stale = true;
+            return;
         }
-        if self.account.is_none() {
-            self.has_communities = false;
+        let asked = self.chat_list_asked();
+        let store = self.store.clone();
+        self.chats_reading = Some(cx.spawn(async move |this, cx| {
+            let read = cx
+                .background_spawn(async move { read_chat_list(&store, &asked) })
+                .await;
+            this.update(cx, |this, cx| {
+                this.chats_reading = None;
+                // Read for another number, filter or search than the one
+                // on screen now: that one is read instead.
+                if read.of != this.chat_list_asked().of() {
+                    this.chats_stale = true;
+                } else {
+                    this.show_chat_list(read, cx);
+                }
+                if std::mem::take(&mut this.chats_stale) {
+                    this.reload_chats(cx);
+                }
+                cx.notify();
+            })
+            .ok();
+        }));
+    }
+
+    /// [`reload_chats`](Self::reload_chats) at once: for the first frame,
+    /// which has the list.
+    pub(super) fn reload_chats_now(&mut self, cx: &mut Context<Self>) {
+        let read = read_chat_list(&self.store, &self.chat_list_asked());
+        self.show_chat_list(read, cx);
+    }
+
+    /// What the chat list is read for.
+    fn chat_list_asked(&self) -> ChatListAsked {
+        ChatListAsked {
+            accounts: self
+                .accounts
+                .iter()
+                .map(|account| (account.id.clone(), account.never_linked()))
+                .collect(),
+            account: self.account.clone(),
+            query: self.query.clone(),
+            filter: self.filter,
+            open: self
+                .open
+                .as_ref()
+                .map(|open| (open.chat.account_id.clone(), open.chat.id.clone())),
+        }
+    }
+
+    /// Puts a chat list that was read on screen.
+    fn show_chat_list(&mut self, read: ChatListRead, cx: &mut Context<Self>) {
+        self.unread = read.unread;
+        if let Some(has) = read.has_communities {
+            self.has_communities = has;
         }
         let mut rows = Vec::new();
-        for account in &self.accounts {
-            // Nothing is listed for a number no phone was linked to.
-            if account.never_linked() {
-                continue;
-            }
-            let is_current = Some(&account.id) == self.account.as_ref();
-            if !is_current {
-                // Of the other numbers only the rail's count is shown:
-                // their chats are not read to count them.
-                match self.store.unread_total(&account.id) {
-                    Ok(0) => {}
-                    Ok(total) => {
-                        self.unread.insert(account.id.clone(), total);
-                    }
-                    Err(error) => tracing::error!(%error, "could not count unread messages"),
-                }
-                continue;
-            }
-            let filter = Some(self.query.as_str()).filter(|query| is_current && !query.is_empty());
-            let listed = if is_current && self.filter == ChatFilter::Archived {
-                self.store.archived_chats(&account.id).map(|mut chats| {
-                    if let Some(query) = filter {
-                        let query = query.to_lowercase();
-                        chats.retain(|chat| chat.title.to_lowercase().contains(&query));
-                    }
-                    chats
-                })
-            } else {
-                self.store.chats(&account.id, filter)
-            };
-            let chats = match listed {
-                Ok(chats) => chats,
-                Err(error) => {
-                    tracing::error!(%error, "could not read chats");
-                    continue;
-                }
-            };
-            // The rail's count for the number: every unread message of
-            // its chats outside the archive, whatever the list is
-            // filtered to, and for the number on screen too.
-            let narrowed = is_current && (filter.is_some() || self.filter == ChatFilter::Archived);
-            let total: u32 = if narrowed {
-                self.store
-                    .chats(&account.id, None)
-                    .map(|all| all.iter().map(|c| c.unread_count).sum())
-                    .unwrap_or(0)
-            } else {
-                chats.iter().map(|c| c.unread_count).sum()
-            };
-            if total > 0 {
-                self.unread.insert(account.id.clone(), total);
-            }
-            if whole {
-                self.has_communities = chats.iter().any(|chat| chat.community.is_some());
-            }
+        if let Some(chats) = read.chats {
             // The last chat left its community while its view was on.
             if self.filter == ChatFilter::Communities && !self.has_communities {
                 self.filter = ChatFilter::All;
             }
             if self.filter == ChatFilter::Communities {
                 rows.extend(community_rows(chats));
-                continue;
-            }
-            for chat in chats {
-                let keep = match self.filter {
-                    ChatFilter::All | ChatFilter::Archived => true,
-                    ChatFilter::Unread => chat.unread_count > 0,
-                    ChatFilter::Groups => chat.kind == ChatKind::Group,
-                    ChatFilter::Communities => false,
-                };
-                if keep {
-                    rows.push(ListRow::Chat(chat));
+            } else {
+                for chat in chats {
+                    let keep = match self.filter {
+                        ChatFilter::All | ChatFilter::Archived => true,
+                        ChatFilter::Unread => chat.unread_count > 0,
+                        ChatFilter::Groups => chat.kind == ChatKind::Group,
+                        ChatFilter::Communities => false,
+                    };
+                    if keep {
+                        rows.push(ListRow::Chat(chat));
+                    }
                 }
             }
         }
 
         // Contacts that match and have no chat yet: one with a chat is
         // already listed above, so it is not listed twice.
-        if let (Some(account), false, ChatFilter::All) =
-            (&self.account, self.query.is_empty(), self.filter)
-        {
+        if self.account.is_some() && !self.query.is_empty() && self.filter == ChatFilter::All {
             let listed: HashSet<ChatId> = rows
                 .iter()
                 .filter_map(|row| match row {
@@ -1352,10 +1490,8 @@ impl Shell {
                     _ => None,
                 })
                 .collect();
-            let people: Vec<Contact> = self
-                .store
-                .contacts(account, Some(&self.query), MAX_CONTACT_HITS)
-                .unwrap_or_default()
+            let people: Vec<Contact> = read
+                .contacts
                 .into_iter()
                 .filter(|contact| !listed.contains(&ChatId::new(contact.id.as_str())))
                 .collect();
@@ -1373,8 +1509,8 @@ impl Shell {
 
         // Keep the open chat's header fresh, and its unread count at zero:
         // the user is looking at it.
-        if let Some(open) = &mut self.open {
-            if let Ok(Some(chat)) = self.store.chat(&open.chat.account_id, &open.chat.id) {
+        if let (Some(open), Some(chat)) = (&mut self.open, read.open) {
+            if chat.account_id == open.chat.account_id && chat.id == open.chat.id {
                 if chat.unread_count > 0 {
                     self.engine.mark_read(&chat.account_id, &chat.id);
                 }
@@ -1466,7 +1602,11 @@ impl Shell {
         }));
     }
 
-    fn reload_messages(&mut self, cx: &mut Context<Self>) {
+    /// Reads the open chat's window of messages again, off this thread:
+    /// a long history takes a while to read, and the interface does not
+    /// wait for it. The rows change when the read is done; what was asked
+    /// meanwhile is read once more after it.
+    pub(super) fn reload_messages(&mut self, cx: &mut Context<Self>) {
         let Some(open) = &mut self.open else { return };
         if open.awaiting_older {
             // The page that was asked for has arrived: widen the window so
@@ -1474,39 +1614,92 @@ impl Shell {
             open.awaiting_older = false;
             open.limit += MESSAGE_WINDOW;
         }
-        let messages = self
-            .store
-            .messages(&open.chat.account_id, &open.chat.id, open.limit)
-            .unwrap_or_else(|error| {
-                tracing::error!(%error, "could not read messages");
-                Vec::new()
-            });
-        let first_unread = open
-            .unread
-            .as_ref()
-            .and_then(|unread| first_unread(&messages, unread));
-        let tasked = self
-            .store
-            .tasked_messages(&open.chat.account_id, &open.chat.id)
-            .unwrap_or_default();
+        if open.reading.is_some() {
+            open.stale = true;
+            return;
+        }
+        let store = self.store.clone();
+        let (account, chat, limit) = (
+            open.chat.account_id.clone(),
+            open.chat.id.clone(),
+            open.limit,
+        );
+        let unread = open.unread.clone();
+        open.reading = Some(cx.spawn(async move |this, cx| {
+            let read = cx
+                .background_spawn(
+                    async move { read_window(&store, &account, &chat, limit, unread) },
+                )
+                .await;
+            this.update(cx, |this, cx| this.show_window(read, cx)).ok();
+        }));
+    }
+
+    /// Runs `then` once the rows read now are on screen: at once when
+    /// nothing is being read.
+    pub(super) fn after_reading(
+        &mut self,
+        then: impl FnOnce(&mut Self, &mut Context<Self>) + 'static,
+        cx: &mut Context<Self>,
+    ) {
+        match &mut self.open {
+            Some(open) if open.reading.is_some() => open.then.push(Box::new(then)),
+            _ => then(self, cx),
+        }
+    }
+
+    /// Puts what was read on screen.
+    fn show_window(&mut self, read: WindowRead, cx: &mut Context<Self>) {
+        let Some(open) = &mut self.open else { return };
+        open.reading = None;
+        let WindowRead {
+            messages,
+            digests,
+            first_unread,
+            tasked,
+            pinned,
+        } = read;
         let rows = build_rows(
             messages,
+            &digests,
             &open.chat,
             &self.senders,
             first_unread.as_ref(),
             &tasked,
         );
+        // The row at the top of the view stays there. The list keeps its
+        // place only when that row is outside what changed; a window of
+        // older history changes the first rows (their day, their runs),
+        // and the list would jump to the top of what was added, which
+        // asks for older history again. A day's separator is no anchor: the
+        // older messages of that day go under it, so the first message is.
+        let top = open.list.logical_scroll_top();
+        let anchor = open
+            .rows
+            .iter()
+            .enumerate()
+            .skip(top.item_ix)
+            .find_map(|(index, row)| match row {
+                Row::Message(row) => Some((row.key.clone(), index == top.item_ix)),
+                Row::Day(_) => None,
+            });
         splice_rows(&open.list, &open.rows, &rows);
+        if let Some((index, same_row)) = anchor.and_then(|(key, same_row)| {
+            rows.iter()
+                .position(|row| matches!(row, Row::Message(row) if row.key == key))
+                .map(|index| (index, same_row))
+        }) {
+            if index != open.list.logical_scroll_top().item_ix {
+                open.list.scroll_to(ListOffset {
+                    item_ix: index,
+                    offset_in_item: if same_row { top.offset_in_item } else { px(0.) },
+                });
+            }
+        }
         self.audio.follow(&open.rows, &rows);
         open.rows = Rc::new(rows);
         open.subtitle = chat_subtitle(&self.store, &self.senders, &open.chat);
-        open.pinned = self
-            .store
-            .pinned_messages(&open.chat.account_id, &open.chat.id, Timestamp::now())
-            .unwrap_or_else(|error| {
-                tracing::error!(%error, "could not read the pinned messages");
-                Vec::new()
-            });
+        open.pinned = pinned;
         // The panel of who reacted lists what the store has now.
         self.refresh_reactors();
         let Some(open) = &mut self.open else { return };
@@ -1526,6 +1719,15 @@ impl Shell {
                     });
                 }
                 unread.shown_at = Some(key);
+            }
+        }
+        // Asked for while this was being read: read again, and what waits
+        // for the rows waits for those.
+        if std::mem::take(&mut open.stale) {
+            self.reload_messages(cx);
+        } else {
+            for then in std::mem::take(&mut open.then) {
+                then(self, cx);
             }
         }
         cx.notify();
@@ -2726,6 +2928,7 @@ impl Shell {
                 hits: Vec::new(),
                 current: 0,
                 _subscription: subscription,
+                _search: None,
             });
         }
         if let Some(search) = &self.thread_search {
@@ -2751,27 +2954,52 @@ impl Shell {
     }
 
     /// The stored messages of the open chat that match `query`, newest
-    /// first. Local, like every search.
+    /// first. Local, like every search, and asked off this thread a moment
+    /// later, as the chat list's search is: a long history takes a while,
+    /// and a word typed is one question, not one per letter.
     fn search_thread(&mut self, query: String, cx: &mut Context<Self>) {
         let (Some(open), Some(search)) = (&self.open, &mut self.thread_search) else {
             return;
         };
-        search.hits = if query.is_empty() {
-            Vec::new()
-        } else {
-            // The index is per account; keep what belongs to this chat.
-            self.store
-                .search_messages(&open.chat.account_id, &query, THREAD_SEARCH_SCAN)
-                .unwrap_or_default()
-                .into_iter()
-                .filter(|hit| hit.message.chat_id == open.chat.id)
-                .take(MAX_HITS)
-                .collect()
-        };
-        search.query = query;
-        search.current = 0;
-        // The conversation goes to the newest match as it is typed.
-        self.show_match(cx);
+        search.query = query.clone();
+        if query.is_empty() {
+            search.hits.clear();
+            search.current = 0;
+            search._search = None;
+            self.show_match(cx);
+            return;
+        }
+        let store = self.store.clone();
+        let (account, chat) = (open.chat.account_id.clone(), open.chat.id.clone());
+        search._search = Some(cx.spawn(async move |this, cx| {
+            cx.background_executor()
+                .timer(motion::SEARCH_DEBOUNCE)
+                .await;
+            let asked = query.clone();
+            let hits = cx
+                .background_spawn(async move {
+                    store
+                        .search_chat_messages(&account, &chat, &asked, MAX_HITS)
+                        .unwrap_or_else(|error| {
+                            tracing::error!(%error, "could not search the conversation");
+                            Vec::new()
+                        })
+                })
+                .await;
+            this.update(cx, |this, cx| {
+                let Some(search) = &mut this.thread_search else {
+                    return;
+                };
+                if search.query != query {
+                    return;
+                }
+                search.hits = hits;
+                search.current = 0;
+                // The conversation goes to the newest match.
+                this.show_match(cx);
+            })
+            .ok();
+        }));
         cx.notify();
     }
 
@@ -2786,8 +3014,19 @@ impl Shell {
         });
         match target {
             Some(message) => {
-                self.jump_to_message(message.clone(), cx);
-                self.acting.flash = self.key_of(&message);
+                self.jump_to_message(
+                    message.clone(),
+                    move |this, _| {
+                        // Unless the search moved on meanwhile.
+                        let current = this.thread_search.as_ref().and_then(|search| {
+                            search.hits.get(search.current).map(|hit| &hit.message.id)
+                        });
+                        if current == Some(&message) {
+                            this.acting.flash = this.key_of(&message);
+                        }
+                    },
+                    cx,
+                );
             }
             None => self.acting.flash = None,
         }
@@ -2814,29 +3053,48 @@ impl Shell {
     }
 
     /// Scrolls the conversation to a message, loading as much stored
-    /// history as it takes to show it.
-    pub(super) fn jump_to_message(&mut self, message: MessageId, cx: &mut Context<Self>) {
-        let position = |open: &OpenChat| {
-            open.rows.iter().position(
-                |row| matches!(row, Row::Message(row) if row.stored.message.id == message),
-            )
-        };
+    /// history as it takes to show it: down to it and a window more, not
+    /// the whole chat. `then` runs once it is on screen (or known not to
+    /// be there).
+    pub(super) fn jump_to_message(
+        &mut self,
+        message: MessageId,
+        then: impl FnOnce(&mut Self, &mut Context<Self>) + 'static,
+        cx: &mut Context<Self>,
+    ) {
         let Some(open) = &mut self.open else { return };
-        if position(open).is_none() {
-            let stored = self
+        let here = open
+            .rows
+            .iter()
+            .any(|row| matches!(row, Row::Message(row) if row.stored.message.id == message));
+        if !here || open.reading.is_some() {
+            let reach = self
                 .store
-                .message_count(&open.chat.account_id, &open.chat.id)
-                .unwrap_or(0);
-            open.limit = open.limit.max(stored);
-            self.reload_messages(cx);
-        }
-        if let Some(open) = &self.open {
-            if let Some(index) = position(open) {
-                open.list.pause_following_tail();
-                open.list.scroll_to_reveal_item(index);
+                .messages_since(&open.chat.account_id, &open.chat.id, &message)
+                .ok()
+                .flatten();
+            if let Some(reach) = reach {
+                if reach > open.limit {
+                    open.limit = reach + MESSAGE_WINDOW / 2;
+                    self.reload_messages(cx);
+                }
             }
         }
-        cx.notify();
+        self.after_reading(
+            move |this, cx| {
+                if let Some(open) = &this.open {
+                    if let Some(index) = open.rows.iter().position(
+                        |row| matches!(row, Row::Message(row) if row.stored.message.id == message),
+                    ) {
+                        open.list.pause_following_tail();
+                        open.list.scroll_to_reveal_item(index);
+                    }
+                }
+                then(this, cx);
+                cx.notify();
+            },
+            cx,
+        );
     }
 
     // ----- media --------------------------------------------------------
@@ -3143,7 +3401,7 @@ impl Shell {
         // the list is being laid out, so the work is deferred.
         let view = cx.weak_entity();
         list.set_scroll_handler(move |event, _, cx| {
-            if event.visible_range.start <= 2 {
+            if event.visible_range.start <= OLDER_AT {
                 let view = view.clone();
                 cx.defer(move |cx| {
                     view.update(cx, |this, cx| this.load_older(cx)).ok();
@@ -3183,9 +3441,28 @@ impl Shell {
             pinned_shown: 0,
             limit,
             awaiting_older: false,
+            reading: None,
+            stale: false,
+            then: Vec::new(),
         });
         // Local first: show what is stored now, let the engine catch up.
-        self.reload_messages(cx);
+        // The newest window is read at once, so the first frame has it
+        // (it is short, and the interface reads on its own connection);
+        // more of it, when the unread messages reach further, follows.
+        if let Some(open) = &self.open {
+            let read = read_window(
+                &self.store,
+                &open.chat.account_id,
+                &open.chat.id,
+                MESSAGE_WINDOW,
+                open.unread.clone(),
+            );
+            let wider = open.limit > MESSAGE_WINDOW;
+            self.show_window(read, cx);
+            if wider {
+                self.reload_messages(cx);
+            }
+        }
         self.engine.open_chat(&account, &chat_id);
         self.engine.mark_read(&account, &chat_id);
         if let Some(window) = window {
@@ -3199,7 +3476,17 @@ impl Shell {
     /// there, otherwise by asking the engine to fetch a page.
     pub(super) fn load_older(&mut self, cx: &mut Context<Self>) {
         let Some(open) = &mut self.open else { return };
-        if open.awaiting_older {
+        // A trackpad sends many events while the top is in view: the first
+        // one shows the next window and the view stays where it was, so
+        // the others, deferred meanwhile, have nothing to ask for. (At the
+        // end, the top is wherever the rows reach: all of them fit.)
+        let top = open.list.logical_scroll_top().item_ix;
+        // While a window is being read, it is not yet known where the top
+        // will be.
+        if open.awaiting_older
+            || open.reading.is_some()
+            || (top > OLDER_AT && top < open.list.item_count())
+        {
             return;
         }
         let (account, chat) = (open.chat.account_id.clone(), open.chat.id.clone());
@@ -3481,11 +3768,70 @@ fn chat_subtitle(store: &Store, senders: &Senders, chat: &ChatSummary) -> Option
     }
 }
 
+/// The window of a chat's messages, as read off the interface's thread.
+struct WindowRead {
+    messages: Vec<StoredMessage>,
+    /// [`content_digest`] of each of `messages`.
+    digests: Vec<u64>,
+    first_unread: Option<(String, u32)>,
+    tasked: HashSet<MessageId>,
+    pinned: Vec<client_provider::Message>,
+}
+
+/// Reads the newest `limit` messages of a chat and what goes with them.
+/// Blocking.
+fn read_window(
+    store: &Store,
+    account: &AccountId,
+    chat: &ChatId,
+    limit: usize,
+    unread: Option<UnreadAtOpen>,
+) -> WindowRead {
+    let messages = store
+        .messages(account, chat, limit)
+        .unwrap_or_else(|error| {
+            tracing::error!(%error, "could not read messages");
+            Vec::new()
+        });
+    let first_unread = unread
+        .as_ref()
+        .and_then(|unread| first_unread(&messages, unread));
+    let tasked = store.tasked_messages(account, chat).unwrap_or_default();
+    let pinned = store
+        .pinned_messages(account, chat, Timestamp::now())
+        .unwrap_or_else(|error| {
+            tracing::error!(%error, "could not read the pinned messages");
+            Vec::new()
+        });
+    WindowRead {
+        digests: messages.iter().map(content_digest).collect(),
+        messages,
+        first_unread,
+        tasked,
+        pinned,
+    }
+}
+
+/// What of a message decides how its row looks, beyond what
+/// [`build_rows`] knows: a digest of it, made with the read, off the
+/// interface's thread (it writes the whole message out).
+fn content_digest(stored: &StoredMessage) -> u64 {
+    let message = &stored.message;
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    format!(
+        "{:?}{:?}{:?}{:?}",
+        message.content, message.reply_to, stored.reactions, message.extras
+    )
+    .hash(&mut hasher);
+    hasher.finish()
+}
+
 /// Turns messages (oldest first) into list rows, adding day separators,
 /// the unread divider, and marking where runs of messages by one person
 /// begin and end.
 fn build_rows(
     messages: Vec<StoredMessage>,
+    digests: &[u64],
     chat: &ChatSummary,
     senders: &Senders,
     first_unread: Option<&(String, u32)>,
@@ -3514,7 +3860,7 @@ fn build_rows(
     // The day and the person of the message before: a run is one person's
     // messages, under whichever of their ids each came.
     let mut previous: Option<(Timestamp, Rc<str>)> = None;
-    for stored in messages {
+    for (stored, digest) in messages.into_iter().zip(digests) {
         let message = &stored.message;
         // Defensive: the store folds reactions, they are never rows.
         if matches!(message.content, MessageContent::Reaction { .. }) {
@@ -3563,11 +3909,7 @@ fn build_rows(
         quoted.hash(&mut hasher);
         unread_above.hash(&mut hasher);
         message.sender_name.hash(&mut hasher);
-        format!(
-            "{:?}{:?}{:?}{:?}",
-            message.content, message.reply_to, stored.reactions, message.extras
-        )
-        .hash(&mut hasher);
+        digest.hash(&mut hasher);
         matches!(
             message.status,
             client_provider::DeliveryStatus::Failed { .. }

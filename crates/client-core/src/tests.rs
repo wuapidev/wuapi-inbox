@@ -519,6 +519,145 @@ fn a_search_under_way_does_not_hold_up_the_other_reads() {
     assert_eq!(found, Ok(1));
 }
 
+#[test]
+fn the_interface_reads_beside_a_long_read_of_the_engine() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = Arc::new(Store::open(dir.path().join("store.db"), Some(&test_key())).unwrap());
+    seed_account(&store);
+    store.upsert_chat(&chat("chat", "Ana"), false).unwrap();
+
+    // The interface's thread has its connection; the engine's read (a
+    // large file being read to upload it) holds the other one.
+    let (go, started) = std::sync::mpsc::channel::<()>();
+    let (answer, answered) = std::sync::mpsc::channel();
+    let interface = store.clone();
+    std::thread::spawn(move || {
+        interface.reserve_reader();
+        started.recv().unwrap();
+        let chats = interface.chats(&account(), None).unwrap();
+        let _ = answer.send(chats.len());
+    });
+    let read = store.while_reading(|| {
+        go.send(()).unwrap();
+        answered.recv_timeout(Duration::from_secs(5))
+    });
+    assert_eq!(read, Ok(1), "the interface did not wait");
+}
+
+#[test]
+fn a_picture_read_while_a_large_file_is_written_does_not_wait() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = Arc::new(Store::open(dir.path().join("store.db"), Some(&test_key())).unwrap());
+    store
+        .put_media("thumb", &cached(1), Timestamp::now(), u64::MAX)
+        .unwrap();
+
+    // The writer is busy (a file going into the store): reading a
+    // picture, which counts as using it, does not wait to say so.
+    let (go, started) = std::sync::mpsc::channel::<()>();
+    let (release, released) = std::sync::mpsc::channel::<()>();
+    let writing = store.clone();
+    let writer = std::thread::spawn(move || {
+        writing
+            .write(|_| {
+                go.send(()).unwrap();
+                released.recv_timeout(Duration::from_secs(10)).ok();
+                Ok(())
+            })
+            .unwrap();
+    });
+    started.recv().unwrap();
+    let (answer, answered) = std::sync::mpsc::channel();
+    let reading = store.clone();
+    std::thread::spawn(move || {
+        let found = reading.media("thumb", Timestamp::now()).unwrap();
+        let _ = answer.send(found.map(|media| media.bytes.len()));
+    });
+    let read = answered.recv_timeout(Duration::from_secs(5));
+    release.send(()).unwrap();
+    writer.join().unwrap();
+    assert_eq!(read, Ok(Some(40)));
+}
+
+#[test]
+fn whether_a_file_is_here_is_known_without_reading_it() {
+    let store = Store::open_in_memory().unwrap();
+    let large = CachedMedia {
+        bytes: vec![7; 64 * 1024 * 1024],
+        mime: Some("video/mp4".into()),
+        size: None,
+    };
+    store
+        .put_media("file", &large, Timestamp::now(), u64::MAX)
+        .unwrap();
+    assert!(store.has_media("file").unwrap());
+    assert!(!store.has_media("other").unwrap());
+    // Asked for every bubble on every frame: it must cost nothing like
+    // the file. (Generous, so a slow machine does not fail it; reading
+    // 64 MB a hundred times would take seconds.)
+    let started = std::time::Instant::now();
+    for _ in 0..100 {
+        assert!(store.has_media("file").unwrap());
+    }
+    assert!(started.elapsed() < Duration::from_millis(500));
+}
+
+#[test]
+fn a_search_in_one_chat_finds_only_its_messages_and_reaches_back_to_them() {
+    let store = Store::open_in_memory().unwrap();
+    seed_account(&store);
+    store.upsert_chat(&chat("chat", "Ana"), false).unwrap();
+    store.upsert_chat(&chat("other", "Luis"), false).unwrap();
+    let mut messages = Vec::new();
+    for at in 0..50 {
+        messages.push(text(
+            &format!("o{at}"),
+            "other",
+            1000 + at,
+            "truck",
+            Direction::Incoming,
+        ));
+    }
+    messages.push(text("old", "chat", 1, "the truck", Direction::Incoming));
+    for at in 0..30 {
+        messages.push(text(
+            &format!("c{at}"),
+            "chat",
+            10 + at,
+            "hello",
+            Direction::Incoming,
+        ));
+    }
+    store.upsert_messages(&messages).unwrap();
+
+    // The other chat's matches are newer and more: the one here is
+    // found all the same.
+    let hits = store
+        .search_chat_messages(&account(), &chat_id(), "truck", 10)
+        .unwrap();
+    let ids: Vec<&str> = hits.iter().map(|hit| hit.message.id.as_str()).collect();
+    assert_eq!(ids, ["old"]);
+    // Showing it takes the newest 31 messages of the chat, not all.
+    assert_eq!(
+        store
+            .messages_since(&account(), &chat_id(), &MessageId::new("old"))
+            .unwrap(),
+        Some(31)
+    );
+    assert_eq!(
+        store
+            .messages_since(&account(), &chat_id(), &MessageId::new("c29"))
+            .unwrap(),
+        Some(1)
+    );
+    assert_eq!(
+        store
+            .messages_since(&account(), &chat_id(), &MessageId::new("nope"))
+            .unwrap(),
+        None
+    );
+}
+
 #[tokio::test]
 async fn writes_announce_what_changed() {
     let store = Store::open_in_memory().unwrap();
