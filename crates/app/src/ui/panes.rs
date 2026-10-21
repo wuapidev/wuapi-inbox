@@ -417,7 +417,7 @@ impl Shell {
                     return Some(false);
                 };
                 if command == C::ListToggleRead && chat.unread_count > 0 {
-                    self.engine.mark_read(&chat.account_id, &chat.id);
+                    self.mark_read(&chat.account_id, &chat.id);
                     return Some(true);
                 }
                 if !self.caps_here().chat_state {

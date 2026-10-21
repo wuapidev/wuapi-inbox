@@ -174,6 +174,8 @@ struct Inner {
     /// Chats whose history is being fetched right now, to avoid doing it
     /// twice when the user scrolls impatiently.
     fetching: Mutex<HashSet<(AccountId, ChatId)>>,
+    /// Chats marked read whose new count is still being written.
+    marking_read: Mutex<HashSet<(AccountId, ChatId)>>,
     /// The newest change asked for per chat and kind of change. A retry
     /// that is no longer the newest stops: the user changed their mind.
     chat_changes: Mutex<HashMap<(AccountId, ChatId, u8), u64>>,
@@ -273,6 +275,7 @@ impl SyncEngine {
                 presence: Mutex::new(HashMap::new()),
                 calls: calls::Calls::default(),
                 fetching: Mutex::new(HashSet::new()),
+                marking_read: Mutex::new(HashSet::new()),
                 chat_changes: Mutex::new(HashMap::new()),
                 pending_state: Mutex::new(HashMap::new()),
                 poll_votes: Mutex::new(HashMap::new()),
@@ -577,19 +580,31 @@ impl SyncEngine {
             .store(send, std::sync::atomic::Ordering::Relaxed);
     }
 
-    /// Clears a chat's unread count locally and tells the provider in the
-    /// background.
+    /// Clears a chat's unread count locally and tells the provider, both in
+    /// the background: the window calls this as a chat opens, and writing
+    /// waits for whatever the engine is writing (a catch-up writes for
+    /// seconds), which the window must not.
     pub fn mark_read(&self, account: &AccountId, chat: &ChatId) {
-        if let Err(error) = self.inner.store.mark_chat_read(account, chat) {
-            tracing::error!(%error, "could not mark the chat read");
-        }
         let this = self.clone();
         let (account, chat) = (account.clone(), chat.clone());
+        self.inner
+            .marking_read
+            .lock()
+            .expect("marking_read lock")
+            .insert((account.clone(), chat.clone()));
         // Without read receipts the provider is still told, so that the
         // badge goes on the account's other devices: quietly. A provider
         // that can only do both is asked for both.
         let quietly = !self.read_receipts() && self.inner.capabilities.quiet_read;
         self.inner.runtime.spawn(async move {
+            if let Err(error) = this.inner.store.mark_chat_read(&account, &chat) {
+                tracing::error!(%error, "could not mark the chat read");
+            }
+            this.inner
+                .marking_read
+                .lock()
+                .expect("marking_read lock")
+                .remove(&(account.clone(), chat.clone()));
             let provider = &this.inner.provider;
             let call = async {
                 if quietly {
@@ -605,6 +620,16 @@ impl SyncEngine {
                 tracing::debug!(%error, "mark_read did not reach the provider");
             }
         });
+    }
+
+    /// Whether the chat was just marked read and the store does not say
+    /// so yet: its unread count is zero, whatever is read meanwhile.
+    pub fn marking_read(&self, account: &AccountId, chat: &ChatId) -> bool {
+        self.inner
+            .marking_read
+            .lock()
+            .expect("marking_read lock")
+            .contains(&(account.clone(), chat.clone()))
     }
 
     /// Pins, mutes, archives or marks a chat as unread. The store shows

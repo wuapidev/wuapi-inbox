@@ -511,15 +511,7 @@ impl Shell {
             C::Larger => self.step_scale(Some(true), cx),
             C::Smaller => self.step_scale(Some(false), cx),
             C::ActualSize => self.step_scale(None, cx),
-            C::MarkAllRead => {
-                for row in &self.list_rows {
-                    if let ListRow::Chat(chat) = row {
-                        if chat.unread_count > 0 {
-                            self.engine.mark_read(&chat.account_id, &chat.id);
-                        }
-                    }
-                }
-            }
+            C::MarkAllRead => self.mark_listed_read(),
             C::ShowArchived => self.set_filter(ChatFilter::Archived, cx),
             C::AddNumber if caps.link_accounts => self.open_overlay(Overlay::AddNumber, window, cx),
             C::SignOut if self.can_sign_out() => {

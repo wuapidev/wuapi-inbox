@@ -1114,9 +1114,10 @@ impl Shell {
             Pick::Speakers,
             cx,
         );
-        // A camera only where a call can have video.
+        // A camera only where a call can have video. Asked of the number
+        // on screen: whether video is possible is learned after the start.
         let calls = self.engine.capabilities().calls;
-        let camera = self.engine.capabilities().video_calls.then(|| {
+        let camera = self.caps_now().video_calls.then(|| {
             let name = self.camera_name();
             stepper("audio-camera", name.as_deref(), Pick::Camera, cx)
         });

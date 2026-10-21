@@ -3855,7 +3855,9 @@ fn every_interface_size_keeps_the_rows_and_bubbles_in_proportion(cx: &mut TestAp
             None,
         )
         .unwrap();
-    cx.run_until_parked();
+    // Opening it read it, which is written in the background: done
+    // before it is made unread again.
+    harness.settle(cx);
     // Back to the list with that chat unread again, so its badge shows.
     harness
         .mock
@@ -3943,6 +3945,9 @@ fn every_interface_size_keeps_the_rows_and_bubbles_in_proportion(cx: &mut TestAp
             "{step}%: the long text wrapped"
         );
         press(harness.window, "ctrl-w", cx);
+        // Reading it is written in the background: done before it is
+        // made unread again.
+        harness.settle(cx);
         harness
             .mock
             .set_unread(&account, &client_provider::ChatId::new(row_id.clone()), 7);

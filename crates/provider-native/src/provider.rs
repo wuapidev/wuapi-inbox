@@ -575,6 +575,7 @@ impl NativeProvider {
     /// numbers that were linked before start connecting at once, on
     /// `runtime`.
     pub fn new(sessions: Arc<dyn Sessions>, archive: Archive, runtime: &Handle) -> Self {
+        crate::call_video::look_ahead();
         let (sink, mut inbox) = mpsc::unbounded_channel();
         let (events, _) = broadcast::channel(EVENT_BUFFER);
         let stored = archive.accounts().unwrap_or_default();
@@ -804,8 +805,9 @@ impl Provider for NativeProvider {
             story_delete: true,
             calls: true,
             // TODO(native): video needs a camera and an H.264 encoder.
-            // With video where there is something to encode it with.
-            video_calls: crate::call_video::available(),
+            // With video where there is something to encode it with,
+            // once that is known (see `call_video::look_ahead`).
+            video_calls: crate::call_video::available_now(),
             // A URL that sends a message needs a server to receive it:
             // Wuapi Cloud has them, a number on this computer does not.
             incoming_webhooks: false,
