@@ -12,10 +12,14 @@
   "common.audio.unsupported": "this kind of audio cannot be played here ({error})",
   "common.chat_open.not_on_whatsapp": "{phone} is not on WhatsApp.",
   "common.chat_open.unreachable": "Could not reach the provider. Try again.",
+  "common.clipboard.not_a_picture": "This is not a picture.",
   "common.date.day_month": "{day} {month}",
+  "common.date.day_short": "{day} {month}",
   "common.date.full": "{day} {month} {year}",
   "common.date.month_year": "{month} {year}",
   "common.date.short": "{day} {month} {year}",
+  "common.date.weekday_full": "{weekday} {day} {month} {year}",
+  "common.date.weekday_short": "{weekday} {day} {month}",
   "common.hints.add_number": "Add a number",
   "common.hints.attach": "Attach files",
   "common.hints.chats": "Chats",
@@ -215,5 +219,12 @@
   "common.weekday.sun": "Sunday",
   "common.weekday.thu": "Thursday",
   "common.weekday.tue": "Tuesday",
-  "common.weekday.wed": "Wednesday"
+  "common.weekday.wed": "Wednesday",
+  "common.weekday_short.fri": "Fri",
+  "common.weekday_short.mon": "Mon",
+  "common.weekday_short.sat": "Sat",
+  "common.weekday_short.sun": "Sun",
+  "common.weekday_short.thu": "Thu",
+  "common.weekday_short.tue": "Tue",
+  "common.weekday_short.wed": "Wed"
 }

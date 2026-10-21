@@ -310,17 +310,17 @@ impl Lang {
     /// What it is called in the settings.
     pub fn label(self) -> &'static str {
         match self {
-            Lang::En => "English",
-            Lang::Es => "Spanish",
-            Lang::Pt => "Portuguese",
-            Lang::Hi => "Hindi",
-            Lang::Fr => "French",
-            Lang::De => "German",
-            Lang::It => "Italian",
-            Lang::Id => "Indonesian",
-            Lang::Ar => "Arabic",
-            Lang::Ru => "Russian",
-            Lang::Tr => "Turkish",
+            Lang::En => crate::i18n::t("commands.emoji_lang.en"),
+            Lang::Es => crate::i18n::t("commands.emoji_lang.es"),
+            Lang::Pt => crate::i18n::t("commands.emoji_lang.pt"),
+            Lang::Hi => crate::i18n::t("commands.emoji_lang.hi"),
+            Lang::Fr => crate::i18n::t("commands.emoji_lang.fr"),
+            Lang::De => crate::i18n::t("commands.emoji_lang.de"),
+            Lang::It => crate::i18n::t("commands.emoji_lang.it"),
+            Lang::Id => crate::i18n::t("commands.emoji_lang.id"),
+            Lang::Ar => crate::i18n::t("commands.emoji_lang.ar"),
+            Lang::Ru => crate::i18n::t("commands.emoji_lang.ru"),
+            Lang::Tr => crate::i18n::t("commands.emoji_lang.tr"),
         }
     }
 

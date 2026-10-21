@@ -144,9 +144,9 @@ pub(super) fn due_words(due: Timestamp, today: NaiveDate) -> String {
         1 => i18n::t("groups.tasks.tomorrow").into(),
         -1 => i18n::t("groups.tasks.yesterday").into(),
         ahead if ahead < 0 => i18n::plural("groups.tasks.days_late", (-ahead) as u64, &[]),
-        2..=6 => day.format("%A").to_string(),
-        _ if day.year() == today.year() => day.format("%-d %b").to_string(),
-        _ => day.format("%-d %b %Y").to_string(),
+        2..=6 => crate::format::weekday(day.weekday()).to_owned(),
+        _ if day.year() == today.year() => crate::format::day_short(&day, false),
+        _ => crate::format::day_short(&day, true),
     }
 }
 
@@ -844,7 +844,7 @@ impl Shell {
                     .child(
                         div()
                             .text_size(metrics::TEXT_SMALL())
-                            .child(SharedString::from(first.format("%B %Y").to_string())),
+                            .child(SharedString::from(crate::format::month_of(&first))),
                     )
                     .child(
                         icon_button("task-month-next", IconName::ChevronRight, palette).on_click(

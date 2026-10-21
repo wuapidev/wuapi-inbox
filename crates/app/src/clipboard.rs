@@ -43,7 +43,8 @@ impl ImageOffer {
 /// else is decoded and encoded as PNG, and kept as it came beside it.
 /// Decoding is behind the same limits as every picture shown.
 pub fn offer(bytes: Vec<u8>, mime: Option<&str>) -> Result<ImageOffer, String> {
-    let format = image::guess_format(&bytes).map_err(|_| "This is not a picture.".to_owned())?;
+    let format = image::guess_format(&bytes)
+        .map_err(|_| crate::i18n::t("common.clipboard.not_a_picture").to_owned())?;
     let bytes = Arc::new(bytes);
     if format == image::ImageFormat::Png {
         return Ok(ImageOffer {

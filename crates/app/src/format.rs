@@ -49,7 +49,7 @@ pub fn day_label(ts: Timestamp, now: Timestamp) -> String {
 }
 
 /// The name of a weekday in the language in use.
-fn weekday(day: Weekday) -> &'static str {
+pub fn weekday(day: Weekday) -> &'static str {
     match day {
         Weekday::Mon => i18n::t("common.weekday.mon"),
         Weekday::Tue => i18n::t("common.weekday.tue"),
@@ -62,7 +62,7 @@ fn weekday(day: Weekday) -> &'static str {
 }
 
 /// The name of a month (1 to 12) in the language in use.
-fn month_name(month: u32) -> &'static str {
+pub fn month_name(month: u32) -> &'static str {
     match month {
         1 => i18n::t("common.month.jan"),
         2 => i18n::t("common.month.feb"),
@@ -95,6 +95,74 @@ fn month_short(month: u32) -> &'static str {
         11 => i18n::t("common.month_short.nov"),
         _ => i18n::t("common.month_short.dec"),
     }
+}
+
+/// The short name of a weekday in the language in use.
+fn weekday_short(day: Weekday) -> &'static str {
+    match day {
+        Weekday::Mon => i18n::t("common.weekday_short.mon"),
+        Weekday::Tue => i18n::t("common.weekday_short.tue"),
+        Weekday::Wed => i18n::t("common.weekday_short.wed"),
+        Weekday::Thu => i18n::t("common.weekday_short.thu"),
+        Weekday::Fri => i18n::t("common.weekday_short.fri"),
+        Weekday::Sat => i18n::t("common.weekday_short.sat"),
+        Weekday::Sun => i18n::t("common.weekday_short.sun"),
+    }
+}
+
+/// A day with its weekday, in few characters: `Sat 3 Oct 2026`, or
+/// `Sat 3 Oct` without the year.
+pub fn weekday_date(day: &impl Datelike, year: bool) -> String {
+    let (weekday, month) = (weekday_short(day.weekday()), month_short(day.month()));
+    if year {
+        i18n::tr(
+            "common.date.weekday_full",
+            &[
+                ("weekday", &weekday),
+                ("day", &day.day()),
+                ("month", &month),
+                ("year", &day.year()),
+            ],
+        )
+    } else {
+        i18n::tr(
+            "common.date.weekday_short",
+            &[
+                ("weekday", &weekday),
+                ("day", &day.day()),
+                ("month", &month),
+            ],
+        )
+    }
+}
+
+/// A day without its weekday, in few characters: `13 Oct`, or
+/// `13 Oct 2026` with the year.
+pub fn day_short(day: &impl Datelike, year: bool) -> String {
+    let month = month_short(day.month());
+    if year {
+        i18n::tr(
+            "common.date.short",
+            &[
+                ("day", &day.day()),
+                ("month", &month),
+                ("year", &day.year()),
+            ],
+        )
+    } else {
+        i18n::tr(
+            "common.date.day_short",
+            &[("day", &day.day()), ("month", &month)],
+        )
+    }
+}
+
+/// A month for a heading: `October 2026`.
+pub fn month_of(day: &impl Datelike) -> String {
+    i18n::tr(
+        "common.date.month_year",
+        &[("month", &month_name(day.month())), ("year", &day.year())],
+    )
 }
 
 /// A moment as part of a file's name: `2026-10-01 15.04.05`, with nothing
