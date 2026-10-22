@@ -2,8 +2,19 @@
 
 ## [Unreleased]
 
+## [0.7.0]
+
 * Ctrl+P (⌘P) goes to a chat and lists nothing else: each chat with its picture, its last message (or who is typing), when that was and what is unread, and the people of the address book who have no chat yet. The commands are Ctrl+Shift+P (or `>` typed), the messages Ctrl+Shift+F. The chats the list has loaded answer as each letter is typed; the store's read adds the rest. The list scrolls to follow the keyboard.
 * Searching ignores accents, in the chat list's field and in the palette, for chats, people and the members of a group: "rene" finds "René Lomelí", and "lomeli" too. `client_core::fold`, which the store gives SQLite as `fold(text)`.
+* A video call that rings, placed or coming in, shows the own camera across its card. One that comes in opens the camera as it rings and answers with it. While a call rings, either way, the card steps through the microphones and, with video, the cameras; a call goes over to the devices chosen without hanging up. With the numbers of this computer.
+* Opening a chat no longer freezes the window. Marking it read wrote to the database on the interface's thread and waited for whatever the engine was writing: 100 to 700 ms for a chat with unread messages on a real history. It is written in the background; the badge and the rail's count go at once. Opening a chat reads the reactions of the messages it shows, not of the whole chat.
+* Sending a message never waits for the engine either: text and polls are queued off the interface's thread, in the order they were sent, and the composer is emptied at once. A message that cannot be queued says so, and what was typed goes back into the composer.
+* The start is shorter: `ffmpeg -version` is no longer asked before the window opens, and the chat list is read once, not twice.
+* Messages answered elsewhere no longer come back as unread. Back from being closed, a reply written on WhatsApp Web, or the news that a chat was read there, could arrive before the messages it answered, which were then counted as unread. Each chat keeps the moment up to which it is read, and archives from before get it from each chat's last reply, which clears those counts. With the numbers of this computer.
+* An answer to a status shows the status it answers, and one somebody else sent says it was to the account's status. WhatsApp names no message of the chat in such an answer, so nothing was drawn.
+* The chat list's filters that do not fit in a narrow list go on another line, under the first.
+* A video's picture is no longer pixelated before the video is downloaded. The small picture its message carries (about 100 px) was stretched to the whole box; it is now softened and enlarged smoothly, as WhatsApp shows it, once and off the interface's thread, and kept with the media.
+* `SyncEngine::marking_read`: whether a chat is still being marked read.
 
 ## [0.6.0]
 
