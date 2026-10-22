@@ -739,8 +739,8 @@ pub trait Session: Send + Sync + 'static {
         None
     }
 
-    /// The devices chosen for calls changed: a call that rings here with
-    /// video shows the camera chosen now.
+    /// The devices chosen for calls changed: the calls that ring or are
+    /// on go over to them.
     fn call_devices_changed(&self) {}
 }
 

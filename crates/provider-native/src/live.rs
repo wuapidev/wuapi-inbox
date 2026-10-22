@@ -292,14 +292,13 @@ struct RingingCall {
     /// themselves before answering. Answering goes on with it; anything
     /// else lets it go.
     preview: Option<(Arc<VideoLink>, VideoUnits)>,
-    /// The camera chosen when the preview was opened.
-    camera: Option<String>,
 }
 
 #[derive(Default)]
 struct Calls {
     ringing: Mutex<HashMap<String, RingingCall>>,
-    /// Held while a preview is opened on another camera: one at a time.
+    /// Held while the calls go over to other devices: one change at a
+    /// time.
     switching: Mutex<()>,
     active: Mutex<HashMap<String, ActiveCall>>,
 }
@@ -317,14 +316,15 @@ impl Calls {
             .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
-    /// `camera`, for a call with video that rings here, opened without
-    /// waiting for it: its pictures show when it is ready. Not while
-    /// another call films, which has the camera.
-    fn preview_camera(&self, camera: &Option<String>) -> Option<(Arc<VideoLink>, VideoUnits)> {
+    /// The camera chosen, for a call with video that rings here, opened
+    /// without waiting for it: its pictures show when it is ready. Not
+    /// while another call films, which has the camera.
+    fn preview_camera(&self) -> Option<(Arc<VideoLink>, VideoUnits)> {
         let filming = self.active().values().any(|call| call.video.is_some());
         if filming || !call_video::available() {
             return None;
         }
+        let camera = call_audio::chosen().camera;
         match call_video::open(camera.as_deref(), false) {
             Ok((link, units)) => Some((Arc::new(link), units)),
             Err(reason) => {
@@ -334,67 +334,45 @@ impl Calls {
         }
     }
 
-    /// The calls with video that ring here show the camera chosen now:
-    /// one whose preview is of another camera opens it again. Off the
-    /// caller's thread, as a camera takes a moment to let go.
-    fn follow_camera(self: &Arc<Self>) {
-        let ids: Vec<String> = self
-            .ringing()
-            .iter()
-            .filter(|(_, held)| {
-                matches!(held.offer.action, CallAction::Offer { is_video: true, .. })
-            })
-            .map(|(id, _)| id.clone())
-            .collect();
-        if ids.is_empty() {
+    /// The calls that ring or are on go over to the devices chosen now:
+    /// the sound at once, the camera off the caller's thread, as one takes
+    /// a moment to let go.
+    fn follow_devices(self: &Arc<Self>) {
+        let mut links: Vec<Arc<VideoLink>> = Vec::new();
+        for call in self.active().values() {
+            call.audio.follow_chosen();
+            links.extend(call.video.clone());
+        }
+        links.extend(
+            self.ringing()
+                .values()
+                .filter_map(|held| Some(held.preview.as_ref()?.0.clone())),
+        );
+        if links.is_empty() {
             return;
         }
         let calls = self.clone();
         let spawned = std::thread::Builder::new()
-            .name("call-preview".into())
+            .name("call-camera".into())
             .spawn(move || {
                 let _one = calls
                     .switching
                     .lock()
                     .unwrap_or_else(|poisoned| poisoned.into_inner());
-                for id in ids {
-                    calls.preview_on_chosen(&id);
+                // Read here, not before: the choice may have changed again
+                // while another change was made.
+                let camera = call_audio::chosen().camera;
+                for link in links {
+                    if link.camera() == camera {
+                        continue;
+                    }
+                    if let Err(reason) = link.switch_camera(camera.clone()) {
+                        tracing::warn!(%reason, "the call could not go over to the camera chosen");
+                    }
                 }
             });
         if let Err(error) = spawned {
-            tracing::warn!(%error, "the camera of a call that rings could not be changed");
-        }
-    }
-
-    /// Opens the preview of `id` on the camera chosen now, until it is on
-    /// it: the choice can change again while a camera opens.
-    fn preview_on_chosen(&self, id: &str) {
-        loop {
-            let wanted = call_audio::chosen().camera;
-            let old = {
-                let mut ringing = self.ringing();
-                let Some(held) = ringing.get_mut(id) else {
-                    return;
-                };
-                if held.camera == wanted {
-                    return;
-                }
-                held.camera = wanted.clone();
-                held.preview.take()
-            };
-            // The old camera goes before the new one opens: a device is
-            // filmed by one program at a time.
-            drop(old);
-            let opened = self.preview_camera(&wanted);
-            let mut ringing = self.ringing();
-            match ringing.get_mut(id) {
-                Some(held) if held.camera == wanted => held.preview = opened,
-                // Answered, or over, or another camera chosen meanwhile.
-                _ => {
-                    drop(ringing);
-                    drop(opened);
-                }
-            }
+            tracing::warn!(%error, "the camera of a call could not be changed");
         }
     }
 }
@@ -676,18 +654,16 @@ impl Hearing {
                 }
                 // An offer heard twice keeps the camera it opened.
                 let heard = self.calls.ringing().remove(call_id);
-                let camera = call_audio::chosen().camera;
-                let (preview, camera) = match heard {
-                    Some(held) => (held.preview, held.camera),
-                    None if *is_video => (self.calls.preview_camera(&camera), camera),
-                    None => (None, camera),
+                let preview = match heard {
+                    Some(held) => held.preview,
+                    None if *is_video => self.calls.preview_camera(),
+                    None => None,
                 };
                 self.calls.ringing().insert(
                     call_id.clone(),
                     RingingCall {
                         offer: incoming.clone(),
                         preview,
-                        camera,
                     },
                 );
                 self.call(
@@ -2184,11 +2160,7 @@ impl Session for LiveSession {
     }
 
     async fn accept_call(&self, id: &str) -> SessionResult<()> {
-        let RingingCall {
-            offer,
-            preview,
-            camera,
-        } = self
+        let RingingCall { offer, preview } = self
             .hearing
             .calls
             .ringing()
@@ -2199,9 +2171,7 @@ impl Session for LiveSession {
         let with_video = matches!(&incoming.action, CallAction::Offer { is_video: true, .. });
         // The camera that showed while it rang goes on, unless it gave up:
         // then it is opened again, and waited for.
-        // So does one of a camera that is not the one chosen any more.
-        let chosen = call_audio::chosen().camera;
-        let preview = preview.filter(|(_, units)| !units.is_closed() && camera == chosen);
+        let preview = preview.filter(|(_, units)| !units.is_closed());
         // What is needed to answer is opened first: a call that cannot be
         // answered here goes on ringing, for the phone to take.
         let opened = match call_audio::open() {
@@ -2220,7 +2190,6 @@ impl Session for LiveSession {
                     RingingCall {
                         offer: incoming,
                         preview: None,
-                        camera: None,
                     },
                 );
                 return Err(error);
@@ -2367,7 +2336,7 @@ impl Session for LiveSession {
     }
 
     fn call_devices_changed(&self) {
-        self.hearing.calls.follow_camera();
+        self.hearing.calls.follow_devices();
     }
 
     fn call_video(&self, id: &str) -> Option<client_provider::CallVideo> {

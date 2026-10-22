@@ -755,9 +755,9 @@ impl Shell {
         )
     }
 
-    /// Before a call that comes in is answered: the microphone it will
-    /// use and, with video, the camera, each stepped through as in the
-    /// settings, which remember the choice.
+    /// While a call rings, here or there: the microphone it uses and,
+    /// with video, the camera, each stepped through as in the settings,
+    /// which remember the choice. The call goes over to them at once.
     fn call_devices(&self, call: &LiveCall, palette: &Palette, cx: &mut Context<Self>) -> Div {
         let default = i18n::t("chat.voice_record.system_default");
         let row = |pick: Pick, glyph: IconName, chosen: Option<String>, cx: &mut Context<Self>| {
@@ -935,8 +935,15 @@ impl Shell {
         let face = stage
             .is_none()
             .then(|| self.call_face(call, &name, &words, palette));
-        // What answering will use is chosen while it rings.
-        let devices = answerable.then(|| self.call_devices(call, palette, cx));
+        // What the call uses is chosen while it rings, here or there.
+        let calling = matches!(
+            call.event.state,
+            CallState::Ringing {
+                incoming: false,
+                ..
+            }
+        );
+        let devices = (answerable || calling).then(|| self.call_devices(call, palette, cx));
         // A switch that is off is drawn filled, so that it is seen.
         let switch = |selector: &'static str, says: &'static str, glyph: IconName, off: bool| {
             let (fill, ink) = if off {

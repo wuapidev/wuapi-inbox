@@ -206,12 +206,22 @@ fn a_call_with_video_shows_both_sides_and_the_camera_turns_off(cx: &mut TestAppC
     assert!(shows(harness.window, "call-preview", cx));
     assert!(!shows(harness.window, "call-video", cx));
     assert!(!shows(harness.window, "chat-video-call", cx));
+    // The microphone and the camera are chosen while it rings there too.
+    assert!(shows(harness.window, "call-mic-value", cx));
+    click(harness.window, "call-mic-next", cx);
+    click(harness.window, "call-camera-next", cx);
+    cx.run_until_parked();
+    assert_eq!(
+        harness.mock.call_devices().camera.as_deref(),
+        Some("mock-camera-0")
+    );
     harness
         .engine
         .apply_event(says(CallState::Connected))
         .unwrap();
     cx.run_until_parked();
     assert!(!shows(harness.window, "call-preview", cx));
+    assert!(!shows(harness.window, "call-devices", cx));
     assert!(shows(harness.window, "call-video", cx));
     assert!(shows(harness.window, "call-video-remote", cx));
     assert!(shows(harness.window, "call-video-local", cx));
