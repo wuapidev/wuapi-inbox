@@ -338,3 +338,31 @@ fn the_rails_arrows_walk_its_numbers_and_enter_selects(cx: &mut TestAppContext) 
     press(harness.window, "down", cx);
     assert!(shows(harness.window, "list-focus", cx));
 }
+
+#[gpui_kit::test]
+fn the_chat_filters_go_on_another_line_in_a_narrow_list(cx: &mut TestAppContext) {
+    let harness = open_one(cx);
+    for list in [None, Some(260u16)] {
+        cx.update(|cx| settings::update(cx, |settings| settings.list_width = list));
+        let visual = VisualTestContext::from_window(harness.window.into(), cx);
+        visual.simulate_resize(size(px(1240.), px(800.)));
+        visual.run_until_parked();
+        let row = bounds(harness.window, "chat-filters", cx);
+        for slug in [
+            "filter-all",
+            "filter-unread",
+            "filter-groups",
+            "filter-archived",
+        ] {
+            let chip = bounds(harness.window, slug, cx);
+            assert!(
+                within(chip, row),
+                "list {list:?}: {slug} {chip:?} in {row:?}"
+            );
+        }
+    }
+    // In the narrow list the last one is under the first.
+    let first = bounds(harness.window, "filter-all", cx);
+    let last = bounds(harness.window, "filter-archived", cx);
+    assert!(last.top() >= first.bottom(), "{first:?} {last:?}");
+}
