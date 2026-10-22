@@ -1786,15 +1786,9 @@ fn video_block(media: &Media, message: &Message, side: &Side, context: &RowConte
     if matches!(state, FileState::Unavailable(_)) && context.shelf.file_expired(&url) {
         return None;
     }
-    // The first frame travels in the message, a picture like any other.
-    let poster = media.thumbnail.as_ref().and_then(|source| {
-        let mut picture = Media::new(MediaKind::Image);
-        picture.source = Some(source.clone());
-        match context.shelf.visual(&message.account_id, &picture) {
-            MediaVisual::Image(image) => Some(image),
-            _ => None,
-        }
-    });
+    // The first frame travels in the message: small, and smoothed to
+    // fill the box.
+    let poster = context.shelf.video_poster(&message.account_id, media);
     let size = context.shelf.image_box(media);
     let palette = &context.palette;
     // While it comes, the button shows how far it is and stops it; else

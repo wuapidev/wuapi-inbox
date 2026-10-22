@@ -178,6 +178,19 @@ enum Covering {
     Here(Option<Cover>),
 }
 
+/// The longest side a video's poster is drawn at: the largest box a
+/// picture gets, sharp on a screen of twice the density.
+const POSTER_SIDE: u32 = 720;
+
+/// Where the poster of a video stands.
+enum Posting {
+    /// Being smoothed off the interface's thread.
+    Drawing,
+    /// Smoothed, or not smoothable (`None`: the small picture is shown
+    /// as it came).
+    Here(Option<Arc<Image>>),
+}
+
 /// What a file being sent shows on the other side before it is
 /// downloaded: for a PDF, the top of its first page and how many pages it
 /// has. Blocking, and slow: called off the interface's thread.
@@ -199,6 +212,52 @@ pub fn sent_preview(file: &client_core::NewMedia) -> Option<client_provider::Fil
 /// Where the drawn first page of the PDF at `url` is kept.
 fn cover_key(url: &str) -> String {
     format!("pdfcover:{url}")
+}
+
+/// Where the smoothed poster of the video whose small picture is at
+/// `url` is kept.
+fn poster_key(url: &str) -> String {
+    format!("poster:{url}")
+}
+
+/// The small, rough JPEG a video's message carries (about 100 px), made
+/// to fill its box: softened first, so its compression blocks melt
+/// instead of growing with it, then enlarged smoothly to `POSTER_SIDE`.
+/// WhatsApp shows it this way until the video is here. `None`: not a
+/// picture that can be read here.
+fn smooth_poster(bytes: &[u8]) -> Option<Vec<u8>> {
+    let small = client_core::upright(bytes, POSTER_SIDE)
+        .ok()?
+        .image
+        .to_rgb8();
+    let (width, height) = small.dimensions();
+    let longest = width.max(height);
+    if longest == 0 {
+        return None;
+    }
+    let scale = POSTER_SIDE as f32 / longest as f32;
+    let soft = if scale > 1. {
+        // A quarter of a source pixel per time it is enlarged: about 1.8
+        // for the usual 100 px picture, nothing for a large one.
+        image::imageops::blur(&small, 0.25 * scale)
+    } else {
+        small
+    };
+    let size = |side: u32| ((side as f32 * scale.max(1.)).round() as u32).max(1);
+    let large = image::imageops::resize(
+        &soft,
+        size(width),
+        size(height),
+        image::imageops::FilterType::CatmullRom,
+    );
+    let mut jpeg = Vec::new();
+    large
+        .write_to(
+            &mut std::io::Cursor::new(&mut jpeg),
+            image::ImageFormat::Jpeg,
+        )
+        .ok()?;
+    Some(jpeg)
 }
 
 /// The top of the first page of a PDF, `COVER_WIDTH` wide, as a JPEG, and
@@ -239,6 +298,9 @@ pub struct MediaShelf {
     shapes: RefCell<HashMap<String, Option<Shape>>>,
     /// The first pages of the PDFs drawn, by url.
     covers: RefCell<HashMap<String, Covering>>,
+    /// The smoothed posters of the videos drawn, by the url of their
+    /// small picture.
+    posters: RefCell<HashMap<String, Posting>>,
     policy: Cell<MediaChoice>,
     /// The stickers and GIFs of the open chat that move, by url.
     moving: RefCell<HashMap<String, Moving>>,
@@ -299,6 +361,7 @@ impl MediaShelf {
             declined: RefCell::default(),
             shapes: RefCell::default(),
             covers: RefCell::default(),
+            posters: RefCell::default(),
             policy: Cell::new(MediaChoice::default()),
             moving: RefCell::default(),
             decoded: Arc::default(),
@@ -367,6 +430,9 @@ impl MediaShelf {
         if let Some(url) = key.strip_prefix("pdfcover:") {
             self.covers.borrow_mut().remove(url);
         }
+        if let Some(url) = key.strip_prefix("poster:") {
+            self.posters.borrow_mut().remove(url);
+        }
         if let Some(url) = key.strip_prefix("anim:") {
             // The engine answered whether it moves: look again.
             let mut moving = self.moving.borrow_mut();
@@ -382,6 +448,7 @@ impl MediaShelf {
     /// let go, and downloads that have not started are dropped.
     pub fn leave_chat(&self) {
         self.covers.borrow_mut().clear();
+        self.posters.borrow_mut().clear();
         self.thumbnails.borrow_mut().clear();
         self.boxes.borrow_mut().clear();
         self.asked.borrow_mut().clear();
@@ -1010,6 +1077,67 @@ impl MediaShelf {
         None
     }
 
+    /// The picture of a video before it plays: the small one its message
+    /// carries, smoothed once off the interface's thread and kept with
+    /// the media; that small one as it came meanwhile, and for one that
+    /// cannot be smoothed. Asking is what gets it fetched.
+    pub fn video_poster(&self, account: &AccountId, media: &Media) -> Option<Arc<Image>> {
+        let source = media.thumbnail.as_ref()?;
+        let url = source.as_str();
+        let small = || {
+            let mut picture = Media::new(MediaKind::Image);
+            picture.source = Some(source.clone());
+            match self.visual(account, &picture) {
+                MediaVisual::Image(image) => Some(image),
+                _ => None,
+            }
+        };
+        match self.posters.borrow().get(url) {
+            Some(Posting::Here(Some(poster))) => return Some(poster.clone()),
+            Some(_) => return small(),
+            None => {}
+        }
+        let key = poster_key(url);
+        if let Ok(Some(kept)) = self.store.media(&key, Timestamp::now()) {
+            let poster = (!kept.bytes.is_empty()).then(|| own_image(kept.bytes));
+            self.posters
+                .borrow_mut()
+                .insert(url.to_owned(), Posting::Here(poster.clone()));
+            return poster.or_else(small);
+        }
+        // Smoothed once the small picture is here.
+        let image = small()?;
+        self.posters
+            .borrow_mut()
+            .insert(url.to_owned(), Posting::Drawing);
+        let (store, runtime) = (self.store.clone(), self.engine.runtime().clone());
+        let (reading, thumbnail) = (store.clone(), thumbnail_key(url));
+        let work = runtime.spawn_blocking(move || {
+            let cached = reading.media(&thumbnail, Timestamp::now()).ok().flatten()?;
+            Some(smooth_poster(&cached.bytes))
+        });
+        // Kept and announced from the runtime: the store's change is what
+        // brings it to the views (`forget_media`).
+        runtime.spawn(async move {
+            let smoothed = match work.await {
+                Ok(Some(smoothed)) => smoothed,
+                // The picture went from the cache meanwhile.
+                Ok(None) => return,
+                Err(_) => None,
+            };
+            let kept = client_core::CachedMedia {
+                bytes: smoothed.unwrap_or_default(),
+                mime: Some("image/jpeg".to_owned()),
+                size: None,
+            };
+            if let Err(error) = store.put_media(&key, &kept, Timestamp::now(), u64::MAX) {
+                tracing::warn!(%error, "could not keep the poster of a video");
+            }
+            store.notify(StoreChange::Media { key });
+        });
+        Some(image)
+    }
+
     /// The bytes of a downloaded file, to decode.
     pub fn file(&self, url: &str) -> Option<(Vec<u8>, Option<String>)> {
         self.store
@@ -1173,6 +1301,38 @@ pub fn export_name(media: &Media, mime: Option<&str>) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_videos_small_picture_is_enlarged_to_fill_its_box() {
+        // The rough 100 px JPEG a video's message carries, upright.
+        let small = image::RgbImage::from_fn(56, 100, |x, y| {
+            image::Rgb([(x * 4) as u8, (y * 2) as u8, 120])
+        });
+        let mut jpeg = Vec::new();
+        small
+            .write_to(
+                &mut std::io::Cursor::new(&mut jpeg),
+                image::ImageFormat::Jpeg,
+            )
+            .unwrap();
+        let poster = image::load_from_memory(&smooth_poster(&jpeg).unwrap()).unwrap();
+        assert_eq!((poster.width(), poster.height()), (403, POSTER_SIDE));
+        // A large one is kept at its size, not blurred up.
+        let large = client_core::thumbnail(
+            &{
+                let mut png = Vec::new();
+                image::RgbImage::new(1280, 720)
+                    .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
+                    .unwrap();
+                png
+            },
+            2000,
+        )
+        .unwrap();
+        let poster = image::load_from_memory(&smooth_poster(&large.bytes).unwrap()).unwrap();
+        assert_eq!((poster.width(), poster.height()), (720, 405));
+        assert!(smooth_poster(b"not a picture").is_none());
+    }
 
     #[test]
     fn exported_names_cannot_leave_their_directory() {
