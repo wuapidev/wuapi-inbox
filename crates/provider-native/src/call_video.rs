@@ -39,8 +39,9 @@ const KEYFRAME_SECONDS: u32 = 2;
 /// The other side's pictures are fitted into a square of this side: a
 /// phone is held upright or sideways, and turns during a call.
 const REMOTE_SIDE: u32 = 480;
-/// The size of the account's own small picture.
-const PREVIEW: (u32, u32) = (160, 90);
+/// The size of the account's own picture: small in its corner during a
+/// call, across the card while one rings.
+const PREVIEW: (u32, u32) = (320, 180);
 /// How many of the camera's access units may wait before they are
 /// dropped: video that is late is worse than video that is missing.
 const WAITING_UNITS: usize = 4;
@@ -622,13 +623,14 @@ impl Drop for Filming {
     }
 }
 
-/// Starts filming `input`. Answers once the first picture is there, with
-/// the channel the access units come on.
+/// Starts filming `input` into `units`. Answers once the first picture
+/// is there, or at once without `wait`.
 fn film(
     input: &Input,
     preview: Sender<VideoFrame>,
+    units: Sender<Vec<u8>>,
     wait: bool,
-) -> Result<(Filming, Receiver<Vec<u8>>), String> {
+) -> Result<Filming, String> {
     let asked = Instant::now();
     let mut child = Command::new("ffmpeg")
         .args(["-hide_banner", "-loglevel", "error"])
@@ -642,7 +644,6 @@ fn film(
     let complaint = hear_complaints(&mut child, "camera", None);
     let mut stdout = child.stdout.take().ok_or("The camera could not be read.")?;
     let child = Arc::new(Mutex::new(child));
-    let (units, camera) = async_channel::bounded::<Vec<u8>>(WAITING_UNITS);
     let (ready, started) = std::sync::mpsc::channel::<()>();
     let filming = child.clone();
     let heard = complaint.clone();
@@ -686,12 +687,12 @@ fn film(
     let filming = Filming { child };
     if !wait {
         // The pictures come on the channel when the camera is ready.
-        return Ok((filming, camera));
+        return Ok(filming);
     }
     let until = Instant::now() + CAMERA_READY;
     loop {
         match started.recv_timeout(Duration::from_millis(100)) {
-            Ok(()) => return Ok((filming, camera)),
+            Ok(()) => return Ok(filming),
             Err(std::sync::mpsc::RecvTimeoutError::Timeout) if Instant::now() < until => {}
             Err(_) => {
                 let reason = lock(&complaint).clone();
@@ -715,9 +716,11 @@ pub struct VideoLink {
     pub screen: Sender<VideoFrame>,
     /// The pictures of both sides, for the window.
     pub pictures: CallVideo,
-    input: Input,
+    input: Mutex<Input>,
     preview: Sender<VideoFrame>,
-    filming: Mutex<Option<Filming>>,
+    /// The camera while it films, and the channel the library takes its
+    /// pictures from.
+    filming: Mutex<Option<(Filming, Sender<Vec<u8>>)>>,
     stuck: Arc<Mutex<Option<Stuck>>>,
 }
 
@@ -734,9 +737,41 @@ impl VideoLink {
     /// the first picture is there, which is how it is known that the
     /// camera works; without, at once.
     pub fn start_camera(&self, wait: bool) -> Result<Receiver<Vec<u8>>, String> {
-        let (filming, camera) = film(&self.input, self.preview.clone(), wait)?;
-        *lock(&self.filming) = Some(filming);
+        let (units, camera) = async_channel::bounded::<Vec<u8>>(WAITING_UNITS);
+        let input = lock(&self.input).clone();
+        let filming = film(&input, self.preview.clone(), units.clone(), wait)?;
+        *lock(&self.filming) = Some((filming, units));
         Ok(camera)
+    }
+
+    /// The camera it films, or would film when on: `None` is the first
+    /// there is.
+    pub fn camera(&self) -> Option<String> {
+        match &*lock(&self.input) {
+            Input::Camera(camera) => camera.clone(),
+            Input::Pattern => None,
+        }
+    }
+
+    /// Films `camera` from now on. While it films, the new camera goes on
+    /// the same channel, so the library notices nothing but a picture to
+    /// start from; when it is off, it is the one turned on next.
+    pub fn switch_camera(&self, camera: Option<String>) -> Result<(), String> {
+        self.switch_to(Input::Camera(camera))
+    }
+
+    fn switch_to(&self, input: Input) -> Result<(), String> {
+        *lock(&self.input) = input.clone();
+        let mut filming = lock(&self.filming);
+        let Some((old, units)) = filming.take() else {
+            return Ok(());
+        };
+        // The old camera goes first: a device is filmed by one program at
+        // a time.
+        drop(old);
+        let new = film(&input, self.preview.clone(), units.clone(), false)?;
+        *filming = Some((new, units));
+        Ok(())
     }
 
     /// Lets the camera go. The other side's pictures keep coming.
@@ -760,7 +795,8 @@ impl Drop for VideoLink {
 ///
 /// With `wait` it answers once the camera gave a picture: a call that is
 /// answered says it has video, so it should have some. A call that is
-/// placed does not wait: the camera starts while it rings.
+/// placed, or one that rings here, does not wait: the camera starts while
+/// it rings, and shows the user themselves before it is answered.
 pub fn open(camera: Option<&str>, wait: bool) -> Result<(VideoLink, Receiver<Vec<u8>>), String> {
     open_on(Input::Camera(camera.map(str::to_owned)), wait)
 }
@@ -795,7 +831,7 @@ fn open_on(input: Input, wait: bool) -> Result<(VideoLink, Receiver<Vec<u8>>), S
     let link = VideoLink {
         screen,
         pictures,
-        input,
+        input: Mutex::new(input),
         preview,
         filming: Mutex::new(None),
         stuck,
@@ -940,5 +976,15 @@ mod tests {
         // Without waiting for it: the pictures come when it is ready.
         let again = link.start_camera(false).expect("the camera again");
         assert!(au_has_idr(&again.recv_blocking().unwrap()));
+
+        // Another camera, while it films: on the same channel, starting
+        // again at a picture that can be started from.
+        link.switch_to(Input::Pattern).expect("the other camera");
+        let switched = wait_for(|| {
+            let unit = again.recv_blocking().ok()?;
+            au_has_idr(&unit).then_some(unit)
+        });
+        assert!(switched.is_some(), "the same channel goes on");
+        assert!(!again.is_closed());
     }
 }

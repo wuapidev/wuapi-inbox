@@ -311,11 +311,15 @@ impl Shell {
     }
 
     fn render_filters(&self, palette: &Palette, cx: &mut Context<Self>) -> impl IntoElement {
+        // A list too narrow for every filter puts the rest on another
+        // line, under the first.
         let mut chips = div()
+            .debug_selector(|| "chat-filters".into())
             .flex_none()
             .px_3()
             .pb_2()
             .flex()
+            .flex_wrap()
             .items_center()
             .gap_1();
         for (index, (filter, slug, name)) in [
@@ -355,6 +359,7 @@ impl Shell {
                 div()
                     .id(("filter", index))
                     .debug_selector(move || format!("filter-{slug}"))
+                    .flex_none()
                     .h(px(28.))
                     .px(px(10.))
                     .rounded(metrics::RADIUS())

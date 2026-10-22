@@ -50,6 +50,9 @@ fn a_call_that_comes_in_is_answered_and_hung_up_from_its_card(cx: &mut TestAppCo
     assert!(shows(harness.window, "call-card", cx));
     assert!(shows(harness.window, "call-accept", cx));
     assert_eq!(said(&harness, cx), Some("Incoming voice call"));
+    // A voice call chooses its microphone, not a camera.
+    assert!(shows(harness.window, "call-mic-value", cx));
+    assert!(!shows(harness.window, "call-camera-value", cx));
     // The name on the card is the chat's.
     let title = cx.update(|cx| {
         harness
@@ -77,6 +80,7 @@ fn a_call_that_comes_in_is_answered_and_hung_up_from_its_card(cx: &mut TestAppCo
     click(harness.window, "call-accept", cx);
     assert_eq!(said(&harness, cx), Some("Connecting…"));
     assert!(!shows(harness.window, "call-accept", cx));
+    assert!(!shows(harness.window, "call-devices", cx));
     assert!(shows(harness.window, "call-mute", cx));
 
     signal(&harness, cx, CallState::Connected, false);
@@ -196,15 +200,28 @@ fn a_call_with_video_shows_both_sides_and_the_camera_turns_off(cx: &mut TestAppC
     };
     harness.engine.apply_event(says(rings)).unwrap();
     cx.run_until_parked();
-    // While it rings there is nothing to draw, and no second call.
+    // While it rings the own camera is seen across the card, theirs not
+    // yet, and there is no second call.
     assert_eq!(said(&harness, cx), Some("Calling…"));
+    assert!(shows(harness.window, "call-preview", cx));
     assert!(!shows(harness.window, "call-video", cx));
     assert!(!shows(harness.window, "chat-video-call", cx));
+    // The microphone and the camera are chosen while it rings there too.
+    assert!(shows(harness.window, "call-mic-value", cx));
+    click(harness.window, "call-mic-next", cx);
+    click(harness.window, "call-camera-next", cx);
+    cx.run_until_parked();
+    assert_eq!(
+        harness.mock.call_devices().camera.as_deref(),
+        Some("mock-camera-0")
+    );
     harness
         .engine
         .apply_event(says(CallState::Connected))
         .unwrap();
     cx.run_until_parked();
+    assert!(!shows(harness.window, "call-preview", cx));
+    assert!(!shows(harness.window, "call-devices", cx));
     assert!(shows(harness.window, "call-video", cx));
     assert!(shows(harness.window, "call-video-remote", cx));
     assert!(shows(harness.window, "call-video-local", cx));
@@ -242,6 +259,50 @@ fn a_call_with_video_shows_both_sides_and_the_camera_turns_off(cx: &mut TestAppC
 
     click(harness.window, "call-end", cx);
     assert!(!shows(harness.window, "call-card", cx));
+}
+
+#[gpui_kit::test]
+fn a_video_call_that_comes_in_shows_the_own_camera_before_it_is_answered(cx: &mut TestAppContext) {
+    let harness = open_chat_one(cx);
+    let (account, chat) = open_ids(&harness, cx);
+    let id = harness.mock.ring(&account, &chat, true);
+    harness
+        .engine
+        .apply_event(ProviderEvent::Call(CallEvent {
+            account_id: account,
+            call_id: id,
+            peer: ContactId::new(chat.as_str()),
+            chat_id: chat,
+            video: true,
+            state: ringing(),
+            at: Timestamp::now(),
+        }))
+        .unwrap();
+    cx.run_until_parked();
+    assert_eq!(said(&harness, cx), Some("Incoming video call"));
+    assert!(shows(harness.window, "call-preview", cx));
+    assert!(within(
+        bounds(harness.window, "call-preview", cx),
+        bounds(harness.window, "call-card", cx)
+    ));
+    assert!(shows(harness.window, "call-accept", cx));
+
+    // What answering uses is chosen on the card, and remembered.
+    assert!(shows(harness.window, "call-devices", cx));
+    assert!(shows(harness.window, "call-mic-value", cx));
+    click(harness.window, "call-camera-next", cx);
+    cx.run_until_parked();
+    assert_eq!(
+        harness.mock.call_devices().camera.as_deref(),
+        Some("mock-camera-0")
+    );
+    assert!(shows(harness.window, "call-card", cx), "the card stays");
+
+    // Answered, the own camera goes to its corner.
+    click(harness.window, "call-accept", cx);
+    cx.run_until_parked();
+    assert!(!shows(harness.window, "call-preview", cx));
+    assert!(shows(harness.window, "call-video-local", cx));
 }
 
 #[gpui_kit::test]

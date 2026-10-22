@@ -738,6 +738,10 @@ pub trait Session: Send + Sync + 'static {
         let _ = id;
         None
     }
+
+    /// The devices chosen for calls changed: the calls that ring or are
+    /// on go over to them.
+    fn call_devices_changed(&self) {}
 }
 
 /// How a session is opened.

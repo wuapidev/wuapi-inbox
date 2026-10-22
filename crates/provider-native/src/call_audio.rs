@@ -200,6 +200,8 @@ pub struct AudioLink {
     pub speaker: Sender<Vec<i16>>,
     muted: Arc<AtomicBool>,
     stop: Arc<AtomicBool>,
+    /// Set when the devices chosen changed, for the thread to look.
+    changed: Arc<AtomicBool>,
     thread: Option<std::thread::JoinHandle<()>>,
 }
 
@@ -207,6 +209,16 @@ impl AudioLink {
     /// Silences the microphone, or lets it be heard again.
     pub fn set_muted(&self, muted: bool) {
         self.muted.store(muted, Ordering::Relaxed);
+    }
+
+    /// Goes over to the microphone and speakers chosen now, if they are
+    /// not the ones it uses. The call's channels stay as they are: the
+    /// library notices nothing.
+    pub fn follow_chosen(&self) {
+        self.changed.store(true, Ordering::Relaxed);
+        if let Some(thread) = &self.thread {
+            thread.thread().unpark();
+        }
     }
 }
 
@@ -227,18 +239,46 @@ pub fn open() -> Result<AudioLink, String> {
     let (speaker, from_call) = async_channel::bounded::<Vec<i16>>(WAITING_FRAMES);
     let muted = Arc::new(AtomicBool::new(false));
     let stop = Arc::new(AtomicBool::new(false));
+    let changed = Arc::new(AtomicBool::new(false));
     let (ready, opened) = std::sync::mpsc::channel::<Result<(), String>>();
-    let (silenced, stopping) = (muted.clone(), stop.clone());
+    let (silenced, stopping, looked) = (muted.clone(), stop.clone(), changed.clone());
     let thread = std::thread::Builder::new()
         .name("call-audio".into())
         .spawn(move || {
             // The streams stay on this thread until the call is over.
-            let streams = streams(&devices, to_call, from_call, silenced);
-            let failed = streams.is_err();
-            let _ = ready.send(streams.as_ref().map(|_| ()).map_err(Clone::clone));
+            let open = |devices: &CallDevices| {
+                streams(
+                    devices,
+                    to_call.clone(),
+                    from_call.clone(),
+                    silenced.clone(),
+                )
+            };
+            let mut using = devices;
+            let mut held = open(&using);
+            let failed = held.is_err();
+            let _ = ready.send(held.as_ref().map(|_| ()).map_err(Clone::clone));
             while !failed && !stopping.load(Ordering::Relaxed) {
                 std::thread::park_timeout(std::time::Duration::from_millis(250));
+                if !looked.swap(false, Ordering::Relaxed) {
+                    continue;
+                }
+                let wanted = chosen();
+                if (&wanted.microphone, &wanted.speaker) == (&using.microphone, &using.speaker) {
+                    continue;
+                }
+                // The old devices go first: one may be the new one too.
+                drop(std::mem::replace(&mut held, Err(String::new())));
+                held = open(&wanted).or_else(|reason| {
+                    tracing::warn!(%reason, "the devices chosen cannot be used: the system's are");
+                    open(&CallDevices::default())
+                });
+                if let Err(reason) = &held {
+                    tracing::warn!(%reason, "the call has no sound any more");
+                }
+                using = wanted;
             }
+            drop(held);
         })
         .map_err(|error| format!("The call's audio could not start ({error})."))?;
     match opened.recv() {
@@ -247,6 +287,7 @@ pub fn open() -> Result<AudioLink, String> {
             speaker,
             muted,
             stop,
+            changed,
             thread: Some(thread),
         }),
         Ok(Err(reason)) => Err(reason),

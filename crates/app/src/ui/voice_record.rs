@@ -941,7 +941,7 @@ impl Shell {
     }
 
     /// What the chosen camera is called.
-    fn camera_name(&self) -> Option<String> {
+    pub(super) fn camera_name(&self) -> Option<String> {
         let chosen = self.call_camera.as_deref()?;
         self.engine
             .call_cameras()

@@ -285,14 +285,26 @@ async fn open_video(wait: bool) -> SessionResult<(Arc<VideoLink>, VideoUnits)> {
 /// The camera's encoded pictures, as the library takes them.
 type VideoUnits = whatsapp_rust::async_channel::Receiver<Vec<u8>>;
 
+/// A call that rings here.
+struct RingingCall {
+    offer: IncomingCall,
+    /// With video, the camera, open while it rings so that the user sees
+    /// themselves before answering. Answering goes on with it; anything
+    /// else lets it go.
+    preview: Option<(Arc<VideoLink>, VideoUnits)>,
+}
+
 #[derive(Default)]
 struct Calls {
-    ringing: Mutex<HashMap<String, IncomingCall>>,
+    ringing: Mutex<HashMap<String, RingingCall>>,
+    /// Held while the calls go over to other devices: one change at a
+    /// time.
+    switching: Mutex<()>,
     active: Mutex<HashMap<String, ActiveCall>>,
 }
 
 impl Calls {
-    fn ringing(&self) -> std::sync::MutexGuard<'_, HashMap<String, IncomingCall>> {
+    fn ringing(&self) -> std::sync::MutexGuard<'_, HashMap<String, RingingCall>> {
         self.ringing
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
@@ -302,6 +314,66 @@ impl Calls {
         self.active
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    /// The camera chosen, for a call with video that rings here, opened
+    /// without waiting for it: its pictures show when it is ready. Not
+    /// while another call films, which has the camera.
+    fn preview_camera(&self) -> Option<(Arc<VideoLink>, VideoUnits)> {
+        let filming = self.active().values().any(|call| call.video.is_some());
+        if filming || !call_video::available() {
+            return None;
+        }
+        let camera = call_audio::chosen().camera;
+        match call_video::open(camera.as_deref(), false) {
+            Ok((link, units)) => Some((Arc::new(link), units)),
+            Err(reason) => {
+                tracing::warn!(%reason, "no camera to show while a call rings");
+                None
+            }
+        }
+    }
+
+    /// The calls that ring or are on go over to the devices chosen now:
+    /// the sound at once, the camera off the caller's thread, as one takes
+    /// a moment to let go.
+    fn follow_devices(self: &Arc<Self>) {
+        let mut links: Vec<Arc<VideoLink>> = Vec::new();
+        for call in self.active().values() {
+            call.audio.follow_chosen();
+            links.extend(call.video.clone());
+        }
+        links.extend(
+            self.ringing()
+                .values()
+                .filter_map(|held| Some(held.preview.as_ref()?.0.clone())),
+        );
+        if links.is_empty() {
+            return;
+        }
+        let calls = self.clone();
+        let spawned = std::thread::Builder::new()
+            .name("call-camera".into())
+            .spawn(move || {
+                let _one = calls
+                    .switching
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner());
+                // Read here, not before: the choice may have changed again
+                // while another change was made.
+                let camera = call_audio::chosen().camera;
+                for link in links {
+                    if link.camera() == camera {
+                        continue;
+                    }
+                    if let Err(reason) = link.switch_camera(camera.clone()) {
+                        tracing::warn!(%reason, "the call could not go over to the camera chosen");
+                    }
+                }
+            });
+        if let Err(error) = spawned {
+            tracing::warn!(%error, "the camera of a call could not be changed");
+        }
     }
 }
 
@@ -580,9 +652,20 @@ impl Hearing {
                 if incoming.offline {
                     return;
                 }
-                self.calls
-                    .ringing()
-                    .insert(call_id.clone(), incoming.clone());
+                // An offer heard twice keeps the camera it opened.
+                let heard = self.calls.ringing().remove(call_id);
+                let preview = match heard {
+                    Some(held) => held.preview,
+                    None if *is_video => self.calls.preview_camera(),
+                    None => None,
+                };
+                self.calls.ringing().insert(
+                    call_id.clone(),
+                    RingingCall {
+                        offer: incoming.clone(),
+                        preview,
+                    },
+                );
                 self.call(
                     call_id,
                     call_creator,
@@ -2077,25 +2160,38 @@ impl Session for LiveSession {
     }
 
     async fn accept_call(&self, id: &str) -> SessionResult<()> {
-        let incoming = self
+        let RingingCall { offer, preview } = self
             .hearing
             .calls
             .ringing()
             .remove(id)
             .ok_or_else(|| SessionError::refused(refusal::NOT_FOUND, "This call is over."))?;
+        let incoming = offer;
         let asked = std::time::Instant::now();
         let with_video = matches!(&incoming.action, CallAction::Offer { is_video: true, .. });
+        // The camera that showed while it rang goes on, unless it gave up:
+        // then it is opened again, and waited for.
+        let preview = preview.filter(|(_, units)| !units.is_closed());
         // What is needed to answer is opened first: a call that cannot be
         // answered here goes on ringing, for the phone to take.
         let opened = match call_audio::open() {
-            Ok(audio) if with_video => open_video(true).await.map(|video| (audio, Some(video))),
+            Ok(audio) if with_video => match preview {
+                Some(video) => Ok((audio, Some(video))),
+                None => open_video(true).await.map(|video| (audio, Some(video))),
+            },
             Ok(audio) => Ok((audio, None)),
             Err(reason) => Err(SessionError::refused("no_audio", reason)),
         };
         let (audio, video) = match opened {
             Ok(opened) => opened,
             Err(error) => {
-                self.hearing.calls.ringing().insert(id.to_owned(), incoming);
+                self.hearing.calls.ringing().insert(
+                    id.to_owned(),
+                    RingingCall {
+                        offer: incoming,
+                        preview: None,
+                    },
+                );
                 return Err(error);
             }
         };
@@ -2152,7 +2248,10 @@ impl Session for LiveSession {
             return Ok(());
         }
         let ringing = self.hearing.calls.ringing().remove(id);
-        if let Some(incoming) = ringing {
+        if let Some(RingingCall {
+            offer: incoming, ..
+        }) = ringing
+        {
             let declined = bounded(REQUEST_TIMEOUT, async {
                 self.client.voip().reject(&incoming).await.map_err(failed)
             })
@@ -2236,8 +2335,16 @@ impl Session for LiveSession {
         .await
     }
 
+    fn call_devices_changed(&self) {
+        self.hearing.calls.follow_devices();
+    }
+
     fn call_video(&self, id: &str) -> Option<client_provider::CallVideo> {
-        let active = self.hearing.calls.active();
-        Some(active.get(id)?.video.as_ref()?.pictures.clone())
+        if let Some(call) = self.hearing.calls.active().get(id) {
+            return Some(call.video.as_ref()?.pictures.clone());
+        }
+        let ringing = self.hearing.calls.ringing();
+        let (link, _) = ringing.get(id)?.preview.as_ref()?;
+        Some(link.pictures.clone())
     }
 }
