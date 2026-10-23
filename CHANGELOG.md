@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.8.0]
+
 * A group's invite link (`chat.whatsapp.com/…`, or `whatsapp://chat?code=…`) opens a card with the group: its name, how many are in it and its description. "Join" joins it and opens its chat; a group that lets people in after an admin approves says the request waits. A group the number is in already opens at once. Clicked in a message or handed over by the system, as the other WhatsApp links. Until now such a link only said it could not be followed.
 * Linux: "Open WhatsApp links with Wuapi" now sticks. The installer wrote the program in the desktop entry in quotes (`Exec="…/wuapi-inbox" %u`); xdg-utils takes the first word of that line, quotes and all, as the program, found none, and so kept choosing another application for `whatsapp:` links, and Settings said so after the button. The installer, and Settings when it puts an entry right, quote the path only when it needs it.
 * The forward sheet is the palette with a box on each row: every chat with its picture, its last message, when that was and what is unread, the ones opened last first, and the people of the address book with no chat yet (one is made when the forward is sent). The arrows and the page keys walk the rows, Enter picks one, Ctrl+Enter (⌘↩) sends; what was picked stays as chips over the list while the search changes. Enter typed in its search picked a chat and let it go again at once.
