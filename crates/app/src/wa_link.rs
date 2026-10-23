@@ -184,6 +184,11 @@ mod tests {
         assert_eq!(parse("https://chat.whatsapp.com/AbC123xyz"), invite);
         assert_eq!(parse("chat.whatsapp.com/AbC123xyz/"), invite);
         assert_eq!(parse("whatsapp://chat?code=AbC123xyz"), invite);
+        // A link shared from the phone carries a query of its own.
+        assert_eq!(
+            parse("https://chat.whatsapp.com/DvdrsKja5Lw3GQVfSSkXLV?s=cl&p=i&mlu=4&ilr=4&iam=0"),
+            Some(WaLink::Invite("DvdrsKja5Lw3GQVfSSkXLV".into()))
+        );
     }
 
     #[test]

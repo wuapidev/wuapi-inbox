@@ -39,7 +39,7 @@ use client_provider::{
     SendReceipt, Timestamp,
 };
 use client_provider::{
-    BusinessProfile, ContactId, Group, GroupChange, JoinRequest, NewGroup, OwnProfile,
+    BusinessProfile, ContactId, Group, GroupChange, JoinOutcome, JoinRequest, NewGroup, OwnProfile,
     ParticipantChange, ParticipantOutcome, ProfileChange,
 };
 use futures::StreamExt;
@@ -2265,6 +2265,19 @@ impl Provider for MockProvider {
         _request_id: &str,
     ) -> ProviderResult<()> {
         self.mock_leave_group(account, group)
+    }
+
+    async fn invite_info(&self, account: &AccountId, code: &str) -> ProviderResult<Group> {
+        self.mock_invite_info(account, code)
+    }
+
+    async fn join_group(
+        &self,
+        account: &AccountId,
+        code: &str,
+        _request_id: &str,
+    ) -> ProviderResult<JoinOutcome> {
+        self.mock_join_group(account, code)
     }
 
     async fn link_places(&self) -> ProviderResult<Vec<LinkPlace>> {

@@ -17,7 +17,7 @@ use client_provider::{
     ProviderResult, SendReceipt, Timestamp,
 };
 use client_provider::{
-    BusinessProfile, ContactId, Group, GroupChange, JoinRequest, NewGroup, OwnProfile,
+    BusinessProfile, ContactId, Group, GroupChange, JoinOutcome, JoinRequest, NewGroup, OwnProfile,
     ParticipantChange, ParticipantOutcome, ProfileChange,
 };
 use std::sync::Arc;
@@ -320,6 +320,7 @@ impl Provider for WuapiProvider {
             group_invites: true,
             group_join_requests: true,
             group_leave: true,
+            group_join: true,
             // `POST`/`DELETE …/groups/{groupId}/subgroups`, `community` and
             // `communityId` on `POST …/groups`, and
             // `GET …/groups/{groupId}/community-participants`.
@@ -1100,6 +1101,19 @@ impl Provider for WuapiProvider {
         self.client
             .answer_join_requests(account, group, approve, contacts, request_id)
             .await
+    }
+
+    async fn invite_info(&self, account: &AccountId, code: &str) -> ProviderResult<Group> {
+        self.client.invite_info(account, code).await
+    }
+
+    async fn join_group(
+        &self,
+        account: &AccountId,
+        code: &str,
+        request_id: &str,
+    ) -> ProviderResult<JoinOutcome> {
+        self.client.join_group(account, code, request_id).await
     }
 
     async fn link_subgroup(

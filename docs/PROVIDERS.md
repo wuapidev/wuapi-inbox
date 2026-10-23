@@ -94,6 +94,7 @@ One number, one chat; what you write comes back.
 | `group_invite_link` | no | `group_invites` |
 | `join_requests`, `answer_join_requests` | no | `group_join_requests` |
 | `leave_group` | no | `group_leave` |
+| `invite_info`, `join_group` | no | `group_join` |
 | `link_subgroup`, `unlink_subgroup` | no | `community_manage` |
 | `community_participants` | no | `community_members` |
 | `list_stories` | no | `story_list` |
@@ -172,6 +173,7 @@ Profiles and groups are optional as well, each behind its own capability flag an
 | `group_invites` | `group_invite_link` |
 | `group_join_requests` | `join_requests`, `answer_join_requests` |
 | `group_leave` | `leave_group` |
+| `group_join` | `invite_info` (the group an invite code is for, without joining it) and `join_group` (`JoinOutcome::Joined` with the group, or `Pending` when an admin has to approve; joining a group the number is in already answers that group) |
 | `community_manage` | `link_subgroup`, `unlink_subgroup`, and `NewGroup::community` / `NewGroup::in_community` on `create_group` (a community, and a group made inside one) |
 | `community_members` | `community_participants` |
 

@@ -18,7 +18,7 @@ use crate::session::{
 use async_trait::async_trait;
 use client_provider::{
     refusal, AccountId, Avatar, AvatarAnswer, BusinessHours, BusinessProfile, ChatChange,
-    ContactId, Group, GroupChange, GroupParticipant, GroupRole, JoinRequest, NewGroup,
+    ContactId, Group, GroupChange, GroupParticipant, GroupRole, JoinOutcome, JoinRequest, NewGroup,
     ParticipantChange, ParticipantOutcome, Party, PresenceState, StoryAudience, StoryPrivacy,
     Subgroup, SystemEvent, SystemKind, Timestamp,
 };
@@ -47,8 +47,8 @@ use whatsapp_rust::wacore::types::presence::{ChatActivity, PresenceStatus, Recei
 use whatsapp_rust::wacore::types::wire_enums::MemberAddMode;
 use whatsapp_rust::waproto::whatsapp as wa;
 use whatsapp_rust::{
-    GroupMetadata, Jid, MessageId, MessageRef, MessageSecret, PollRef, PreviousDescription,
-    ProfilePictureRequest, ProfilePictureTarget, StatusSendOptions,
+    GroupMetadata, Jid, JoinGroupResult, MessageId, MessageRef, MessageSecret, PollRef,
+    PreviousDescription, ProfilePictureRequest, ProfilePictureTarget, StatusSendOptions,
 };
 
 /// What the phone calls this device in its list of linked devices.
@@ -2022,6 +2022,35 @@ impl Session for LiveSession {
                 .leave(group.clone())
                 .await
                 .map_err(failed)
+        })
+        .await
+    }
+
+    async fn invite_info(&self, code: &str) -> SessionResult<Group> {
+        bounded(REQUEST_TIMEOUT, async {
+            let metadata = self
+                .client
+                .groups()
+                .get_invite_info(code)
+                .await
+                .map_err(failed)?;
+            Ok(to_group(&metadata))
+        })
+        .await
+    }
+
+    async fn join_group(&self, code: &str) -> SessionResult<JoinOutcome> {
+        bounded(REQUEST_TIMEOUT, async {
+            match self
+                .client
+                .groups()
+                .join_with_invite_code(code)
+                .await
+                .map_err(failed)?
+            {
+                JoinGroupResult::Joined(group) => Ok(JoinOutcome::Joined(chat_id(&group))),
+                JoinGroupResult::PendingApproval(_) => Ok(JoinOutcome::Pending),
+            }
         })
         .await
     }

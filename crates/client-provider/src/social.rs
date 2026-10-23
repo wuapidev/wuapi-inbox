@@ -200,6 +200,16 @@ impl ParticipantOutcome {
     }
 }
 
+/// What asking to join a group by its invite came to.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum JoinOutcome {
+    /// The account is in the group (it may have been already).
+    Joined(ChatId),
+    /// The group lets people in after an admin approves: the request is
+    /// waiting.
+    Pending,
+}
+
 /// Someone asking to join a group that needs approval.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct JoinRequest {

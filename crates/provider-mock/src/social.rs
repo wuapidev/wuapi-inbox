@@ -10,9 +10,9 @@ use crate::{community, seed};
 use crate::{MockProvider, State};
 use client_provider::{
     refusal, AccountId, BusinessProfile, Chat, ChatId, ChatKind, Contact, ContactId, Group,
-    GroupChange, GroupParticipant, GroupRole, JoinRequest, NewGroup, OwnProfile, ParticipantChange,
-    ParticipantOutcome, ProfileChange, ProviderError, ProviderEvent, ProviderResult, Subgroup,
-    Timestamp,
+    GroupChange, GroupParticipant, GroupRole, JoinOutcome, JoinRequest, NewGroup, OwnProfile,
+    ParticipantChange, ParticipantOutcome, ProfileChange, ProviderError, ProviderEvent,
+    ProviderResult, Subgroup, Timestamp,
 };
 use std::collections::{HashMap, VecDeque};
 
@@ -45,6 +45,8 @@ pub(crate) struct Social {
     links: HashMap<(AccountId, ChatId), (ChatId, bool)>,
     /// Groups the listing of every group leaves out.
     unlisted: Vec<(AccountId, ChatId)>,
+    /// The groups invite codes are for.
+    invites: HashMap<String, (AccountId, ChatId)>,
 }
 
 impl Social {
@@ -303,6 +305,14 @@ impl MockProvider {
             found.subgroups = subgroups_of(&state, account, group);
         }
         found
+    }
+
+    /// An invite code for a group, as if someone had shared its link.
+    pub fn add_invite(&self, code: &str, account: &AccountId, group: &ChatId) {
+        self.state()
+            .social
+            .invites
+            .insert(code.to_owned(), (account.clone(), group.clone()));
     }
 
     /// The id the account goes by in its groups.
@@ -1055,5 +1065,55 @@ impl MockProvider {
         let found = group_mut(&mut state, account, group)?;
         found.participants.retain(|p| p.contact != me);
         Ok(())
+    }
+
+    /// The group an invite is for, when it is one of this account's.
+    fn invited<'a>(
+        state: &'a mut State,
+        account: &AccountId,
+        code: &str,
+    ) -> ProviderResult<&'a mut Group> {
+        let group = match state.social.invites.get(code) {
+            Some((owner, group)) if owner == account => group.clone(),
+            _ => {
+                return Err(rejected(
+                    refusal::NOT_FOUND,
+                    "This invite link was reset or never existed.",
+                ))
+            }
+        };
+        group_mut(state, account, &group)
+    }
+
+    pub(crate) fn mock_invite_info(
+        &self,
+        account: &AccountId,
+        code: &str,
+    ) -> ProviderResult<Group> {
+        let mut state = self.state();
+        enter(&mut state, "invite_info")?;
+        Self::invited(&mut state, account, code).cloned()
+    }
+
+    pub(crate) fn mock_join_group(
+        &self,
+        account: &AccountId,
+        code: &str,
+    ) -> ProviderResult<JoinOutcome> {
+        let mut state = self.state();
+        enter(&mut state, "join_group")?;
+        let me = seed::self_contact(account);
+        let found = Self::invited(&mut state, account, code)?;
+        if my_role(found).is_none() {
+            if found.join_approval == Some(true) {
+                return Ok(JoinOutcome::Pending);
+            }
+            found.participants.push(GroupParticipant {
+                contact: me,
+                name: None,
+                role: GroupRole::Member,
+            });
+        }
+        Ok(JoinOutcome::Joined(found.id.clone()))
     }
 }

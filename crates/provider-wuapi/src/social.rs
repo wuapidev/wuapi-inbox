@@ -21,8 +21,8 @@ use crate::mapping;
 use base64::Engine as _;
 use client_provider::{
     refusal, AccountId, BusinessHours, BusinessProfile, ChatId, Contact, ContactId, Group,
-    GroupChange, GroupParticipant, GroupRole, JoinRequest, NewGroup, OwnProfile, ParticipantChange,
-    ParticipantOutcome, ProfileChange, ProviderError, ProviderResult, Subgroup,
+    GroupChange, GroupParticipant, GroupRole, JoinOutcome, JoinRequest, NewGroup, OwnProfile,
+    ParticipantChange, ParticipantOutcome, ProfileChange, ProviderError, ProviderResult, Subgroup,
 };
 use wuapi::types as api;
 
@@ -144,6 +144,8 @@ enum Doing {
     Managing,
     /// Leaving.
     Leaving,
+    /// Seeing a group from its invite, or joining it.
+    Joining,
 }
 
 /// Words the API's refusals of group routes. `403 whatsapp_forbidden` is
@@ -158,6 +160,14 @@ fn group_refusal(error: ProviderError, doing: Doing) -> ProviderError {
         message: message.to_owned(),
     };
     match (code.as_str(), doing) {
+        ("whatsapp_forbidden", Doing::Joining) => rejected(
+            "invite_refused",
+            "WhatsApp does not let this number join with this link: it may have been reset.",
+        ),
+        ("group_not_found" | "whatsapp_not_found", Doing::Joining) => rejected(
+            refusal::NOT_FOUND,
+            "This invite link was reset or never existed.",
+        ),
         ("whatsapp_forbidden", Doing::Managing) => {
             rejected(refusal::NOT_ADMIN, "Only admins of the group can do that.")
         }
@@ -631,6 +641,40 @@ impl WuapiClient {
             .into_iter()
             .map(|person| ContactId::new(person.contact_id))
             .collect())
+    }
+
+    /// `GET …/groups/invites/{code}`.
+    pub(crate) async fn invite_info(
+        &self,
+        account: &AccountId,
+        code: &str,
+    ) -> ProviderResult<Group> {
+        let wire = compat::group_invite(self.sdk().http(), account.as_str(), code)
+            .await
+            .map_err(|error| group_refusal(from_sdk(error), Doing::Joining))?
+            .0;
+        Ok(group(&wire, Vec::new()))
+    }
+
+    /// `POST …/groups/join`. `request_id` is the idempotency key. An
+    /// answer without a group is a request waiting for an admin.
+    pub(crate) async fn join_group(
+        &self,
+        account: &AccountId,
+        code: &str,
+        request_id: &str,
+    ) -> ProviderResult<JoinOutcome> {
+        let joined = self
+            .sdk()
+            .groups()
+            .join(account.as_str(), api::GroupsJoinParams::new(code))
+            .idempotency_key(request_id)
+            .await
+            .map_err(|error| group_refusal(from_sdk(error), Doing::Joining))?;
+        Ok(match joined.group_id {
+            Some(id) => JoinOutcome::Joined(ChatId::new(id)),
+            None => JoinOutcome::Pending,
+        })
     }
 
     /// `POST …/groups/{groupId}/leave`.

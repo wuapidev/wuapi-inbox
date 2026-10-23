@@ -220,6 +220,10 @@ impl Shell {
                 true,
             ),
             Overlay::Hooks => (self.render_hooks(palette, cx)?.into_any_element(), true),
+            Overlay::JoinGroup => (
+                self.render_join_group(palette, cx)?.into_any_element(),
+                true,
+            ),
         };
         Some(
             div()

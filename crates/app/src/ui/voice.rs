@@ -103,7 +103,7 @@ pub(super) fn audio_block(
         _ => None,
     };
     let file = url.as_deref().map(|url| context.shelf.file_state(url));
-    if let (Some(url), true) = (&url, context.shelf.fetches_everything()) {
+    if let (Some(url), true) = (&url, context.shelf.fetches_file_unasked(media)) {
         // "Everything": the file is fetched ahead of the click.
         if file == Some(FileState::NotFetched) {
             context.shelf.prefetch(&message.account_id, url);
@@ -127,7 +127,8 @@ pub(super) fn audio_block(
     };
 
     // The button: the accent control of the bubble.
-    let not_here = file == Some(FileState::NotFetched) && !context.shelf.fetches_everything();
+    let not_here =
+        file == Some(FileState::NotFetched) && !context.shelf.fetches_file_unasked(media);
     let state = match &url {
         None => Button::Missing,
         Some(_) if failure.is_some() || no_output.is_some() => Button::Retry,
@@ -317,7 +318,7 @@ pub(super) fn audio_block(
                             if fetching {
                                 shell.media.cancel_file(&url);
                             } else {
-                                shell.media.prefetch(&account, &url);
+                                shell.media.retry_file(&account, &url);
                             }
                         })
                         .ok();

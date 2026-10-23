@@ -1465,7 +1465,7 @@ fn gif_block(media: &Media, message: &Message, side: &Side, context: &RowContext
         _ => None,
     };
     if state == FileState::NotFetched
-        && (context.shelf.fetches_everything() || context.shelf.fetches_gif_unasked(media))
+        && (context.shelf.fetches_file_unasked(media) || context.shelf.fetches_gif_unasked(media))
     {
         context.shelf.prefetch(&message.account_id, &url);
     }
@@ -1649,7 +1649,8 @@ fn tile_glyph(
         }
         // Being fetched ahead: "Everything", or a GIF with the pictures.
         FileState::NotFetched
-            if context.shelf.fetches_everything() || context.shelf.fetches_gif_unasked(media) =>
+            if context.shelf.fetches_file_unasked(media)
+                || context.shelf.fetches_gif_unasked(media) =>
         {
             Transfer::Loading { fraction: None }
         }
@@ -1705,7 +1706,7 @@ fn file_action(media: &Media, message: &Message, side: &Side, context: &RowConte
     };
     let state = context.shelf.file_state(source.as_str());
     if state == FileState::NotFetched
-        && (context.shelf.fetches_everything() || context.shelf.fetches_gif_unasked(media))
+        && (context.shelf.fetches_file_unasked(media) || context.shelf.fetches_gif_unasked(media))
     {
         // "Everything", or a GIF under the same rule as a picture.
         context.shelf.prefetch(&message.account_id, source.as_str());

@@ -203,8 +203,15 @@ chmod 755 "$binary"
 cp "$source_icon" "$icon_file"
 cp "$source_license" "$license_file"
 # The menu's PATH does not always have ~/.local/bin: point the entry at the
-# file. `%u` is the WhatsApp link the entry is opened with, if any.
-sed "s|^Exec=.*|Exec=\"$binary\" %u|" "$source_desktop" >"$desktop_file"
+# file. `%u` is the WhatsApp link the entry is opened with, if any. The
+# path is quoted only when it has to be: xdg-utils takes the first word,
+# quotes and all, as the program, and with quotes finds none, so the
+# entry would never be chosen for `whatsapp:` links.
+case "$binary" in
+  *[[:space:]\"\\\'\$\`]*) exec_line="Exec=\"$binary\" %u" ;;
+  *) exec_line="Exec=$binary %u" ;;
+esac
+sed "s|^Exec=.*|$exec_line|" "$source_desktop" >"$desktop_file"
 
 if command -v update-desktop-database >/dev/null 2>&1; then
   update-desktop-database "$(dirname "$desktop_file")" >/dev/null 2>&1 || true

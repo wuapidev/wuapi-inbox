@@ -27,11 +27,11 @@ use client_provider::{
     Account, AccountChange, AccountId, AvatarAnswer, BusinessProfile, CallCamera, CallDevices,
     CallVideo, Capabilities, Chat, ChatChange, ChatId, Contact, ContactId, Cursor, EventStream,
     FavoriteSticker, Feature, ForwardItem, Group, GroupChange, IncomingWebhook,
-    IncomingWebhookChange, JoinRequest, LinkPlace, LinkStatus, LiveUpdates, MediaData, MediaLimit,
-    MediaRef, MediaUpload, Message, MessageId, NewAccount, NewGroup, NewStory, NumberCheck,
-    OutgoingMessage, OwnProfile, Page, ParticipantChange, ParticipantOutcome, ProfileChange,
-    Provider, ProviderError, ProviderResult, SendReceipt, StickerFile, Story, StoryPrivacy,
-    StoryViewer, UploadProgress,
+    IncomingWebhookChange, JoinOutcome, JoinRequest, LinkPlace, LinkStatus, LiveUpdates, MediaData,
+    MediaLimit, MediaRef, MediaUpload, Message, MessageId, NewAccount, NewGroup, NewStory,
+    NumberCheck, OutgoingMessage, OwnProfile, Page, ParticipantChange, ParticipantOutcome,
+    ProfileChange, Provider, ProviderError, ProviderResult, SendReceipt, StickerFile, Story,
+    StoryPrivacy, StoryViewer, UploadProgress,
 };
 use futures::StreamExt;
 use std::collections::HashMap;
@@ -793,6 +793,19 @@ impl Provider for HubProvider {
         request_id: &str,
     ) -> ProviderResult<()> {
         route!(self, account, |p| p.leave_group(account, group, request_id))
+    }
+
+    async fn invite_info(&self, account: &AccountId, code: &str) -> ProviderResult<Group> {
+        route!(self, account, |p| p.invite_info(account, code))
+    }
+
+    async fn join_group(
+        &self,
+        account: &AccountId,
+        code: &str,
+        request_id: &str,
+    ) -> ProviderResult<JoinOutcome> {
+        route!(self, account, |p| p.join_group(account, code, request_id))
     }
 
     async fn link_subgroup(

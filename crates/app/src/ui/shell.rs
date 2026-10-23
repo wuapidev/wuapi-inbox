@@ -364,6 +364,8 @@ pub(super) enum Overlay {
     Status,
     /// A chat's incoming webhooks.
     Hooks,
+    /// A group's invite: the group, and whether to join it.
+    JoinGroup,
 }
 
 /// The sections of the settings panel.
@@ -1045,20 +1047,13 @@ impl Shell {
             cx.subscribe_in(
                 &acting.forward_input,
                 window,
-                |this, _, event: &InputEvent, window, cx| match event {
-                    // Enter picks the row the keyboard is on; with Cmd or
-                    // Ctrl it sends.
-                    InputEvent::PressEnter {
-                        secondary: true, ..
-                    } => this.send_forward(window, cx),
-                    InputEvent::PressEnter { .. } => {
-                        let rows = this.forward_rows(cx);
-                        if let Some((chat, _, _)) = rows.get(this.acting.forward_cursor) {
-                            this.toggle_forward_to(chat.clone(), cx);
-                        }
+                // Enter, with or without Cmd or Ctrl, is the sheet's key
+                // (`forward_key`): seen once, whether the field has the
+                // keyboard or not.
+                |this, _, event: &InputEvent, _, cx| {
+                    if let InputEvent::Change = event {
+                        this.refresh_forward_rows(cx)
                     }
-                    InputEvent::Change => this.refresh_forward_rows(cx),
-                    _ => {}
                 },
             ),
             cx.subscribe_in(
@@ -2061,7 +2056,8 @@ impl Shell {
             | Overlay::Forward
             | Overlay::Palette
             | Overlay::EmojiPicker
-            | Overlay::NumberAction => self.overlay_focus.focus(window, cx),
+            | Overlay::NumberAction
+            | Overlay::JoinGroup => self.overlay_focus.focus(window, cx),
             // The post sheet is typed in: its fields take the keyboard.
             Overlay::Status => {
                 if self.status.sheet != Some(super::status_post::Sheet::Post) {
@@ -2114,6 +2110,9 @@ impl Shell {
         if self.overlay == Overlay::Viewer {
             // The picture's pixels are let go with the viewer.
             self.viewer.reset();
+        }
+        if self.overlay == Overlay::JoinGroup {
+            self.links.invite = None;
         }
         if self.overlay == Overlay::Hooks {
             // The URLs are credentials: let go with the sheet, however it
@@ -2340,6 +2339,13 @@ impl Shell {
         if self.overlay == Overlay::NumberAction {
             if key == "enter" {
                 self.confirm_number(cx);
+                cx.stop_propagation();
+            }
+            return;
+        }
+        if self.overlay == Overlay::JoinGroup {
+            if key == "enter" {
+                self.join_invite(cx);
                 cx.stop_propagation();
             }
             return;
@@ -3273,9 +3279,13 @@ impl Shell {
         self.audio.waiting = Some(url.to_owned());
         match self.media.file_state(url) {
             FileState::Ready => self.decode_audio(url, cx),
-            // It failed before: pressing play again is the retry.
-            FileState::Unavailable(_) => self.media.retry_file(&account, url),
-            _ => self.engine.want_file(&account, url),
+            // Being fetched ahead: first in line now.
+            FileState::Loading => self.media.fetch_file(&account, url),
+            // It failed before, or waits to be tried again: pressing play
+            // is the retry.
+            FileState::Unavailable(_) | FileState::NotFetched => {
+                self.media.retry_file(&account, url)
+            }
         }
     }
 

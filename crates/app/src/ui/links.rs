@@ -7,21 +7,24 @@
 //! with the number it names, with its text in the composer: ready to
 //! send, never sent by itself. A link with a text and no number opens
 //! the new chat panel, and the text goes to whoever is chosen there. A
-//! group's invite is said to be not followed: joining by link is not
-//! something this application does yet.
+//! group's invite shows the group first; it is joined with a click, and
+//! its chat opens (a group that lets people in after an admin approves
+//! says the request waits).
 //!
 //! Settings > About also says who opens `whatsapp:` links on this
 //! computer, and makes it this application (`link_handler.rs`).
 
-use super::menus::fact;
+use super::menus::{fact, panel_header};
 use super::panels::section;
-use super::shell::{Overlay, SettingsSection, Shell};
+use super::shell::{ChatFilter, Overlay, SettingsSection, Shell};
 use super::widgets::text_button;
+use crate::i18n;
 use crate::link_handler::Handler;
-use crate::theme::Palette;
+use crate::theme::{metrics, px, Palette};
 use crate::wa_link::{self, WaLink};
+use client_provider::{AccountId, ChatId, Group, JoinOutcome};
 use gpui_kit::prelude::*;
-use gpui_kit::{div, App, Context, Div, Global, SharedString, Task, Window};
+use gpui_kit::{div, App, Context, Div, FontWeight, Global, SharedString, Stateful, Task, Window};
 
 /// What the shell keeps of the links.
 #[derive(Default)]
@@ -35,8 +38,28 @@ pub(in crate::ui) struct Links {
     pub(in crate::ui) handler: Option<Handler>,
     /// What the last "make it the default" said.
     pub(in crate::ui) said: Option<Result<String, String>>,
+    /// The group invite on screen, if one is.
+    pub(in crate::ui) invite: Option<Invite>,
     asking: bool,
     _asking: Option<Task<()>>,
+    _invite: Option<Task<()>>,
+}
+
+/// A group's invite, shown before it is joined.
+pub(in crate::ui) struct Invite {
+    account: AccountId,
+    code: String,
+    /// The group, once WhatsApp said which it is.
+    pub(in crate::ui) group: Option<Group>,
+    /// The account is in it already: the button opens its chat.
+    pub(in crate::ui) member: bool,
+    /// Why it could not be read, or joined.
+    pub(in crate::ui) error: Option<SharedString>,
+    joining: bool,
+    /// The request to join waits for an admin.
+    pub(in crate::ui) pending: bool,
+    /// The same for every attempt to join with this invite.
+    request_id: String,
 }
 
 /// Links that came before there was a number to follow them with.
@@ -123,9 +146,12 @@ impl Shell {
     ) {
         match wa_link::parse(link) {
             None => self.show_problem(crate::i18n::t("chat.links.cannot_open").into(), cx),
-            Some(WaLink::Invite(_)) => {
-                self.show_problem(crate::i18n::t("chat.links.invite").into(), cx)
-            }
+            Some(WaLink::Invite(code)) => match self.account.clone() {
+                Some(account) if self.caps_here().group_join => {
+                    self.read_invite(account, code, window, cx)
+                }
+                _ => self.show_problem(crate::i18n::t("chat.links.invite").into(), cx),
+            },
             Some(WaLink::Chat { phone, text }) => {
                 self.open_overlay(Overlay::NewChat, window, cx);
                 self.links.text = text.map(|text| (text, self.links.chats_opened));
@@ -139,6 +165,236 @@ impl Shell {
                 }
             }
         }
+    }
+
+    /// Shows the group an invite is for, read from WhatsApp.
+    fn read_invite(
+        &mut self,
+        account: AccountId,
+        code: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.links.invite = Some(Invite {
+            account: account.clone(),
+            code: code.clone(),
+            group: None,
+            member: false,
+            error: None,
+            joining: false,
+            pending: false,
+            request_id: client_core::new_client_id().to_string(),
+        });
+        self.open_overlay(Overlay::JoinGroup, window, cx);
+        let engine = self.engine.clone();
+        let work = self.engine.runtime().spawn(async move {
+            let group = engine.invite_info(&account, &code).await?;
+            let store = engine.store();
+            let chat = store.chat(&account, &group.id).ok().flatten();
+            let departed = store
+                .group(&account, &group.id)
+                .ok()
+                .flatten()
+                .is_some_and(|stored| stored.departed);
+            Ok::<_, client_core::SyncError>((group, chat.is_some() && !departed))
+        });
+        self.links._invite = Some(cx.spawn(async move |this, cx| {
+            let outcome = work.await;
+            this.update(cx, |this, cx| {
+                let Some(invite) = this.links.invite.as_mut() else {
+                    return;
+                };
+                match outcome {
+                    Ok(Ok((group, member))) => {
+                        invite.group = Some(group);
+                        invite.member = member;
+                    }
+                    Ok(Err(error)) => {
+                        invite.error = Some(client_core::failure_sentence(&error).into())
+                    }
+                    Err(error) => invite.error = Some(error.to_string().into()),
+                }
+                cx.notify();
+            })
+            .ok();
+        }));
+        cx.notify();
+    }
+
+    /// "Join" on the invite's card: joins the group and opens its chat,
+    /// or opens it at once when the account is in it already.
+    pub(super) fn join_invite(&mut self, cx: &mut Context<Self>) {
+        let Some(invite) = self.links.invite.as_mut() else {
+            return;
+        };
+        let Some(group) = invite.group.clone() else {
+            return;
+        };
+        if invite.joining || invite.pending {
+            return;
+        }
+        if invite.member {
+            return self.enter_group(group.id, cx);
+        }
+        invite.joining = true;
+        invite.error = None;
+        let engine = self.engine.clone();
+        let (account, code, request_id) = (
+            invite.account.clone(),
+            invite.code.clone(),
+            invite.request_id.clone(),
+        );
+        let work = self.engine.runtime().spawn(async move {
+            engine
+                .join_group(&account, &code, &group.subject, &request_id)
+                .await
+        });
+        self.links._invite = Some(cx.spawn(async move |this, cx| {
+            let outcome = work.await;
+            this.update(cx, |this, cx| {
+                let Some(invite) = this.links.invite.as_mut() else {
+                    return;
+                };
+                invite.joining = false;
+                match outcome {
+                    Ok(Ok(JoinOutcome::Joined(chat))) => this.enter_group(chat, cx),
+                    Ok(Ok(JoinOutcome::Pending)) => invite.pending = true,
+                    Ok(Err(error)) => {
+                        invite.error = Some(client_core::failure_sentence(&error).into())
+                    }
+                    Err(error) => invite.error = Some(error.to_string().into()),
+                }
+                cx.notify();
+            })
+            .ok();
+        }));
+        cx.notify();
+    }
+
+    /// The card closes and the group's chat opens.
+    fn enter_group(&mut self, chat: ChatId, cx: &mut Context<Self>) {
+        self.links.invite = None;
+        self.overlay = Overlay::None;
+        self.filter = ChatFilter::All;
+        self.reload_chats(cx);
+        self.open_chat(chat, None, cx);
+        cx.notify();
+    }
+
+    /// The invite's card: the group, and the button that joins it.
+    pub(super) fn render_join_group(
+        &self,
+        palette: &Palette,
+        cx: &mut Context<Self>,
+    ) -> Option<Stateful<Div>> {
+        let invite = self.links.invite.as_ref()?;
+        let muted = |text: SharedString| {
+            div()
+                .text_size(metrics::TEXT_BODY())
+                .line_height(px(21.))
+                .text_color(palette.text_muted)
+                .child(text)
+        };
+        let mut body = div().p_4().flex().flex_col().gap_2();
+        if let Some(group) = &invite.group {
+            body = body
+                .child(
+                    div()
+                        .debug_selector(|| "invite-subject".into())
+                        .text_size(metrics::TEXT_NAME())
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .child(SharedString::from(group.subject.clone())),
+                )
+                .when(!group.participants.is_empty(), |this| {
+                    this.child(muted(
+                        i18n::plural(
+                            "chat.links.join_members",
+                            group.participants.len() as u64,
+                            &[],
+                        )
+                        .into(),
+                    ))
+                })
+                .when_some(group.description.clone(), |this, description| {
+                    this.child(muted(description.into()).line_clamp(4))
+                });
+        } else if invite.error.is_none() {
+            body = body.child(muted(i18n::t("chat.links.join_reading").into()));
+        }
+        if invite.pending {
+            body = body.child(
+                div()
+                    .debug_selector(|| "invite-pending".into())
+                    .text_color(palette.text)
+                    .child(i18n::t("chat.links.join_pending")),
+            );
+        }
+        if let Some(error) = &invite.error {
+            body = body.child(
+                div()
+                    .debug_selector(|| "invite-error".into())
+                    .text_color(palette.danger)
+                    .child(error.clone()),
+            );
+        }
+        let ready = invite.group.is_some() && !invite.joining && !invite.pending;
+        let mut buttons = div()
+            .p_4()
+            .border_t_1()
+            .border_color(palette.border)
+            .flex()
+            .justify_end()
+            .gap_2()
+            .child(
+                text_button(
+                    "invite-cancel",
+                    if invite.pending {
+                        i18n::t("chat.links.join_close")
+                    } else {
+                        i18n::t("chat.links.join_cancel")
+                    },
+                    None,
+                    false,
+                    palette,
+                )
+                .on_click(cx.listener(|this, _, window, cx| {
+                    cx.stop_propagation();
+                    this.close_overlay(window, cx);
+                })),
+            );
+        if !invite.pending {
+            buttons = buttons.child(
+                text_button(
+                    "invite-join",
+                    if invite.member {
+                        i18n::t("chat.links.join_open")
+                    } else {
+                        i18n::t("chat.links.join")
+                    },
+                    None,
+                    true,
+                    palette,
+                )
+                .when(!ready, |this| this.opacity(0.5))
+                .on_click(cx.listener(|this, _, _, cx| {
+                    cx.stop_propagation();
+                    this.join_invite(cx);
+                })),
+            );
+        }
+        Some(
+            self.card("join-group", palette)
+                .w(px(420.))
+                .flex()
+                .flex_col()
+                .child(panel_header(
+                    i18n::t("chat.links.join_title"),
+                    palette,
+                    cx.listener(|this, _, window, cx| this.close_overlay(window, cx)),
+                ))
+                .child(body)
+                .child(buttons),
+        )
     }
 
     /// The panel closed: its text goes to the chat it opened, if one was.

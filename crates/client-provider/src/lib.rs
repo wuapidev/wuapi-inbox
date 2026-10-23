@@ -52,8 +52,8 @@ pub use model::{
 pub use provider::{LiveUpdates, PollingReason, Provider, IDEMPOTENCY_WINDOW};
 pub use social::{
     refusal, BusinessHours, BusinessProfile, Group, GroupChange, GroupParticipant, GroupRole,
-    JoinRequest, NewGroup, OwnProfile, ParticipantChange, ParticipantOutcome, ProfileChange,
-    Subgroup,
+    JoinOutcome, JoinRequest, NewGroup, OwnProfile, ParticipantChange, ParticipantOutcome,
+    ProfileChange, Subgroup,
 };
 
 pub use stickers::{FavoriteSticker, StickerFile};

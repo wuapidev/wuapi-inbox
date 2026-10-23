@@ -8,8 +8,8 @@
 use crate::mapping::MediaPointer;
 use async_trait::async_trait;
 use client_provider::{
-    AvatarAnswer, BusinessProfile, ChatChange, Group, GroupChange, JoinRequest, NewGroup,
-    ParticipantChange, ParticipantOutcome, PresenceState, StoryPrivacy, SystemEvent,
+    AvatarAnswer, BusinessProfile, ChatChange, Group, GroupChange, JoinOutcome, JoinRequest,
+    NewGroup, ParticipantChange, ParticipantOutcome, PresenceState, StoryPrivacy, SystemEvent,
 };
 use std::sync::Arc;
 use whatsapp_rust::waproto::whatsapp as wa;
@@ -655,6 +655,18 @@ pub trait Session: Send + Sync + 'static {
     async fn leave_group(&self, group: &Jid) -> SessionResult<()> {
         let _ = group;
         unsupported("leaving a group")
+    }
+
+    /// The group an invite code is for, without joining it.
+    async fn invite_info(&self, code: &str) -> SessionResult<Group> {
+        let _ = code;
+        unsupported("group invites")
+    }
+
+    /// Joins a group by its invite code.
+    async fn join_group(&self, code: &str) -> SessionResult<JoinOutcome> {
+        let _ = code;
+        unsupported("joining a group")
     }
 
     /// Links a group to a community.

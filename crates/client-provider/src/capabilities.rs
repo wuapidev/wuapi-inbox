@@ -151,6 +151,10 @@ pub struct Capabilities {
     pub group_join_requests: bool,
     /// The account can leave a group.
     pub group_leave: bool,
+    /// The account can see a group from its invite link and join it
+    /// ([`Provider::invite_info`](crate::Provider::invite_info),
+    /// [`Provider::join_group`](crate::Provider::join_group)).
+    pub group_join: bool,
     /// An admin can link a group to a community and take one out of it,
     /// create a group inside a community, and create a community
     /// ([`Provider::link_subgroup`](crate::Provider::link_subgroup),
@@ -268,6 +272,7 @@ impl Capabilities {
             group_invites: false,
             group_join_requests: false,
             group_leave: false,
+            group_join: false,
             community_manage: false,
             community_members: false,
             mentions: false,
@@ -337,6 +342,7 @@ impl Capabilities {
             group_invites: true,
             group_join_requests: true,
             group_leave: true,
+            group_join: true,
             community_manage: true,
             community_members: true,
             mentions: true,
@@ -408,6 +414,7 @@ impl Capabilities {
             group_invites: self.group_invites || other.group_invites,
             group_join_requests: self.group_join_requests || other.group_join_requests,
             group_leave: self.group_leave || other.group_leave,
+            group_join: self.group_join || other.group_join,
             community_manage: self.community_manage || other.community_manage,
             community_members: self.community_members || other.community_members,
             mentions: self.mentions || other.mentions,

@@ -20,9 +20,9 @@
 use super::{SyncEngine, SyncError};
 use crate::store::StoreChange;
 use client_provider::{
-    refusal, AccountId, Chat, ChatId, ChatKind, ChatUnknown, ContactId, GroupChange, GroupRole,
-    JoinRequest, NewGroup, OwnProfile, ParticipantChange, ParticipantOutcome, ProfileChange,
-    ProviderError, Timestamp,
+    refusal, AccountId, Chat, ChatId, ChatKind, ChatUnknown, ContactId, Group, GroupChange,
+    GroupRole, JoinOutcome, JoinRequest, NewGroup, OwnProfile, ParticipantChange,
+    ParticipantOutcome, ProfileChange, ProviderError, Timestamp,
 };
 use std::collections::{HashMap, HashSet};
 use std::future::Future;
@@ -984,6 +984,39 @@ impl SyncEngine {
             .await?;
         inner.store.set_invite_link(account, group, Some(&link))?;
         Ok(link)
+    }
+
+    /// The group an invite code is for, read without joining it. Await
+    /// it off the UI thread.
+    pub async fn invite_info(&self, account: &AccountId, code: &str) -> Result<Group, SyncError> {
+        let inner = &self.inner;
+        Ok(self
+            .ask(|| inner.provider.invite_info(account, code))
+            .await?)
+    }
+
+    /// Joins a group by its invite code. Once it answers
+    /// [`JoinOutcome::Joined`], the store has the group's chat, named
+    /// `subject` until the group is read again, ready to open. Await it off
+    /// the UI thread; `request_id` is the same for every attempt.
+    pub async fn join_group(
+        &self,
+        account: &AccountId,
+        code: &str,
+        subject: &str,
+        request_id: &str,
+    ) -> Result<JoinOutcome, SyncError> {
+        let inner = &self.inner;
+        let joined = self
+            .ask(|| inner.provider.join_group(account, code, request_id))
+            .await?;
+        if let JoinOutcome::Joined(group) = &joined {
+            self.group_chat(account, group, subject)?;
+            // In again after having left it.
+            inner.store.set_departed(account, group, false)?;
+            self.reread(account, std::slice::from_ref(group)).await;
+        }
+        Ok(joined)
     }
 
     /// Approves or rejects one request to join. It leaves the list at

@@ -2918,6 +2918,15 @@ impl SyncEngine {
         self.want_media(account, url, MediaWant::Whole, true);
     }
 
+    /// Fetches the whole file at `url` ahead of a click, because the
+    /// media policy says so: any type, at most [`AUTO_MEDIA_LIMIT`], so
+    /// that what nobody asked for does not push out of the cache what
+    /// somebody did. Asking for it later with
+    /// [`want_file`](Self::want_file) puts it first in line.
+    pub fn want_file_unasked(&self, account: &AccountId, url: &str) {
+        self.want_media(account, url, MediaWant::Whole, false);
+    }
+
     /// Asks whether the image at `url`, whose thumbnail is already
     /// cached, moves: it is fetched again and, when it is an animated
     /// WebP or GIF, kept as it came under [`animation_key`]; otherwise an
@@ -2940,6 +2949,17 @@ impl SyncEngine {
         let mut media = self.inner.media.lock().expect("media lock");
         match media.slots.get(&key) {
             Some(MediaSlot::RetryAt(at)) if Instant::now() >= *at => {}
+            // Asked for while it waits in line behind what was fetched
+            // ahead: it goes first, under the user's limit.
+            Some(MediaSlot::Loading) if asked => {
+                if let Some(at) = media.waiting.iter().position(|job| job.key == key) {
+                    if let Some(mut job) = media.waiting.remove(at) {
+                        job.asked = true;
+                        media.waiting.push_front(job);
+                    }
+                }
+                return;
+            }
             Some(_) => return,
             None => {}
         }
@@ -3136,7 +3156,7 @@ impl SyncEngine {
             return Ok(());
         }
         let limit = client_provider::MediaLimit {
-            max_bytes: if job.whole || job.asked {
+            max_bytes: if job.asked {
                 MANUAL_MEDIA_LIMIT
             } else {
                 AUTO_MEDIA_LIMIT

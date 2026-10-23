@@ -390,9 +390,10 @@ impl Shell {
 
     /// While Status is on screen, fetches ahead the first story not seen of each author who has
     /// one, when it is a picture, a sticker or a GIF and the media policy
-    /// fetches those by itself ("Nothing" fetches nothing). Never a video
-    /// that is not a GIF, never more than a dozen authors, and never
-    /// anything that counts as seeing.
+    /// fetches those by itself ("Nothing" fetches nothing). A video that
+    /// is not a GIF only under "Everything" (the numbers of this computer
+    /// by default), and never one over the automatic limit. Never more
+    /// than a dozen authors, and never anything that counts as seeing.
     fn prefetch_stories(&self, account: &AccountId, cx: &Context<Self>) {
         // Only for somebody who is looking at Status: the dot and the
         // rings need the list of stories, never their pictures.
@@ -413,7 +414,10 @@ impl Shell {
                 client_provider::MediaKind::Image | client_provider::MediaKind::Sticker => {
                     let _ = self.media.visual(account, media);
                 }
-                client_provider::MediaKind::Video if self.media.fetches_gif_unasked(media) => {
+                client_provider::MediaKind::Video
+                    if self.media.fetches_gif_unasked(media)
+                        || self.media.fetches_file_unasked(media) =>
+                {
                     if let Some(source) = media.source.as_ref() {
                         if self.media.file_state(source.as_str())
                             == super::media::FileState::NotFetched

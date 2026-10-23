@@ -177,11 +177,13 @@ mod platform {
             } else if let Some(command) = line.strip_prefix("Exec=") {
                 let command = match program {
                     Some(program) => quote(program),
-                    None => command
-                        .split_whitespace()
-                        .filter(|part| !part.starts_with('%'))
-                        .collect::<Vec<_>>()
-                        .join(" "),
+                    None => needless_quotes(
+                        &command
+                            .split_whitespace()
+                            .filter(|part| !part.starts_with('%'))
+                            .collect::<Vec<_>>()
+                            .join(" "),
+                    ),
                 };
                 let line_now = format!("Exec={command} %u");
                 changed |= line_now != line;
@@ -201,6 +203,21 @@ mod platform {
             changed = true;
         }
         changed.then(|| lines.join("\n") + "\n")
+    }
+
+    /// The program unquoted, when it was quoted with no need: xdg-utils
+    /// takes the first word of `Exec`, quotes and all, as the program,
+    /// finds none, and so never chooses the entry for a link.
+    fn needless_quotes(command: &str) -> String {
+        if let Some((program, rest)) = command
+            .strip_prefix('"')
+            .and_then(|quoted| quoted.split_once('"'))
+        {
+            if quote(program) == program {
+                return format!("{program}{rest}");
+            }
+        }
+        command.to_owned()
     }
 
     fn quote(program: &str) -> String {
@@ -428,8 +445,9 @@ mod tests {
         // One written before there were links is given both lines.
         let old = "[Desktop Entry]\nType=Application\nName=Wuapi\nExec=\"/home/me/.local/bin/wuapi-inbox\"\nIcon=dev.wuapi.inbox\n";
         let fixed = fix_entry(old, None).unwrap();
+        // Unquoted: xdg-utils would not find a quoted program.
         assert!(
-            fixed.contains("Exec=\"/home/me/.local/bin/wuapi-inbox\" %u\n"),
+            fixed.contains("Exec=/home/me/.local/bin/wuapi-inbox %u\n"),
             "{fixed}"
         );
         assert!(
@@ -442,6 +460,16 @@ mod tests {
         assert!(fix_entry(typed, None)
             .unwrap()
             .contains("MimeType=text/plain;x-scheme-handler/whatsapp;"));
+        // An entry that opens the links already, with its program quoted
+        // for nothing, is put right too.
+        let quoted = "[Desktop Entry]\nExec=\"/home/me/.local/bin/wuapi-inbox\" %u\nMimeType=x-scheme-handler/whatsapp;\n";
+        assert_eq!(
+            fix_entry(quoted, None).as_deref(),
+            Some("[Desktop Entry]\nExec=/home/me/.local/bin/wuapi-inbox %u\nMimeType=x-scheme-handler/whatsapp;\n")
+        );
+        // A quote that is needed stays.
+        let spaced = "[Desktop Entry]\nExec=\"/opt/my apps/wuapi-inbox\" %u\nMimeType=x-scheme-handler/whatsapp;\n";
+        assert_eq!(fix_entry(spaced, None), None);
         // A program with a space in its path is quoted.
         let named = fix_entry(old, Some("/opt/my apps/wuapi-inbox")).unwrap();
         assert!(
