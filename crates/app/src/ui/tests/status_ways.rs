@@ -791,7 +791,9 @@ fn the_ring_on_a_chat_rows_picture_plays_the_status_and_does_not_open_the_chat(
 // ----- the rule: only the viewer sees ------------------------------------------------
 
 #[gpui_kit::test]
-fn the_strip_the_rail_and_the_list_see_nothing_and_fetch_no_video(cx: &mut TestAppContext) {
+fn the_strip_and_the_rail_fetch_nothing_and_the_list_fetches_a_video_without_seeing_it(
+    cx: &mut TestAppContext,
+) {
     let harness = open(cx, ShellOptions::default());
     cx.update(|cx| {
         settings::update(cx, |settings| {
@@ -801,6 +803,11 @@ fn the_strip_the_rail_and_the_list_see_nothing_and_fetch_no_video(cx: &mut TestA
     // Somebody new with a video, first in the strip.
     let mut media = Media::new(MediaKind::Video);
     media.source = Some(MediaRef::new("https://files.example/clip.mp4"));
+    harness.mock.set_media(
+        "https://files.example/clip.mp4",
+        b"clip".to_vec(),
+        "video/mp4",
+    );
     harness.mock.contact_posts_story(
         &personal(),
         &ContactId::new("+15550002222"),
@@ -820,18 +827,21 @@ fn the_strip_the_rail_and_the_list_see_nothing_and_fetch_no_video(cx: &mut TestA
     harness.settle(cx);
     assert_eq!(harness.mock.media_calls(), 0, "no story file was fetched");
     nothing_was_seen(&harness);
-    // In the list of Status the first new picture of an author may be
-    // fetched ahead; a video never is, and still nothing is seen.
+    // In the list of Status the first new story of an author may be
+    // fetched ahead: under "Everything" a video too, so that it plays at
+    // once. Fetching it is not seeing it.
     click(harness.window, "nav-status", cx);
-    for _ in 0..50 {
+    let file = client_core::file_key("https://files.example/clip.mp4");
+    for _ in 0..200 {
         harness.settle(cx);
+        if harness.engine.store().has_media(&file).unwrap() {
+            break;
+        }
         std::thread::sleep(Duration::from_millis(2));
     }
-    assert_eq!(
-        harness
-            .engine
-            .media_state(&client_core::file_key("https://files.example/clip.mp4")),
-        client_core::MediaState::Idle
+    assert!(
+        harness.engine.store().has_media(&file).unwrap(),
+        "the video was fetched ahead"
     );
     assert!(harness
         .engine

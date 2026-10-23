@@ -21,6 +21,7 @@ mod chat_list;
 mod connection;
 mod conversation;
 mod emoji_picker;
+mod forward_sheet;
 mod gallery;
 mod groups;
 mod hints;

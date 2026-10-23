@@ -11,11 +11,12 @@ use client_provider::{
     refusal, Account, AccountChange, AccountId, AccountSettings, AvatarAnswer, BusinessProfile,
     CallEvent, CallState, Capabilities, Chat, ChatChange, ChatId, ClientMessageId, ConnectionState,
     Contact, ContactId, Cursor, DeliveryStatus, EventStream, ForwardItem, Group, GroupChange,
-    HistoryImport, JoinRequest, LinkStatus, LinkStep, MediaData, MediaRef, MediaUpload, Message,
-    MessageId, NewAccount, NewGroup, NewStory, NewStoryContent, NumberCheck, OutgoingContent,
-    OutgoingMessage, OwnProfile, Page, ParticipantChange, ParticipantOutcome, ProfileChange,
-    Provider, ProviderError, ProviderEvent, ProviderResult, SendReceipt, ServerMedia, Story,
-    StoryAudience, StoryPrivacy, StoryViewer, Timestamp, UploadProgress, STORY_LIFETIME,
+    HistoryImport, JoinOutcome, JoinRequest, LinkStatus, LinkStep, MediaData, MediaRef,
+    MediaUpload, Message, MessageId, NewAccount, NewGroup, NewStory, NewStoryContent, NumberCheck,
+    OutgoingContent, OutgoingMessage, OwnProfile, Page, ParticipantChange, ParticipantOutcome,
+    ProfileChange, Provider, ProviderError, ProviderEvent, ProviderResult, SendReceipt,
+    ServerMedia, Story, StoryAudience, StoryPrivacy, StoryViewer, Timestamp, UploadProgress,
+    STORY_LIFETIME,
 };
 use futures::StreamExt;
 use std::collections::HashMap;
@@ -780,6 +781,7 @@ impl Provider for NativeProvider {
             group_invites: true,
             group_join_requests: true,
             group_leave: true,
+            group_join: true,
             community_manage: true,
             community_members: true,
             mentions: true,
@@ -1784,6 +1786,24 @@ impl Provider for NativeProvider {
             Err(SessionError::Refused { code, .. }) if code == refusal::NOT_MEMBER => Ok(()),
             other => other.map_err(fail),
         }
+    }
+
+    async fn invite_info(&self, account: &AccountId, code: &str) -> ProviderResult<Group> {
+        let inner = &self.inner;
+        let session = inner.online(account)?;
+        let mut found = session.invite_info(code).await.map_err(fail)?;
+        inner.adopt_group(account, &mut found);
+        Ok(found)
+    }
+
+    async fn join_group(
+        &self,
+        account: &AccountId,
+        code: &str,
+        _request_id: &str,
+    ) -> ProviderResult<JoinOutcome> {
+        let session = self.inner.online(account)?;
+        session.join_group(code).await.map_err(fail)
     }
 
     async fn link_subgroup(

@@ -2,6 +2,15 @@
 
 ## [Unreleased]
 
+* A group's invite link (`chat.whatsapp.com/…`, or `whatsapp://chat?code=…`) opens a card with the group: its name, how many are in it and its description. "Join" joins it and opens its chat; a group that lets people in after an admin approves says the request waits. A group the number is in already opens at once. Clicked in a message or handed over by the system, as the other WhatsApp links. Until now such a link only said it could not be followed.
+* Linux: "Open WhatsApp links with Wuapi" now sticks. The installer wrote the program in the desktop entry in quotes (`Exec="…/wuapi-inbox" %u`); xdg-utils takes the first word of that line, quotes and all, as the program, found none, and so kept choosing another application for `whatsapp:` links, and Settings said so after the button. The installer, and Settings when it puts an entry right, quote the path only when it needs it.
+* The forward sheet is the palette with a box on each row: every chat with its picture, its last message, when that was and what is unread, the ones opened last first, and the people of the address book with no chat yet (one is made when the forward is sent). The arrows and the page keys walk the rows, Enter picks one, Ctrl+Enter (⌘↩) sends; what was picked stays as chips over the list while the search changes. Enter typed in its search picked a chat and let it go again at once.
+* A voice note that was downloaded no longer asks to be downloaded again after another chat. Under "Everything" (the default with the numbers of this computer) every video and document of a chat was fetched by itself at up to 200 MB, and a few videos pushed the voice notes out of the 500 MB cache. What is fetched without a click is now at most 25 MB, as a picture is; a larger file waits for its button.
+* Pressing play on a voice note being fetched ahead puts it first in line, and one that failed a moment before is tried again at once: it no longer says "Downloading" behind the other files, or until the retry is due.
+* Under "Everything", the videos of Status download by themselves too, as the pictures do, so that a story plays at once. Fetching one is not seeing it.
+* `SyncEngine::want_file_unasked`. `SyncEngine::want_file` on a file already waiting moves it to the front.
+* `Capabilities` has `group_join`, and `Provider` has `invite_info` and `join_group` (`JoinOutcome`), for the numbers of this computer and of Wuapi Cloud. `SyncEngine::invite_info` and `SyncEngine::join_group`.
+
 ## [0.7.0]
 
 * Ctrl+P (⌘P) goes to a chat and lists nothing else: each chat with its picture, its last message (or who is typing), when that was and what is unread, and the people of the address book who have no chat yet. The commands are Ctrl+Shift+P (or `>` typed), the messages Ctrl+Shift+F. The chats the list has loaded answer as each letter is typed; the store's read adds the rest. The list scrolls to follow the keyboard.

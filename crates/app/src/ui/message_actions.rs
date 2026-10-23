@@ -69,10 +69,19 @@ pub(super) struct Acting {
     /// What the forward sheet leaves out of a selection, and why: the
     /// kind of message and the reason, for each.
     pub(super) forward_skipped: Vec<(&'static str, &'static str)>,
-    /// The chats the forward sheet lists, as last read.
-    pub(super) forward_rows: Vec<(ChatId, String, ChatKind)>,
-    /// The row of the forward sheet the keyboard is on.
+    /// What the forward sheet lists, as last read: headings, chats, and
+    /// people with no chat yet.
+    pub(super) forward_rows: Vec<super::forward_sheet::ForwardRow>,
+    /// The row of the forward sheet the keyboard is on, among those that
+    /// can be picked.
     pub(super) forward_cursor: usize,
+    /// The names of what was picked, for the chips over the list: a pick
+    /// stays when the search no longer lists it.
+    pub(super) forward_names: std::collections::HashMap<ChatId, String>,
+    /// People picked who have no chat yet: one is made when it is sent.
+    pub(super) forward_people: std::collections::HashMap<ChatId, Contact>,
+    /// The list's scroll, which follows the keyboard.
+    pub(super) forward_scroll: gpui_kit::ScrollHandle,
     /// The choice the delete sheet is on.
     pub(super) delete_cursor: usize,
     /// The choice the pin sheet is on.
@@ -97,6 +106,9 @@ impl Acting {
             forward_skipped: Vec::new(),
             forward_rows: Vec::new(),
             forward_cursor: 0,
+            forward_names: Default::default(),
+            forward_people: Default::default(),
+            forward_scroll: gpui_kit::ScrollHandle::new(),
             delete_cursor: 0,
             pin_cursor: 0,
         }
@@ -1073,307 +1085,6 @@ impl Shell {
                 ),
         )
     }
-
-    // ----- forward ------------------------------------------------------------------
-
-    /// Reads the chats the forward sheet lists: the account's, narrowed
-    /// by what is typed, in the chat list's order. Read when the sheet
-    /// opens and when the text changes, not while it is drawn.
-    pub(super) fn refresh_forward_rows(&mut self, cx: &mut Context<Self>) {
-        let typed = self.acting.forward_input.read(cx).value().trim().to_owned();
-        self.acting.forward_rows = match &self.account {
-            Some(account) => self
-                .engine
-                .store()
-                .chats(account, Some(typed.as_str()))
-                .unwrap_or_default()
-                .into_iter()
-                .take(40)
-                .map(|chat| (chat.id, chat.title, chat.kind))
-                .collect(),
-            None => Vec::new(),
-        };
-        self.acting.forward_cursor = 0;
-        cx.notify();
-    }
-
-    /// The chats the forward sheet lists.
-    pub(super) fn forward_rows(&self, _: &gpui_kit::App) -> Vec<(ChatId, String, ChatKind)> {
-        self.acting.forward_rows.clone()
-    }
-
-    /// Opens the forward sheet for the messages an action is about. What
-    /// cannot be forwarded is left out, each with its reason, and the
-    /// rest go on: the sheet says what was left out.
-    pub(super) fn begin_forward(&mut self, window: &mut Window, cx: &mut Context<Self>) -> bool {
-        let mut subjects: Vec<Message> = Vec::new();
-        let mut skipped: Vec<(&'static str, &'static str)> = Vec::new();
-        for message in self.subjects() {
-            match self.command_state(Command::Forward, &message) {
-                super::message_menu::CommandState::Enabled => subjects.push(message),
-                super::message_menu::CommandState::Disabled(why) => {
-                    skipped.push((message_kind(&message), why))
-                }
-                super::message_menu::CommandState::Hidden => {}
-            }
-        }
-        if subjects.is_empty() {
-            if !skipped.is_empty() {
-                self.show_problem(not_forwarded(&skipped), cx);
-            }
-            return false;
-        }
-        self.acting.subjects = subjects;
-        self.acting.forward_skipped = skipped;
-        self.acting.forward_to.clear();
-        self.acting.forward_cursor = 0;
-        self.open_overlay(Overlay::Forward, window, cx);
-        self.acting.forward_input.update(cx, |field, cx| {
-            field.set_value("", window, cx);
-            field.focus(window, cx);
-        });
-        self.refresh_forward_rows(cx);
-        true
-    }
-
-    /// Picks a chat of the forward sheet, or lets it go. No more than
-    /// [`FORWARD_LIMIT`] at once.
-    pub(super) fn toggle_forward_to(&mut self, chat: ChatId, cx: &mut Context<Self>) {
-        let picked = &mut self.acting.forward_to;
-        match picked.iter().position(|known| *known == chat) {
-            Some(at) => {
-                picked.remove(at);
-            }
-            None if picked.len() < FORWARD_LIMIT => picked.push(chat),
-            None => {}
-        }
-        cx.notify();
-    }
-
-    /// Sends what the sheet is about to every chat picked, in the order
-    /// the messages were written: each copy is a message of its own,
-    /// marked as forwarded, queued through the outbox (so a dropped
-    /// connection never loses or doubles it) and shown in its chat at
-    /// once. What cannot be queued is said, with its reason, and does not
-    /// stop the others.
-    pub(super) fn send_forward(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.acting.forward_to.is_empty() {
-            return;
-        }
-        let Some(account) = self.account.clone() else {
-            return;
-        };
-        let to = std::mem::take(&mut self.acting.forward_to);
-        let mut subjects = std::mem::take(&mut self.acting.subjects);
-        subjects.sort_by_key(|message| message.timestamp);
-        let mut refused: Vec<(&'static str, &'static str)> =
-            std::mem::take(&mut self.acting.forward_skipped);
-        for message in &subjects {
-            for chat in &to {
-                let queued = match copy_raw_text(message) {
-                    // A text keeps its mentions as they were typed.
-                    Some(text) => self
-                        .engine
-                        .forward_text(&account, chat, text)
-                        .map(drop)
-                        .map_err(client_core::ForwardError::from),
-                    None => self
-                        .engine
-                        .forward_message(&account, message, chat)
-                        .map(drop),
-                };
-                if let Err(error) = queued {
-                    tracing::error!(%error, "could not queue the forward");
-                    let why = match error {
-                        client_core::ForwardError::Refused(refusal) => refusal.reason(),
-                        client_core::ForwardError::Store(_) => {
-                            crate::i18n::t("chat.message_actions.forward_save_failed")
-                        }
-                    };
-                    if !refused.contains(&(message_kind(message), why)) {
-                        refused.push((message_kind(message), why));
-                    }
-                }
-            }
-        }
-        self.acting.selecting = None;
-        self.close_overlay(window, cx);
-        if !refused.is_empty() {
-            self.show_problem(not_forwarded(&refused), cx);
-        }
-    }
-
-    /// The keys of the forward sheet: the arrows walk the chats, Enter
-    /// picks one, Cmd or Ctrl with Enter sends.
-    pub(super) fn forward_key(
-        &mut self,
-        event: &KeyDownEvent,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) -> bool {
-        let rows = self.forward_rows(cx);
-        let stroke = &event.keystroke;
-        match stroke.key.as_str() {
-            "down" if !rows.is_empty() => {
-                self.acting.forward_cursor = (self.acting.forward_cursor + 1) % rows.len()
-            }
-            "up" if !rows.is_empty() => {
-                self.acting.forward_cursor =
-                    (self.acting.forward_cursor + rows.len() - 1) % rows.len()
-            }
-            "enter" if stroke.modifiers.secondary() => self.send_forward(window, cx),
-            "enter" => {
-                if let Some((chat, _, _)) = rows.get(self.acting.forward_cursor) {
-                    self.toggle_forward_to(chat.clone(), cx);
-                }
-            }
-            _ => return false,
-        }
-        cx.notify();
-        true
-    }
-
-    pub(super) fn render_forward_sheet(
-        &self,
-        palette: &Palette,
-        cx: &mut Context<Self>,
-    ) -> Stateful<Div> {
-        let rows = self.forward_rows(cx);
-        let picked = &self.acting.forward_to;
-        let cursor = self.acting.forward_cursor.min(rows.len().saturating_sub(1));
-        let full = picked.len() >= FORWARD_LIMIT;
-        let mut list = div()
-            .id("forward-list")
-            .max_h(px(320.))
-            .overflow_y_scroll()
-            .flex()
-            .flex_col();
-        for (index, (chat, title, kind)) in rows.iter().enumerate() {
-            let on = picked.contains(chat);
-            let (hover, chosen) = (palette.hover, chat.clone());
-            list = list.child(
-                div()
-                    .id(("forward-chat", index))
-                    .debug_selector(move || format!("forward-chat-{index}"))
-                    .h(px(38.))
-                    .px_2()
-                    .rounded(px(4.))
-                    .flex()
-                    .items_center()
-                    .gap_2()
-                    .cursor_pointer()
-                    .when(index == cursor, |this| this.bg(palette.muted))
-                    .when(full && !on, |this| this.opacity(0.5))
-                    .hover(move |style| style.bg(hover))
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        cx.stop_propagation();
-                        this.toggle_forward_to(chosen.clone(), cx);
-                    }))
-                    .child(icon(
-                        if on {
-                            IconName::SquareCheck
-                        } else {
-                            IconName::Square
-                        },
-                        px(16.),
-                        if on { palette.accent } else { palette.icon },
-                    ))
-                    .child(icon(
-                        match kind {
-                            ChatKind::Group => IconName::Users,
-                            ChatKind::Direct => IconName::MessageCircle,
-                        },
-                        px(14.),
-                        palette.text_faint,
-                    ))
-                    .child(
-                        div()
-                            .flex_1()
-                            .min_w_0()
-                            .truncate()
-                            .text_size(metrics::TEXT_BODY())
-                            .child(SharedString::from(title.clone())),
-                    ),
-            );
-        }
-        let count = self.acting.subjects.len();
-        let title = crate::i18n::plural("chat.message_actions.forward_title", count as u64, &[]);
-        let skipped = (!self.acting.forward_skipped.is_empty())
-            .then(|| not_forwarded(&self.acting.forward_skipped));
-        self.card("forward-sheet", palette)
-            .w(px(420.))
-            .flex()
-            .flex_col()
-            .child(panel_header(
-                &title,
-                palette,
-                cx.listener(|this, _, window, cx| this.close_overlay(window, cx)),
-            ))
-            .when_some(skipped, |this, skipped| {
-                this.child(
-                    div()
-                        .debug_selector(|| "forward-skipped".into())
-                        .px_3()
-                        .pt_2()
-                        .text_size(metrics::TEXT_SMALL())
-                        .text_color(palette.text_muted)
-                        .child(SharedString::from(skipped)),
-                )
-            })
-            .child(
-                div().px_3().pt_3().pb_2().child(
-                    div()
-                        .h(px(34.))
-                        .px_2()
-                        .rounded(metrics::RADIUS())
-                        .border_1()
-                        .border_color(palette.border)
-                        .flex()
-                        .items_center()
-                        .gap_2()
-                        .child(icon(IconName::Search, px(14.), palette.text_muted))
-                        .child(
-                            div()
-                                .flex_1()
-                                .min_w_0()
-                                .child(super::widgets::field(&self.acting.forward_input)),
-                        ),
-                ),
-            )
-            .child(div().px_2().child(list))
-            .child(
-                div()
-                    .p_3()
-                    .border_t_1()
-                    .border_color(palette.border)
-                    .flex()
-                    .items_center()
-                    .justify_between()
-                    .gap_3()
-                    .child(
-                        mono(crate::i18n::tr(
-                            "chat.message_actions.forward_count",
-                            &[("n", &picked.len()), ("limit", &FORWARD_LIMIT)],
-                        ))
-                        .debug_selector(|| "forward-count".into())
-                        .text_color(palette.text_muted),
-                    )
-                    .child(
-                        text_button(
-                            "forward-send",
-                            crate::i18n::t("chat.message_actions.forward"),
-                            Some(IconName::Forward),
-                            true,
-                            palette,
-                        )
-                        .when(picked.is_empty(), |this| this.opacity(0.5))
-                        .on_click(cx.listener(|this, _, window, cx| {
-                            cx.stop_propagation();
-                            this.send_forward(window, cx);
-                        })),
-                    ),
-            )
-    }
 }
 
 /// What a forward leaves out, in a sentence: each kind of message with
@@ -1402,7 +1113,7 @@ pub(super) fn not_forwarded(skipped: &[(&'static str, &'static str)]) -> String 
 
 /// The text a forward carries: as it was written, mentions included as
 /// they were typed.
-fn copy_raw_text(message: &Message) -> Option<String> {
+pub(super) fn copy_raw_text(message: &Message) -> Option<String> {
     match &message.content {
         MessageContent::Text { body } if !message.deleted && !body.trim().is_empty() => Some(
             client_core::with_mention_names(body, &message.extras.mentions),
@@ -1412,7 +1123,7 @@ fn copy_raw_text(message: &Message) -> Option<String> {
 }
 
 /// What a message is, in a word.
-fn message_kind(message: &Message) -> &'static str {
+pub(super) fn message_kind(message: &Message) -> &'static str {
     use client_provider::MediaKind as M;
     match &message.content {
         _ if message.deleted => crate::i18n::t("chat.message_actions.kind_deleted"),

@@ -13,8 +13,8 @@ use crate::model::{
     SendReceipt, UploadProgress,
 };
 use crate::social::{
-    BusinessProfile, Group, GroupChange, JoinRequest, NewGroup, OwnProfile, ParticipantChange,
-    ParticipantOutcome, ProfileChange,
+    BusinessProfile, Group, GroupChange, JoinOutcome, JoinRequest, NewGroup, OwnProfile,
+    ParticipantChange, ParticipantOutcome, ProfileChange,
 };
 use crate::stories::{NewStory, Story, StoryPrivacy, StoryViewer};
 use async_trait::async_trait;
@@ -820,6 +820,30 @@ pub trait Provider: Send + Sync + 'static {
     ) -> ProviderResult<()> {
         let _ = (account, group, request_id);
         Err(ProviderError::Unsupported("leaving a group"))
+    }
+
+    /// The group an invite code is for, read without joining it: its
+    /// subject, description and participants as far as WhatsApp tells
+    /// someone not in it yet.
+    ///
+    /// Only called when [`Capabilities::group_join`] is set, as is the
+    /// method after it.
+    async fn invite_info(&self, account: &AccountId, code: &str) -> ProviderResult<Group> {
+        let _ = (account, code);
+        Err(ProviderError::Unsupported("group invites"))
+    }
+
+    /// The account joins a group by its invite code. Joining a group it is
+    /// already in answers that group. `request_id` is the same on every
+    /// retry of one user action.
+    async fn join_group(
+        &self,
+        account: &AccountId,
+        code: &str,
+        request_id: &str,
+    ) -> ProviderResult<JoinOutcome> {
+        let _ = (account, code, request_id);
+        Err(ProviderError::Unsupported("joining a group"))
     }
 
     /// Links an existing group to a community. Admins of both only:

@@ -1155,14 +1155,30 @@ impl MediaShelf {
         self.engine.want_file(account, url);
     }
 
-    /// Fetches a whole file ahead of a click.
+    /// Fetches a whole file ahead of a click, at most as large as what is
+    /// fetched unasked.
     pub fn prefetch(&self, account: &AccountId, url: &str) {
+        self.engine.want_file_unasked(account, url);
+    }
+
+    /// Fetches a whole file because the person asked for it: first in
+    /// line, and as large as a file asked for may be.
+    pub fn fetch_file(&self, account: &AccountId, url: &str) {
         self.engine.want_file(account, url);
     }
 
     /// Whether files other than images are fetched without being asked.
     pub fn fetches_everything(&self) -> bool {
         self.policy.get() == MediaChoice::Everything
+    }
+
+    /// Whether this file (a video, audio, a document) is fetched without
+    /// a click: under "Everything", when it is not known to be over the
+    /// automatic limit and the person has not stopped it. A larger one
+    /// waits for a click, so that it does not push out of the cache what
+    /// was already here.
+    pub fn fetches_file_unasked(&self, media: &Media) -> bool {
+        self.fetches_everything() && self.fetched_unasked(media)
     }
 
     /// Whether a GIF is fetched without a click. Same rule as a picture:

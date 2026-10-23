@@ -184,6 +184,16 @@ pub(crate) fn group(http: &HttpClient, account: &str, group: &str) -> Request<Le
     http.request(RequestParts::new(Method::Get, group_path(account, group)).retryable())
 }
 
+/// `groups().get_invite`: the group behind an invite code.
+pub(crate) fn group_invite(
+    http: &HttpClient,
+    account: &str,
+    code: &str,
+) -> Request<Lenient<api::Group>> {
+    let tail = format!("/groups/invites/{}", encode_path(code));
+    http.request(RequestParts::new(Method::Get, account_path(account, &tail)).retryable())
+}
+
 /// `groups().create`
 pub(crate) fn create_group(
     http: &HttpClient,

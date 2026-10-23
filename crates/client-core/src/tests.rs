@@ -2423,6 +2423,44 @@ async fn what_is_not_a_reasonable_image_is_not_loaded_by_itself() {
 }
 
 #[tokio::test]
+async fn a_file_fetched_ahead_is_small_and_a_click_puts_it_first() {
+    let mock = MockProvider::quiet();
+    let (engine, account, _) = engine_with_chats(&mock).await;
+
+    // Fetched ahead of a click, a file is at most what is fetched unasked;
+    // asked for, it may be larger.
+    let video = "https://media.example/long-video";
+    mock.set_media(video, vec![0; AUTO_MEDIA_LIMIT as usize + 1], "video/mp4");
+    engine.want_file_unasked(&account, video);
+    let state = settled(&engine, &file_key(video)).await;
+    assert!(matches!(state, MediaState::Unavailable(_)), "{state:?}");
+    assert!(!engine.store().has_media(&file_key(video)).unwrap());
+    engine.retry_media(&file_key(video));
+    engine.want_file(&account, video);
+    settled(&engine, &file_key(video)).await;
+    assert!(engine.store().has_media(&file_key(video)).unwrap());
+
+    // A line of files fetched ahead, and then a click on the first of
+    // them: it is fetched before the others.
+    mock.set_media_latency(Duration::from_millis(40));
+    let urls: Vec<String> = (0..12)
+        .map(|n| format!("https://media.example/ahead-{n}"))
+        .collect();
+    for url in &urls {
+        mock.set_media(url, b"OggS".to_vec(), "audio/ogg");
+        engine.want_file_unasked(&account, url);
+    }
+    let note = &urls[0];
+    engine.want_file(&account, note);
+    settled(&engine, &file_key(note)).await;
+    let behind = urls
+        .iter()
+        .filter(|url| !engine.store().has_media(&file_key(url)).unwrap())
+        .count();
+    assert!(behind >= 6, "the click did not wait for the line: {behind}");
+}
+
+#[tokio::test]
 async fn downloads_nobody_waits_for_are_dropped() {
     let mock = MockProvider::quiet();
     let (engine, account, _) = engine_with_chats(&mock).await;

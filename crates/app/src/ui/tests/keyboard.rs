@@ -1080,6 +1080,70 @@ fn a_message_is_forwarded_to_two_chats(cx: &mut TestAppContext) {
     );
 }
 
+#[gpui_kit::test]
+fn the_forward_sheet_is_the_palette_with_boxes_and_reaches_people_with_no_chat(
+    cx: &mut TestAppContext,
+) {
+    let harness = open_chat_one(cx);
+    put(&harness, cx, "f2", false, "see you at eight", 1);
+    let account = open_ids(&harness, cx).0;
+    let mut contact =
+        client_provider::Contact::new(account.clone(), ContactId::new("+15550009999"));
+    contact.saved_name = Some("Zoe Newcomer".into());
+    contact.phone = Some("+15550009999".into());
+    harness.engine.store().upsert_contact(&contact).unwrap();
+
+    focus_composer(&harness, cx);
+    press(harness.window, "up", cx);
+    press(harness.window, "f", cx);
+    assert_eq!(overlay(&harness, cx), Overlay::Forward);
+    // The palette's look: sections, the keyboard's row, empty boxes.
+    assert!(shows(harness.window, "forward-title", cx));
+    assert!(shows(harness.window, "forward-cursor", cx));
+    assert!(shows(harness.window, "forward-unchecked-0", cx));
+    assert!(shows(harness.window, "forward-hints", cx));
+
+    // A chat with the keyboard: its box is checked, and a chip says so.
+    let first = cx.update(|cx| harness.shell.read(cx).forward_rows(cx))[0].clone();
+    press(harness.window, "enter", cx);
+    assert!(shows(harness.window, "forward-checked-0", cx));
+    assert!(shows(harness.window, "forward-picked-0", cx));
+
+    // Somebody of the address book with no chat yet, found by name.
+    type_text(harness.window, "Zoe", cx);
+    let rows = cx.update(|cx| harness.shell.read(cx).forward_rows(cx));
+    let at = rows
+        .iter()
+        .position(|(_, name, _)| name == "Zoe Newcomer")
+        .expect("the person is listed");
+    for _ in 0..at {
+        press(harness.window, "down", cx);
+    }
+    press(harness.window, "enter", cx);
+    // The search no longer lists the first chat; its chip is still there.
+    assert!(shows(harness.window, "forward-picked-1", cx));
+    assert_eq!(
+        cx.update(|cx| harness.shell.read(cx).acting.forward_to.len()),
+        2
+    );
+
+    // Cmd or Ctrl with Enter sends: the person gets a chat of their own.
+    press(harness.window, "ctrl-enter", cx);
+    assert_eq!(overlay(&harness, cx), Overlay::None);
+    let pending = harness.engine.store().outbox_pending().unwrap();
+    let to: Vec<&str> = pending
+        .iter()
+        .map(|entry| entry.message.chat_id.as_str())
+        .collect();
+    assert_eq!(to, [first.0.as_str(), "+15550009999"]);
+    assert!(harness
+        .engine
+        .store()
+        .chat(&account, &ChatId::new("+15550009999"))
+        .unwrap()
+        .is_some());
+}
+
 fn click_dynamic(harness: &Harness, cx: &mut TestAppContext, selector: &str) {
     let leaked: &'static str = Box::leak(selector.to_owned().into_boxed_str());
     click(harness.window, leaked, cx);
