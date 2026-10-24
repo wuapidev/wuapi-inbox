@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.9.0]
+
 * A profile picture opens in the viewer with a click, in a contact's panel, a group's and the account's own: at the size it was put up, not the small preview the lists show, with the viewer's zoom, copy and save. The preview shows at once and the whole picture replaces it when WhatsApp sends it; where there is none at that size, the preview is what opens. Closing it goes back to the panel.
 * A phone number is copied with a click wherever it is shown: under the name in a profile and in the account's own, beside the name of somebody who writes in a group, in the lists of a group's members and of people to pick, and in the text of a message or a status written with its `+` (`+58 (412) 555-0100`). It is copied as it is dialled (`+584125550100`), and the window says so. The menu of a person's chat, in the header and on its row of the list, has "Copy number".
 * A right click on a picture in the viewer opens a menu at the pointer: copy it, save it where you say or straight to Downloads, open it with another application, see it whole or at its actual size and, for a picture of a message, forward the message or go to it. Escape, or a click beside it, closes the menu and leaves the picture.
