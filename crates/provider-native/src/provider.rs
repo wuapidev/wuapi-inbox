@@ -8,15 +8,15 @@ use crate::mapping::{self, MediaPointer};
 use crate::session::{OpenOptions, Session, SessionError, Sessions, Sink, StatusPost, Target};
 use async_trait::async_trait;
 use client_provider::{
-    refusal, Account, AccountChange, AccountId, AccountSettings, AvatarAnswer, BusinessProfile,
-    CallEvent, CallState, Capabilities, Chat, ChatChange, ChatId, ClientMessageId, ConnectionState,
-    Contact, ContactId, Cursor, DeliveryStatus, EventStream, ForwardItem, Group, GroupChange,
-    HistoryImport, JoinOutcome, JoinRequest, LinkStatus, LinkStep, MediaData, MediaRef,
-    MediaUpload, Message, MessageId, NewAccount, NewGroup, NewStory, NewStoryContent, NumberCheck,
-    OutgoingContent, OutgoingMessage, OwnProfile, Page, ParticipantChange, ParticipantOutcome,
-    ProfileChange, Provider, ProviderError, ProviderEvent, ProviderResult, SendReceipt,
-    ServerMedia, Story, StoryAudience, StoryPrivacy, StoryViewer, Timestamp, UploadProgress,
-    STORY_LIFETIME,
+    refusal, Account, AccountChange, AccountId, AccountSettings, Avatar, AvatarAnswer,
+    BusinessProfile, CallEvent, CallState, Capabilities, Chat, ChatChange, ChatId, ClientMessageId,
+    ConnectionState, Contact, ContactId, Cursor, DeliveryStatus, EventStream, ForwardItem, Group,
+    GroupChange, HistoryImport, JoinOutcome, JoinRequest, LinkStatus, LinkStep, MediaData,
+    MediaRef, MediaUpload, Message, MessageId, NewAccount, NewGroup, NewStory, NewStoryContent,
+    NumberCheck, OutgoingContent, OutgoingMessage, OwnProfile, Page, ParticipantChange,
+    ParticipantOutcome, ProfileChange, Provider, ProviderError, ProviderEvent, ProviderResult,
+    SendReceipt, ServerMedia, Story, StoryAudience, StoryPrivacy, StoryViewer, Timestamp,
+    UploadProgress, STORY_LIFETIME,
 };
 use futures::StreamExt;
 use std::collections::HashMap;
@@ -725,6 +725,49 @@ fn forward_refusal(code: &str) -> ProviderError {
     rejected(code, message)
 }
 
+/// Refuses a file larger, or of another kind, than `limit` allows: the
+/// pointer says its size and type before a byte is fetched.
+fn within(media: &MediaRef, limit: client_provider::MediaLimit) -> ProviderResult<()> {
+    if let Some(pointer) = MediaPointer::parse(media) {
+        if pointer.file_length > limit.max_bytes {
+            return Err(rejected(
+                "too_large",
+                "The file is larger than the download limit.",
+            ));
+        }
+        let image = pointer.class == "image" || pointer.class == "sticker";
+        if limit.images_only && !image {
+            return Err(rejected("not_an_image", "The file is not an image."));
+        }
+    }
+    Ok(())
+}
+
+impl NativeProvider {
+    /// Downloads a file, telling `progress` how much has come.
+    async fn download_reporting(
+        &self,
+        account: &AccountId,
+        media: &MediaRef,
+        progress: Option<UploadProgress>,
+    ) -> ProviderResult<MediaData> {
+        if let Some(bytes) = mapping::inline_bytes(media) {
+            return Ok(MediaData {
+                bytes,
+                mime_type: Some("image/jpeg".into()),
+            });
+        }
+        let pointer = MediaPointer::parse(media)
+            .ok_or_else(|| rejected(refusal::NOT_FOUND, "This file is not on WhatsApp."))?;
+        let session = self.inner.online(account)?;
+        let bytes = session.download(&pointer, progress).await.map_err(fail)?;
+        Ok(MediaData {
+            bytes,
+            mime_type: pointer.mime_type,
+        })
+    }
+}
+
 #[async_trait]
 impl Provider for NativeProvider {
     fn id(&self) -> &'static str {
@@ -1202,20 +1245,7 @@ impl Provider for NativeProvider {
         account: &AccountId,
         media: &MediaRef,
     ) -> ProviderResult<MediaData> {
-        if let Some(bytes) = mapping::inline_bytes(media) {
-            return Ok(MediaData {
-                bytes,
-                mime_type: Some("image/jpeg".into()),
-            });
-        }
-        let pointer = MediaPointer::parse(media)
-            .ok_or_else(|| rejected(refusal::NOT_FOUND, "This file is not on WhatsApp."))?;
-        let session = self.inner.online(account)?;
-        let bytes = session.download(&pointer).await.map_err(fail)?;
-        Ok(MediaData {
-            bytes,
-            mime_type: pointer.mime_type,
-        })
+        self.download_reporting(account, media, None).await
     }
 
     async fn fetch_media(
@@ -1224,20 +1254,20 @@ impl Provider for NativeProvider {
         media: &MediaRef,
         limit: client_provider::MediaLimit,
     ) -> ProviderResult<MediaData> {
-        // The pointer says the size and the type before a byte is fetched.
-        if let Some(pointer) = MediaPointer::parse(media) {
-            if pointer.file_length > limit.max_bytes {
-                return Err(rejected(
-                    "too_large",
-                    "The file is larger than the download limit.",
-                ));
-            }
-            let image = pointer.class == "image" || pointer.class == "sticker";
-            if limit.images_only && !image {
-                return Err(rejected("not_an_image", "The file is not an image."));
-            }
-        }
+        within(media, limit)?;
         self.download_media(account, media).await
+    }
+
+    async fn fetch_media_reporting(
+        &self,
+        account: &AccountId,
+        media: &MediaRef,
+        limit: client_provider::MediaLimit,
+        progress: UploadProgress,
+    ) -> ProviderResult<MediaData> {
+        within(media, limit)?;
+        self.download_reporting(account, media, Some(progress))
+            .await
     }
 
     async fn upload_media(
@@ -1279,6 +1309,16 @@ impl Provider for NativeProvider {
         let session = self.inner.online(account)?;
         let whose = self.inner.jid(subject.as_str())?;
         session.picture(&whose, known).await.map_err(fail)
+    }
+
+    async fn fetch_full_avatar(
+        &self,
+        account: &AccountId,
+        subject: &ChatId,
+    ) -> ProviderResult<Option<Avatar>> {
+        let session = self.inner.online(account)?;
+        let whose = self.inner.jid(subject.as_str())?;
+        session.full_picture(&whose).await.map_err(fail)
     }
 
     async fn vote_poll(

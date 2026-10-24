@@ -608,3 +608,59 @@ fn a_picture_has_its_buttons_in_its_corner_at_every_interface_size(cx: &mut Test
     visual.run_until_parked();
     cx.update(|cx| assert_eq!(harness.shell.read(cx).overlay, Overlay::Viewer));
 }
+
+#[gpui_kit::test]
+fn a_right_click_on_the_viewer_opens_a_menu_that_saves_and_goes_to_the_message(
+    cx: &mut TestAppContext,
+) {
+    let (harness, outside) = open_with_outside(cx);
+    let url = picture(&harness, cx, "shot", &png(100, 80), "image/png");
+    click(harness.window, "media-image", cx);
+    cx.update(|cx| assert_eq!(harness.shell.read(cx).overlay, Overlay::Viewer));
+
+    // At the pointer, with what the toolbar does and the message's own.
+    right_click(harness.window, "viewer-picture", cx);
+    assert!(shows(harness.window, "viewer-menu", cx));
+    for entry in [
+        "viewer-menu-copy",
+        "viewer-menu-saveas",
+        "viewer-menu-savetodownloads",
+        "viewer-menu-openwith",
+        "viewer-menu-zoom",
+        "viewer-menu-forward",
+        "viewer-menu-gotomessage",
+    ] {
+        assert!(shows(harness.window, entry, cx), "{entry}");
+    }
+
+    // Escape closes the menu, and the picture stays.
+    press(harness.window, "escape", cx);
+    assert!(!shows(harness.window, "viewer-menu", cx));
+    cx.update(|cx| assert_eq!(harness.shell.read(cx).overlay, Overlay::Viewer));
+
+    // Saved to Downloads, with no dialog.
+    right_click(harness.window, "viewer-picture", cx);
+    click(harness.window, "viewer-menu-savetodownloads", cx);
+    assert!(!shows(harness.window, "viewer-menu", cx));
+    wait(&harness, cx, "the picture is saved", || {
+        std::fs::read_dir(outside.downloads.path())
+            .map(|entries| entries.count() == 1)
+            .unwrap_or(false)
+    });
+    assert!(outside.asked.borrow().is_empty(), "no dialog");
+
+    // "Go to the message" closes the viewer on the message it came in.
+    right_click(harness.window, "viewer-picture", cx);
+    click(harness.window, "viewer-menu-gotomessage", cx);
+    cx.update(|cx| {
+        let shell = harness.shell.read(cx);
+        assert_eq!(shell.overlay, Overlay::None);
+        let focused = shell.focused_message().expect("a message has the keyboard");
+        assert_eq!(
+            crate::ui::media_out::media_of(&focused)
+                .and_then(|media| media.source.as_ref())
+                .map(|source| source.to_string()),
+            Some(url)
+        );
+    });
+}

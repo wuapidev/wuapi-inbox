@@ -1656,16 +1656,16 @@ impl Shell {
                 highlights.push((
                     span.range.clone(),
                     HighlightStyle {
-                        color: style
-                            .link
-                            .is_some()
+                        color: (style.link.is_some() || style.phone.is_some())
                             .then(|| story::on_background().opacity(0.95)),
                         font_weight: (style.bold || style.mention).then_some(FontWeight::SEMIBOLD),
                         font_style: style.italic.then_some(FontStyle::Italic),
-                        underline: style.link.as_ref().map(|_| UnderlineStyle {
-                            thickness: gpui_kit::px(1.),
-                            color: Some(story::on_background()),
-                            wavy: false,
+                        underline: style.link.as_ref().or(style.phone.as_ref()).map(|_| {
+                            UnderlineStyle {
+                                thickness: gpui_kit::px(1.),
+                                color: Some(story::on_background()),
+                                wavy: false,
+                            }
                         }),
                         strikethrough: style.strike.then_some(StrikethroughStyle {
                             thickness: gpui_kit::px(1.),
@@ -1674,8 +1674,11 @@ impl Shell {
                         ..Default::default()
                     },
                 ));
+                // A link opens; a number copies.
                 if let Some(address) = &style.link {
-                    clicks.push((span.range.clone(), address.clone()));
+                    clicks.push((span.range.clone(), (true, address.clone())));
+                } else if let Some(number) = &style.phone {
+                    clicks.push((span.range.clone(), (false, number.clone())));
                 }
             }
             let shown = SharedString::from(line.text.clone());
@@ -1687,9 +1690,15 @@ impl Shell {
                 let view = cx.weak_entity();
                 InteractiveText::new(SharedString::from(format!("story-caption-{index}")), text)
                     .on_click(ranges, move |at, _, cx| {
-                        if let Some(address) = addresses.get(at).cloned() {
-                            view.update(cx, |this, cx| this.open_link(&address, cx))
-                                .ok();
+                        if let Some((link, address)) = addresses.get(at).cloned() {
+                            view.update(cx, |this, cx| {
+                                if link {
+                                    this.open_link(&address, cx)
+                                } else {
+                                    this.copy_phone(&address, cx)
+                                }
+                            })
+                            .ok();
                         }
                     })
                     .into_any_element()

@@ -553,15 +553,17 @@ impl WuapiClient {
             .map_err(from_sdk)
     }
 
-    /// `GET .../contacts/{contactId}/picture?preview=true`: the download
-    /// picture of a contact (or, on the same path, of a group).
+    /// `GET .../contacts/{contactId}/picture?preview=…`: the download
+    /// picture of a contact (or, on the same path, of a group), the small
+    /// preview or the picture at the size it was put up.
     pub(crate) async fn contact_picture(
         &self,
         account: &str,
         contact: &str,
+        preview: bool,
     ) -> ProviderResult<api::Picture> {
         let params = api::ContactsGetPictureParams {
-            preview: Some(true),
+            preview: Some(preview),
         };
         self.api
             .contacts()

@@ -42,6 +42,13 @@ const AVATAR_LIMIT: MediaLimit = MediaLimit {
     images_only: true,
 };
 
+/// A profile picture at the size it was put up: WhatsApp keeps them at
+/// 640 px or so, a few hundred kilobytes.
+const FULL_AVATAR_LIMIT: MediaLimit = MediaLimit {
+    max_bytes: 10 * 1024 * 1024,
+    images_only: true,
+};
+
 /// The wuapi adapter.
 ///
 /// Holds an API key and the wuapi SDK's client; everything else is stateless, as
@@ -869,7 +876,7 @@ impl Provider for WuapiProvider {
             Some(contact) => {
                 let url = self
                     .client
-                    .contact_picture(account.as_str(), contact)
+                    .contact_picture(account.as_str(), contact, true)
                     .await?
                     .url
                     .ok_or_else(|| ProviderError::Rejected {
@@ -1239,7 +1246,7 @@ impl Provider for WuapiProvider {
         // for whatever reason WhatsApp or the API has, is "no picture".
         let picture = match self
             .client
-            .contact_picture(account.as_str(), subject.as_str())
+            .contact_picture(account.as_str(), subject.as_str(), true)
             .await
         {
             Ok(picture) => picture,
@@ -1263,6 +1270,37 @@ impl Provider for WuapiProvider {
         }
         let data = self.client.download_limited(&url, AVATAR_LIMIT).await?;
         Ok(AvatarAnswer::New(Avatar {
+            id,
+            bytes: data.bytes,
+            mime_type: data.mime_type,
+        }))
+    }
+
+    async fn fetch_full_avatar(
+        &self,
+        account: &AccountId,
+        subject: &ChatId,
+    ) -> ProviderResult<Option<Avatar>> {
+        let picture = match self
+            .client
+            .contact_picture(account.as_str(), subject.as_str(), false)
+            .await
+        {
+            Ok(picture) => picture,
+            Err(ProviderError::Rejected { code, .. }) if NO_PICTURE.contains(&code.as_str()) => {
+                return Ok(None)
+            }
+            Err(error) => return Err(error),
+        };
+        let Some(url) = picture.url else {
+            return Ok(None);
+        };
+        let id = picture.id.unwrap_or_default();
+        let data = self
+            .client
+            .download_limited(&url, FULL_AVATAR_LIMIT)
+            .await?;
+        Ok(Some(Avatar {
             id,
             bytes: data.bytes,
             mime_type: data.mime_type,

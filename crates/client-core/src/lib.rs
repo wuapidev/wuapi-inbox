@@ -59,7 +59,7 @@ pub use store::{
 };
 pub use summary::system_line;
 pub use sync::{
-    animation_key, failure_sentence, file_key, new_client_id, outcome_sentence,
+    animation_key, failure_sentence, file_key, full_picture_url, new_client_id, outcome_sentence,
     own_picture_subject, thumbnail_key, CreatedGroup, ForwardError, ForwardRefusal, GroupPlace,
     HistoryMode, LibraryError, LibrarySend, MediaState, NewChat, NewMedia, SendMediaError,
     SyncConfig, SyncEngine, SyncError, ANIMATION_KEEP_LIMIT, AUTO_MEDIA_LIMIT, AVATAR_TTL,

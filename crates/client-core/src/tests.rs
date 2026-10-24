@@ -4060,3 +4060,120 @@ fn search_stays_quick_over_a_long_history() {
         "two searches took {took:?}"
     );
 }
+
+#[tokio::test]
+async fn a_picture_is_kept_whole_or_else_as_its_preview() {
+    let mock = MockProvider::quiet();
+    let (engine, account, _) = engine_with_chats(&mock).await;
+    let kept = |chat: &ChatId| {
+        engine
+            .store()
+            .media(
+                &file_key(&full_picture_url(&account, chat)),
+                Timestamp::now(),
+            )
+            .unwrap()
+            .map(|cached| cached.bytes)
+    };
+
+    // Whole, when WhatsApp has it.
+    let ana = ChatId::new("+584140000001");
+    mock.set_avatar(&account, &ana, Some(("picture-1", b"preview".to_vec())));
+    mock.set_full_avatar(&account, &ana, b"whole".to_vec());
+    assert!(engine.fetch_full_picture(&account, &ana).await.unwrap());
+    assert_eq!(kept(&ana).as_deref(), Some(&b"whole"[..]));
+    assert_eq!(mock.full_avatar_calls(), 1);
+
+    // None at that size: the preview the lists show is kept in its
+    // place, so that it can still be looked at.
+    let bruno = ChatId::new("+584140000002");
+    engine
+        .store()
+        .put_avatar(
+            &account,
+            &bruno,
+            Some(("picture-2", b"small")),
+            Timestamp::now(),
+        )
+        .unwrap();
+    assert!(!engine.fetch_full_picture(&account, &bruno).await.unwrap());
+    assert_eq!(kept(&bruno).as_deref(), Some(&b"small"[..]));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_long_download_holds_up_no_message_coming_or_going() {
+    let mock = MockProvider::quiet();
+    let (engine, account, chats) = engine_with_chats(&mock).await;
+    engine.start();
+    let video = "https://media.example/long";
+    mock.set_media(video, vec![0; 64 * 1024 * 1024], "video/mp4");
+    mock.set_media_latency(Duration::from_secs(30));
+    engine.want_file(&account, video);
+    tokio::time::sleep(Duration::from_millis(200)).await;
+
+    let template = engine
+        .store()
+        .messages(&account, &chats[1], 1)
+        .unwrap()
+        .remove(0)
+        .message;
+    mock.push_event(ProviderEvent::MessageUpserted(Message {
+        id: MessageId::new("while-downloading"),
+        client_id: None,
+        timestamp: Timestamp::now(),
+        content: MessageContent::text("hello"),
+        direction: Direction::Incoming,
+        ..template
+    }));
+    engine.send_text(&account, &chats[2], "out", None).unwrap();
+    let started = std::time::Instant::now();
+    loop {
+        let heard = engine
+            .store()
+            .message(&account, &MessageId::new("while-downloading"))
+            .unwrap()
+            .is_some();
+        let sent = mock.sent().iter().any(|m| m.chat_id == chats[2]);
+        if heard && sent {
+            break;
+        }
+        assert!(
+            started.elapsed() < Duration::from_secs(5),
+            "heard {heard}, sent {sent}"
+        );
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_download_goes_on_as_long_as_its_bytes_come() {
+    let mock = MockProvider::quiet();
+    let (engine, account, _) = engine_with_chats(&mock).await;
+
+    // Ten minutes of a long video, its bytes coming all the way: it is
+    // not given up at two, and not asked for a second time.
+    let video = "https://media.example/ten-minutes";
+    mock.set_media(video, vec![7; 4096], "video/mp4");
+    mock.set_media_latency(Duration::from_secs(600));
+    mock.set_media_trickle(Duration::from_secs(10));
+    let before = mock.media_calls();
+    engine.want_file(&account, video);
+    for _ in 0..700 {
+        if engine.store().has_media(&file_key(video)).unwrap() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_secs(1)).await;
+    }
+    assert!(engine.store().has_media(&file_key(video)).unwrap());
+    assert_eq!(mock.media_calls(), before + 1, "asked for once");
+
+    // One that says nothing for two minutes is given up, to be tried
+    // again later.
+    let silent = "https://media.example/silent";
+    mock.set_media(silent, vec![7; 4096], "video/mp4");
+    mock.set_media_trickle(Duration::from_secs(300));
+    engine.want_file(&account, silent);
+    tokio::time::sleep(Duration::from_secs(200)).await;
+    assert!(!engine.store().has_media(&file_key(silent)).unwrap());
+    assert_eq!(engine.media_state(&file_key(silent)), MediaState::Idle);
+}

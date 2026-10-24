@@ -105,7 +105,11 @@ impl Session for FakeSession {
         Ok(())
     }
 
-    async fn download(&self, pointer: &MediaPointer) -> SessionResult<Vec<u8>> {
+    async fn download(
+        &self,
+        pointer: &MediaPointer,
+        _progress: Option<client_provider::UploadProgress>,
+    ) -> SessionResult<Vec<u8>> {
         Ok(pointer.direct_path.as_bytes().to_vec())
     }
 

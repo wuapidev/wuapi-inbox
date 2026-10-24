@@ -589,54 +589,76 @@ impl Shell {
             });
         }
         open.list.scroll_to_end();
+        // Each file shows in the chat at once, as a bubble that waits,
+        // until it is a message.
+        let files: Vec<(u64, NewMedia)> = files
+            .into_iter()
+            .map(|file| {
+                let id = self.begin_preparing(
+                    &account,
+                    &chat,
+                    file.kind,
+                    file.file_name.clone().unwrap_or_default(),
+                    file.caption.clone(),
+                );
+                (id, file)
+            })
+            .collect();
         let engine = self.engine.clone();
         let runtime = self.engine.runtime().clone();
         // One after the other, so they keep their order. A picture is
         // decoded for its thumbnail off every thread that matters; the
         // store is written from the runtime's own task.
-        let blocking = runtime.clone();
-        let work = runtime.spawn(async move {
+        cx.spawn(async move |this, cx| {
             // Why each file that was not queued was not.
             let mut errors: Vec<String> = Vec::new();
-            for file in files {
+            for (id, file) in files {
                 let name = file.file_name.clone().unwrap_or_default();
-                let preparing = engine.clone();
-                let prepared = blocking
-                    .spawn_blocking(move || {
-                        let preview = super::media::sent_preview(&file);
-                        preparing
-                            .prepare_media(file)
-                            .map(|prepared| prepared.with_preview(preview))
-                    })
-                    .await;
-                let queued = match prepared {
-                    Ok(Ok(prepared)) => engine.send_prepared(&account, &chat, prepared).err(),
-                    Ok(Err(error)) => Some(error),
-                    // The work itself broke: said, not passed over.
-                    Err(_) => {
-                        errors.push(crate::i18n::tr(
-                            "chat.attach_sheet.not_prepared",
-                            &[("name", &name)],
-                        ));
-                        None
+                let (engine, blocking) = (engine.clone(), runtime.clone());
+                let (account, chat) = (account.clone(), chat.clone());
+                let work = runtime.spawn(async move {
+                    let preparing = engine.clone();
+                    let prepared = blocking
+                        .spawn_blocking(move || {
+                            let preview = super::media::sent_preview(&file);
+                            preparing
+                                .prepare_media(file)
+                                .map(|prepared| prepared.with_preview(preview))
+                        })
+                        .await;
+                    match prepared {
+                        Ok(Ok(prepared)) => {
+                            Ok(engine.send_prepared(&account, &chat, prepared).err())
+                        }
+                        Ok(Err(error)) => Ok(Some(error)),
+                        Err(_) => Err(()),
                     }
-                };
-                errors.extend(queued.map(|error| match error {
-                    SendMediaError::TooLarge { size, limit } => crate::i18n::tr(
-                        "chat.attach_sheet.too_large_sent",
-                        &[("size", &file_size(size)), ("limit", &file_size(limit))],
-                    ),
-                    other => other.to_string(),
-                }));
+                });
+                match work.await {
+                    Ok(Ok(queued)) => errors.extend(queued.map(|error| match error {
+                        SendMediaError::TooLarge { size, limit } => crate::i18n::tr(
+                            "chat.attach_sheet.too_large_sent",
+                            &[("size", &file_size(size)), ("limit", &file_size(limit))],
+                        ),
+                        other => other.to_string(),
+                    })),
+                    // The work itself broke: said, not passed over.
+                    _ => errors.push(crate::i18n::tr(
+                        "chat.attach_sheet.not_prepared",
+                        &[("name", &name)],
+                    )),
+                }
+                // The message is in the store now, or will not be: the
+                // bubble that waited goes.
+                if this
+                    .update(cx, |this, cx| this.done_preparing(id, cx))
+                    .is_err()
+                {
+                    return;
+                }
             }
-            errors
-        });
-        // On its own, apart from the reading of files attached next: what
-        // was not sent is always said.
-        cx.spawn(async move |this, cx| {
-            let errors = work.await.unwrap_or_else(|_| {
-                vec![crate::i18n::t("chat.attach_sheet.none_prepared").to_owned()]
-            });
+            // On its own, apart from the reading of files attached next:
+            // what was not sent is always said.
             this.update(cx, |this, cx| {
                 if let Some(message) = errors.into_iter().next() {
                     this.show_problem(message, cx);

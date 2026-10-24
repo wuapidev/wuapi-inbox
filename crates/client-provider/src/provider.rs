@@ -8,7 +8,7 @@ use crate::event::EventStream;
 use crate::ids::ContactId;
 use crate::ids::{AccountId, ChatId, Cursor, MediaRef, MessageId};
 use crate::model::{
-    Account, AccountChange, AvatarAnswer, Chat, ChatChange, Contact, LinkPlace, LinkStatus,
+    Account, AccountChange, Avatar, AvatarAnswer, Chat, ChatChange, Contact, LinkPlace, LinkStatus,
     MediaData, MediaLimit, MediaUpload, Message, NewAccount, NumberCheck, OutgoingMessage, Page,
     SendReceipt, UploadProgress,
 };
@@ -399,6 +399,23 @@ pub trait Provider: Send + Sync + 'static {
     ) -> ProviderResult<AvatarAnswer> {
         let _ = (account, subject, known);
         Err(ProviderError::Unsupported("profile pictures"))
+    }
+
+    /// The picture of a chat at the size it was put up, for looking at
+    /// it whole: [`fetch_avatar`](Self::fetch_avatar) answers the small
+    /// preview a list shows. `None` is "there is nothing to show", as
+    /// there.
+    ///
+    /// Only called when [`Capabilities::avatars`] is set, and only on a
+    /// click; the default answers [`ProviderError::Unsupported`], and the
+    /// client then enlarges the preview it has.
+    async fn fetch_full_avatar(
+        &self,
+        account: &AccountId,
+        subject: &ChatId,
+    ) -> ProviderResult<Option<Avatar>> {
+        let _ = (account, subject);
+        Err(ProviderError::Unsupported("full-size profile pictures"))
     }
 
     /// Casts the account's vote in a poll: `choices` are the names of the

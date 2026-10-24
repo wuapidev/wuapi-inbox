@@ -155,6 +155,10 @@ struct State {
     unread_unknown: Vec<ChatId>,
     /// Pictures by (account, chat): id and bytes.
     avatars: HashMap<(AccountId, ChatId), (String, Vec<u8>)>,
+    /// Pictures at full size by (account, chat); a chat with none here
+    /// answers its preview.
+    full_avatars: HashMap<(AccountId, ChatId), Vec<u8>>,
+    full_avatar_calls: usize,
     /// Failures to return from upcoming `fetch_avatar` calls, in order.
     avatar_failures: VecDeque<ProviderError>,
     avatar_calls: usize,
@@ -168,6 +172,9 @@ struct State {
     media_failures: VecDeque<ProviderError>,
     /// How long a media download takes.
     media_latency: Duration,
+    /// How often a slow download says how far it got; `None`: once, half
+    /// way.
+    media_trickle: Option<Duration>,
     /// Uploaded files by the key they were uploaded under: the reference
     /// that was answered.
     uploads: HashMap<String, String>,
@@ -341,6 +348,8 @@ impl MockProvider {
                     receipts_sent: Vec::new(),
                     unread_unknown: Vec::new(),
                     avatars: HashMap::new(),
+                    full_avatars: HashMap::new(),
+                    full_avatar_calls: 0,
                     avatar_failures: VecDeque::new(),
                     avatar_calls: 0,
                     media: HashMap::new(),
@@ -349,6 +358,7 @@ impl MockProvider {
                     history_calls: 0,
                     media_failures: VecDeque::new(),
                     media_latency: Duration::ZERO,
+                    media_trickle: None,
                     uploads: HashMap::new(),
                     uploaded: Vec::new(),
                     timed_mutes: Vec::new(),
@@ -472,6 +482,18 @@ impl MockProvider {
         };
     }
 
+    /// Gives a chat's picture a full-size file, apart from its preview.
+    pub fn set_full_avatar(&self, account: &AccountId, chat: &ChatId, bytes: Vec<u8>) {
+        self.state()
+            .full_avatars
+            .insert((account.clone(), chat.clone()), bytes);
+    }
+
+    /// How many times a picture was asked for at full size.
+    pub fn full_avatar_calls(&self) -> usize {
+        self.state().full_avatar_calls
+    }
+
     /// The chats whose unread count was cleared through the provider, in
     /// order.
     pub fn marked_read(&self) -> Vec<ChatId> {
@@ -541,6 +563,11 @@ impl MockProvider {
     /// on the way.
     pub fn set_media_latency(&self, latency: Duration) {
         self.state().media_latency = latency;
+    }
+
+    /// Makes a slow download say how far it got this often, all the way.
+    pub fn set_media_trickle(&self, every: Duration) {
+        self.state().media_trickle = Some(every);
     }
 
     /// How many times media was downloaded.
@@ -1853,9 +1880,13 @@ impl Provider for MockProvider {
         limit: client_provider::MediaLimit,
         progress: client_provider::UploadProgress,
     ) -> ProviderResult<MediaData> {
-        let (failure, latency) = {
+        let (failure, latency, trickle) = {
             let mut state = self.state();
-            (state.media_failures.pop_front(), state.media_latency)
+            (
+                state.media_failures.pop_front(),
+                state.media_latency,
+                state.media_trickle,
+            )
         };
         if let Some(error) = failure {
             self.state().media_calls += 1;
@@ -1863,9 +1894,19 @@ impl Provider for MockProvider {
         }
         let data = self.fetch_media(account, media, limit).await?;
         let total = data.bytes.len() as u64;
-        if !latency.is_zero() {
-            progress(total / 2);
-            tokio::time::sleep(latency).await;
+        match trickle {
+            Some(every) if !latency.is_zero() && !every.is_zero() => {
+                let steps = (latency.as_millis() / every.as_millis()).max(1) as u64;
+                for step in 1..=steps {
+                    tokio::time::sleep(every).await;
+                    progress(total * step / (steps + 1));
+                }
+            }
+            _ if !latency.is_zero() => {
+                progress(total / 2);
+                tokio::time::sleep(latency).await;
+            }
+            _ => {}
         }
         progress(total);
         Ok(data)
@@ -2032,6 +2073,24 @@ impl Provider for MockProvider {
                 }),
             },
         )
+    }
+
+    async fn fetch_full_avatar(
+        &self,
+        account: &AccountId,
+        subject: &ChatId,
+    ) -> ProviderResult<Option<Avatar>> {
+        let mut state = self.state();
+        state.full_avatar_calls += 1;
+        let key = (account.clone(), subject.clone());
+        let Some((id, preview)) = state.avatars.get(&key) else {
+            return Ok(None);
+        };
+        Ok(Some(Avatar {
+            id: id.clone(),
+            bytes: state.full_avatars.get(&key).unwrap_or(preview).clone(),
+            mime_type: Some("image/png".to_owned()),
+        }))
     }
 
     async fn list_contacts(

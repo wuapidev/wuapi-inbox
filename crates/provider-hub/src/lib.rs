@@ -24,9 +24,9 @@
 
 use async_trait::async_trait;
 use client_provider::{
-    Account, AccountChange, AccountId, AvatarAnswer, BusinessProfile, CallCamera, CallDevices,
-    CallVideo, Capabilities, Chat, ChatChange, ChatId, Contact, ContactId, Cursor, EventStream,
-    FavoriteSticker, Feature, ForwardItem, Group, GroupChange, IncomingWebhook,
+    Account, AccountChange, AccountId, Avatar, AvatarAnswer, BusinessProfile, CallCamera,
+    CallDevices, CallVideo, Capabilities, Chat, ChatChange, ChatId, Contact, ContactId, Cursor,
+    EventStream, FavoriteSticker, Feature, ForwardItem, Group, GroupChange, IncomingWebhook,
     IncomingWebhookChange, JoinOutcome, JoinRequest, LinkPlace, LinkStatus, LiveUpdates, MediaData,
     MediaLimit, MediaRef, MediaUpload, Message, MessageId, NewAccount, NewGroup, NewStory,
     NumberCheck, OutgoingMessage, OwnProfile, Page, ParticipantChange, ParticipantOutcome,
@@ -568,6 +568,14 @@ impl Provider for HubProvider {
         known: Option<&str>,
     ) -> ProviderResult<AvatarAnswer> {
         route!(self, account, |p| p.fetch_avatar(account, subject, known))
+    }
+
+    async fn fetch_full_avatar(
+        &self,
+        account: &AccountId,
+        subject: &ChatId,
+    ) -> ProviderResult<Option<Avatar>> {
+        route!(self, account, |p| p.fetch_full_avatar(account, subject))
     }
 
     async fn vote_poll(

@@ -1067,6 +1067,8 @@ enum TextClick {
     Link(String),
     /// Opens the profile of the contact that is mentioned.
     Profile(ContactId),
+    /// Copies the number written.
+    Number(String),
 }
 
 /// How strong the wash behind the account's own mention is.
@@ -1118,7 +1120,7 @@ fn styled(
     let mut clicks = Vec::new();
     for span in &line.spans {
         let style = &span.style;
-        let signal = style.link.is_some() || style.mention;
+        let signal = style.link.is_some() || style.phone.is_some() || style.mention;
         // Somebody mentioned is named in their own colour, the one their
         // messages carry; the account's own mention keeps the bubble's
         // accent and its wash, so "@You" stands apart.
@@ -1146,11 +1148,15 @@ fn styled(
                 } else {
                     style.mono.then_some(side.quote)
                 },
-                underline: style.link.as_ref().map(|_| UnderlineStyle {
-                    thickness: hairline(),
-                    color: Some(side.signal),
-                    wavy: false,
-                }),
+                underline: style
+                    .link
+                    .as_ref()
+                    .or(style.phone.as_ref())
+                    .map(|_| UnderlineStyle {
+                        thickness: hairline(),
+                        color: Some(side.signal),
+                        wavy: false,
+                    }),
                 strikethrough: style.strike.then_some(StrikethroughStyle {
                     thickness: hairline(),
                     color: None,
@@ -1163,6 +1169,8 @@ fn styled(
         }
         if let Some(address) = &style.link {
             clicks.push((span.range.clone(), TextClick::Link(address.clone())));
+        } else if let Some(number) = &style.phone {
+            clicks.push((span.range.clone(), TextClick::Number(number.clone())));
         } else if let Some(mention) = style
             .mention_of
             .and_then(|who| message.extras.mentions.get(who))
@@ -1204,6 +1212,7 @@ fn styled(
                 Some(TextClick::Profile(contact)) => {
                     shell.open_contact_profile(account.clone(), contact.clone(), window, cx)
                 }
+                Some(TextClick::Number(number)) => shell.copy_phone(number, cx),
                 None => {}
             })
             .ok();

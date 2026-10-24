@@ -10,7 +10,8 @@ use super::menus::{fact, panel_header};
 use super::numbers::{error_line, input_box};
 use super::shell::Shell;
 use super::social::{
-    action_row, block, hero, hint, paragraph, question, Confirm, EditWhat, PictureFor, Target,
+    action_row, block, copyable_number, hero, hint, paragraph, question, Confirm, EditWhat,
+    PictureFor, Target,
 };
 use super::widgets::{avatar_or, icon_button, mono, tag, text_button, AvatarKind};
 use crate::format;
@@ -18,7 +19,9 @@ use crate::i18n;
 use crate::icons::IconName;
 use crate::theme::px;
 use crate::theme::{metrics, Palette};
-use client_provider::{AccountId, BusinessProfile, ChatId, Contact, ContactId};
+use client_provider::{
+    AccountId, BusinessProfile, ChatId, Contact, ContactId, Media, MediaKind, MediaRef,
+};
 use gpui_kit::prelude::*;
 use gpui_kit::{div, Context, Div, SharedString, Stateful};
 
@@ -29,6 +32,91 @@ pub(super) fn HERO_PICTURE() -> gpui_kit::Pixels {
 }
 
 impl Shell {
+    /// A panel's picture, which a click opens in the viewer at full
+    /// size when there is one to look at.
+    pub(super) fn openable_picture(
+        &self,
+        picture: Div,
+        account: &AccountId,
+        chat: &ChatId,
+        name: &str,
+        cx: &mut Context<Self>,
+    ) -> Div {
+        if self.media.avatar(account, chat).is_none() {
+            return picture;
+        }
+        let (account, chat, name) = (account.clone(), chat.clone(), name.to_owned());
+        div().child(
+            div()
+                .id("profile-picture")
+                .debug_selector(|| "profile-picture".into())
+                .rounded_full()
+                .cursor_pointer()
+                .hover(|this| this.opacity(0.85))
+                .child(picture)
+                .on_click(cx.listener(move |this, _, window, cx| {
+                    cx.stop_propagation();
+                    this.view_picture(account.clone(), chat.clone(), &name, window, cx);
+                })),
+        )
+    }
+
+    /// Opens a chat's picture in the viewer: the preview at once, the
+    /// picture at the size it was put up once WhatsApp gives it.
+    pub(super) fn view_picture(
+        &mut self,
+        account: AccountId,
+        chat: ChatId,
+        name: &str,
+        window: &mut gpui_kit::Window,
+        cx: &mut Context<Self>,
+    ) {
+        let url = client_core::full_picture_url(&account, &chat);
+        let mut media = Media::new(MediaKind::Image);
+        media.source = Some(MediaRef::new(url.clone()));
+        media.mime_type = Some("image/jpeg".into());
+        media.file_name = Some(format!("{name}.jpg"));
+        let back = self.overlay;
+        self.viewer.reset();
+        self.viewing = Some(media);
+        self.viewer.picture = Some(super::viewer::Picture {
+            url: url.clone(),
+            account: account.clone(),
+            chat: chat.clone(),
+            back,
+        });
+        self.open_overlay(super::shell::Overlay::Viewer, window, cx);
+        // One kept from an earlier look shows at once.
+        self.load_viewed(cx);
+        let engine = self.engine.clone();
+        let work = self
+            .engine
+            .runtime()
+            .spawn(async move { engine.fetch_full_picture(&account, &chat).await });
+        cx.spawn(async move |this, cx| {
+            let fetched = work.await;
+            this.update(cx, |this, cx| {
+                if this
+                    .viewed_picture()
+                    .is_none_or(|picture| picture.url != url)
+                {
+                    return;
+                }
+                if let Ok(Err(error)) = &fetched {
+                    tracing::info!(%error, "the full-size picture did not come");
+                }
+                // Whatever came, full or the preview kept in its place,
+                // replaces what is drawn.
+                this.viewer.reset();
+                this.load_viewed(cx);
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+        cx.notify();
+    }
+
     /// The info panel: a contact's profile or a group's details, by what
     /// was opened.
     pub(super) fn render_info(
@@ -146,11 +234,12 @@ impl Shell {
 
         let mut lines = Vec::new();
         if let Some(number) = &number {
-            lines.push(
-                mono(format::phone(number))
-                    .debug_selector(|| "profile-number".into())
-                    .text_color(palette.text_muted),
-            );
+            lines.push(div().child(copyable_number(
+                "profile-number".into(),
+                format::phone(number),
+                palette.text_muted,
+                cx.entity().downgrade(),
+            )));
         }
         if let Some(profile_name) = known.profile_name.as_ref().filter(|n| **n != name) {
             lines.push(hint(format!("~{profile_name}"), palette));
@@ -178,6 +267,7 @@ impl Shell {
             self.senders.of(account, None, contact).tone,
             palette,
         );
+        let picture = self.openable_picture(picture, account, &chat_id, &name, cx);
         let mut panel = div()
             .debug_selector(|| "profile".into())
             .flex()
@@ -476,6 +566,7 @@ impl Shell {
                     None,
                     AvatarKind::Group,
                     palette,
+                    cx,
                 )
                 .on_click(cx.listener(move |this, _, window, cx| {
                     cx.stop_propagation();
@@ -522,8 +613,26 @@ impl Shell {
             palette,
         )];
         if let Some(phone) = &number.phone {
-            lines.insert(0, mono(format::phone(phone)).text_color(palette.text_muted));
+            lines.insert(
+                0,
+                div().child(copyable_number(
+                    "own-number".into(),
+                    format::phone(phone),
+                    palette.text_muted,
+                    cx.entity().downgrade(),
+                )),
+            );
         }
+        let picture = match &subject {
+            Some(subject) => self.openable_picture(
+                picture,
+                account,
+                subject,
+                profile.name.as_deref().unwrap_or(&number.display_name),
+                cx,
+            ),
+            None => picture,
+        };
         let (change_for, connected) = (account.clone(), number.connection.is_connected());
         let mut body = div().flex().flex_col().child(hero(
             picture,

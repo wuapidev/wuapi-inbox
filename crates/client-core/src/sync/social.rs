@@ -986,6 +986,53 @@ impl SyncEngine {
         Ok(link)
     }
 
+    /// Fetches a chat's picture at the size it was put up and keeps it
+    /// with the media, as the file of [`super::full_picture_url`]. When
+    /// there is none at that size, or it could not be fetched, the
+    /// preview the chat list shows is kept there instead, so that the
+    /// picture can still be looked at, saved and copied. Answers whether
+    /// the full one came; the error is the provider's, after the preview
+    /// was kept. Only on a click; await it off the UI thread.
+    pub async fn fetch_full_picture(
+        &self,
+        account: &AccountId,
+        chat: &ChatId,
+    ) -> Result<bool, SyncError> {
+        let inner = &self.inner;
+        let fetched = self
+            .ask(|| inner.provider.fetch_full_avatar(account, chat))
+            .await;
+        let (picture, full) = match &fetched {
+            Ok(Some(picture)) => (
+                Some((picture.bytes.clone(), picture.mime_type.clone())),
+                true,
+            ),
+            _ => (
+                inner
+                    .store
+                    .avatar(account, chat)?
+                    .and_then(|stored| stored.image)
+                    .map(|image| (image, None)),
+                false,
+            ),
+        };
+        if let Some((bytes, mime)) = picture {
+            let cached = crate::store::CachedMedia {
+                bytes,
+                mime,
+                size: None,
+            };
+            inner.store.put_media(
+                &super::file_key(&super::full_picture_url(account, chat)),
+                &cached,
+                client_provider::Timestamp::now(),
+                inner.config.media_budget,
+            )?;
+        }
+        fetched?;
+        Ok(full)
+    }
+
     /// The group an invite code is for, read without joining it. Await
     /// it off the UI thread.
     pub async fn invite_info(&self, account: &AccountId, code: &str) -> Result<Group, SyncError> {

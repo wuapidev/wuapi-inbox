@@ -124,6 +124,7 @@ impl Shell {
             count,
         );
         let lines = vec![hint(summary, palette).debug_selector(|| "group-count".into())];
+        let picture = self.openable_picture(picture, account, group, &subject, cx);
         let mut panel = div()
             .debug_selector(|| "group-info".into())
             .flex()
@@ -784,6 +785,7 @@ impl Shell {
                 detail,
                 AvatarKind::Person,
                 palette,
+                cx,
             )
             .when(expanded, |this| this.bg(palette.muted))
             .when(person.role.is_admin(), |this| {
@@ -1420,6 +1422,7 @@ impl Shell {
                     detail,
                     AvatarKind::Person,
                     palette,
+                    cx,
                 )
                 .when(ticked, |this| {
                     this.bg(palette.muted)

@@ -242,7 +242,7 @@ pub fn name_line(
     } else {
         name.to_owned().into()
     };
-    let view = context.view.clone();
+    let (view, number_view) = (context.view.clone(), context.view.clone());
     let (account, contact) = (message.account_id.clone(), message.sender.clone());
     div()
         .debug_selector(|| "sender-line".into())
@@ -278,10 +278,12 @@ pub fn name_line(
                     div()
                         .debug_selector(|| "sender-number".into())
                         .flex_none()
-                        .font_family(fonts::MONO)
-                        .text_size(metrics::TEXT_META())
-                        .text_color(side.meta)
-                        .child(phone),
+                        .child(super::social::copyable_number(
+                            format!("sender-number-{}", message.id),
+                            phone,
+                            side.meta,
+                            number_view,
+                        )),
                 )
             },
         )

@@ -24,6 +24,7 @@
   "chat.attach_sheet.left_out.other": "{n} files that are too large were not sent.",
   "chat.attach_sheet.none_prepared": "The files were not sent: they could not be prepared.",
   "chat.attach_sheet.not_available": "Sending files is not available yet",
+  "chat.attach_sheet.preparing": "Preparing…",
   "chat.attach_sheet.not_prepared": "{name} was not sent: it could not be prepared.",
   "chat.attach_sheet.reply_note": "The reply goes with the first file, {name}.",
   "chat.attach_sheet.send": "Send",
