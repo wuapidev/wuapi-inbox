@@ -406,6 +406,13 @@ impl Shell {
         cx.notify();
     }
 
+    /// Copies a phone number, written any way, as `+` and its digits,
+    /// and says so.
+    pub(super) fn copy_phone(&mut self, number: &str, cx: &mut Context<Self>) {
+        cx.write_to_clipboard(ClipboardItem::new_string(dialable(number)));
+        self.show_notice(i18n::t("accounts.profile.number_copied"), None, cx);
+    }
+
     /// Mutes or unmutes a chat from its panel.
     pub(super) fn mute_from_panel(&mut self, account: &AccountId, chat: &ChatId, muted: bool) {
         self.engine
@@ -1407,6 +1414,45 @@ pub(super) fn toggle_row(
 }
 
 /// The top of a profile: a large picture, a name, and lines under it.
+/// A number as it is dialled and pasted: `+` and its digits, whatever
+/// way it was written. Text with no digits stays as it is.
+pub(super) fn dialable(number: &str) -> String {
+    let digits: String = number.chars().filter(char::is_ascii_digit).collect();
+    if digits.is_empty() {
+        number.to_owned()
+    } else {
+        format!("+{digits}")
+    }
+}
+
+/// A phone number that a click copies, wherever one is shown: in the
+/// monospaced face, in `colour`, with a hint on hover. The click goes no
+/// further, so a number in a row that opens something copies instead.
+pub(super) fn copyable_number(
+    id: String,
+    shown: impl Into<SharedString>,
+    colour: gpui_kit::Hsla,
+    view: gpui_kit::WeakEntity<Shell>,
+) -> Stateful<Div> {
+    let shown: SharedString = shown.into();
+    let copied = shown.clone();
+    let hint: SharedString = i18n::t("accounts.profile.copy_number").into();
+    mono(shown)
+        .id(SharedString::from(id.clone()))
+        .debug_selector(move || id.clone())
+        .text_color(colour)
+        .cursor_pointer()
+        .hover(|style| style.underline())
+        .tooltip(move |window, cx| {
+            gpui_kit::component::tooltip::Tooltip::new(hint.clone()).build(window, cx)
+        })
+        .on_click(move |_, _, cx| {
+            cx.stop_propagation();
+            view.update(cx, |shell, cx| shell.copy_phone(&copied, cx))
+                .ok();
+        })
+}
+
 pub(super) fn hero(picture: Div, name: SharedString, lines: Vec<Div>, palette: &Palette) -> Div {
     div()
         .px_4()
@@ -1445,8 +1491,10 @@ impl Shell {
         detail: Option<String>,
         kind: AvatarKind,
         palette: &Palette,
+        cx: &mut Context<Self>,
     ) -> Stateful<Div> {
         let (hover, ring) = (palette.hover, palette.accent);
+        let number = selector.clone();
         div()
             .id(id)
             .debug_selector(move || selector.clone())
@@ -1494,7 +1542,20 @@ impl Shell {
                             .text_color(palette.text)
                             .child(SharedString::from(name.to_owned())),
                     )
-                    .children(detail.map(|detail| mono(detail).text_color(palette.text_muted))),
+                    .children(detail.map(|detail| {
+                        // A number copies with a click; anything else is
+                        // only read.
+                        if detail.starts_with('+') {
+                            div().child(copyable_number(
+                                format!("{number}-number"),
+                                detail,
+                                palette.text_muted,
+                                cx.entity().downgrade(),
+                            ))
+                        } else {
+                            mono(detail).text_color(palette.text_muted)
+                        }
+                    })),
             )
     }
 }

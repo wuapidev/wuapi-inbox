@@ -2481,11 +2481,38 @@ const MEDIA_WORKERS: usize = 3;
 /// of a chat's gallery, which asks for all of its pictures at once: with
 /// less, they pushed each other out at every draw and never came.
 const MEDIA_QUEUE: usize = 64;
-/// How long one media download may take.
+/// How long a media download may go without a word of progress. Its
+/// length alone never ends it: a long video on a slow line takes long,
+/// and one given up while its bytes still came was asked for again, on
+/// top of itself.
 const MEDIA_TIMEOUT: Duration = Duration::from_secs(120);
 /// How long to wait before trying again a download that failed for a
 /// reason that may pass.
 const MEDIA_RETRY: Duration = Duration::from_secs(30);
+
+/// Waits for `work` as long as it says it is getting somewhere: it gives
+/// up after `quiet` with no progress told through `heard`, however long
+/// it has been going.
+async fn while_heard<T>(
+    work: impl Future<Output = T>,
+    heard: &std::sync::atomic::AtomicU64,
+    quiet: Duration,
+) -> Result<T, tokio::time::error::Elapsed> {
+    tokio::pin!(work);
+    let mut last = heard.load(std::sync::atomic::Ordering::Relaxed);
+    loop {
+        match tokio::time::timeout(quiet, &mut work).await {
+            Ok(done) => return Ok(done),
+            Err(elapsed) => {
+                let now = heard.load(std::sync::atomic::Ordering::Relaxed);
+                if now == last {
+                    return Err(elapsed);
+                }
+                last = now;
+            }
+        }
+    }
+}
 
 /// The cache key of the thumbnail of the image at `url`.
 pub fn thumbnail_key(url: &str) -> String {
@@ -2507,6 +2534,14 @@ pub const ANIMATION_KEEP_LIMIT: usize = 8 * 1024 * 1024;
 /// The cache key of the whole file at `url`.
 pub fn file_key(url: &str) -> String {
     format!("file:{url}")
+}
+
+/// Where a chat's picture at full size is kept with the media, as the
+/// file of this address ([`file_key`]): what the picture viewer opens.
+/// No provider serves it; [`SyncEngine::fetch_full_picture`] puts it
+/// there.
+pub fn full_picture_url(account: &AccountId, chat: &ChatId) -> String {
+    format!("picture:{account}:{chat}")
 }
 
 /// Where a media payload stands, when it is not in the cache.
@@ -3179,13 +3214,18 @@ impl SyncEngine {
             }
             None => {
                 let (this, key) = (self.clone(), job.key.clone());
+                let heard = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));
+                let ticks = heard.clone();
                 let progress: client_provider::UploadProgress =
-                    std::sync::Arc::new(move |received| this.note_download(&key, received));
+                    std::sync::Arc::new(move |received| {
+                        ticks.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                        this.note_download(&key, received)
+                    });
                 let fetch =
                     inner
                         .provider
                         .fetch_media_reporting(&job.account, &media, limit, progress);
-                tokio::time::timeout(MEDIA_TIMEOUT, fetch).await
+                while_heard(fetch, &heard, MEDIA_TIMEOUT).await
             }
         };
         let data = match fetched {

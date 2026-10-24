@@ -402,6 +402,8 @@ pub(super) enum MenuAction {
     NewPoll,
     /// The incoming webhooks of the menu's chat.
     IncomingWebhooks,
+    /// Copies the number of the menu's chat, a person's.
+    CopyNumber,
     /// A command of the registry, for the message in focus.
     Run(crate::keys::Command),
 }
@@ -863,6 +865,9 @@ pub struct Shell {
     drawn_scale: f32,
     /// The files about to be sent, while the sheet is open.
     pub(super) attach: Option<super::attach::AttachDraft>,
+    /// Files sent from the sheet that are not messages yet.
+    pub(super) preparing: Vec<super::sending::Preparing>,
+    pub(super) preparing_next: u64,
     /// The sheet's strip of files: scrolls to the one on show.
     pub(super) attach_strip: gpui_kit::ScrollHandle,
     /// The retouch of the picture on show in the attach sheet.
@@ -1267,6 +1272,8 @@ impl Shell {
             links: Default::default(),
             thread_search: None,
             attach: None,
+            preparing: Vec::new(),
+            preparing_next: 0,
             attach_strip: gpui_kit::ScrollHandle::new(),
             retouching: Default::default(),
             attach_strip_focus: cx.focus_handle().tab_stop(true),
@@ -2108,8 +2115,17 @@ impl Shell {
             return;
         }
         if self.overlay == Overlay::Viewer {
+            // An open menu closes first, and the picture stays.
+            if self.viewer.menu.take().is_some() {
+                return cx.notify();
+            }
             // The picture's pixels are let go with the viewer.
             self.viewer.reset();
+            // A profile picture goes back to the panel it was opened from.
+            if let Some(picture) = self.viewer.picture.take() {
+                self.open_overlay(picture.back, window, cx);
+                return cx.notify();
+            }
         }
         if self.overlay == Overlay::JoinGroup {
             self.links.invite = None;
@@ -2448,6 +2464,28 @@ impl Shell {
         }
     }
 
+    /// The number of a person's chat: the address book's, or the chat's
+    /// id when it is one. `None` for a group, and for a person whose
+    /// number is hidden.
+    pub(super) fn chat_number(&self, chat: &ChatSummary) -> Option<String> {
+        if chat.kind != ChatKind::Direct {
+            return None;
+        }
+        let contact = client_provider::ContactId::new(chat.id.as_str().to_owned());
+        self.engine
+            .store()
+            .contact(&chat.account_id, &contact)
+            .ok()
+            .flatten()
+            .and_then(|known| known.phone)
+            .or_else(|| {
+                chat.id
+                    .as_str()
+                    .starts_with('+')
+                    .then(|| chat.id.to_string())
+            })
+    }
+
     /// The menu of a row of the chat list, at the pointer.
     pub(super) fn open_row_menu(
         &mut self,
@@ -2692,6 +2730,15 @@ impl Shell {
                         not_here(),
                     ),
                 ];
+                if self.chat_number(chat).is_some() {
+                    entries.push(item(
+                        "menu-copy-number",
+                        i18n::t("accounts.profile.copy_number"),
+                        I::Copy,
+                        Some(MenuAction::CopyNumber),
+                        "",
+                    ));
+                }
                 // A cloud feature: offered where the number's provider
                 // has it, and not mentioned elsewhere.
                 if super::hooks::hooks_offered(self, chat) {
@@ -2719,17 +2766,26 @@ impl Shell {
                 let chat = &open.chat;
                 let change =
                     |change: ChatChange| caps.chat_state.then_some(MenuAction::Change(change));
-                let mut entries = vec![
-                    item(
-                        "menu-info",
-                        match chat.kind {
-                            ChatKind::Group => i18n::t("common.shell.menu_group_info"),
-                            ChatKind::Direct => i18n::t("common.shell.menu_contact_info"),
-                        },
-                        I::Info,
-                        Some(MenuAction::ContactInfo),
+                let mut entries = vec![item(
+                    "menu-info",
+                    match chat.kind {
+                        ChatKind::Group => i18n::t("common.shell.menu_group_info"),
+                        ChatKind::Direct => i18n::t("common.shell.menu_contact_info"),
+                    },
+                    I::Info,
+                    Some(MenuAction::ContactInfo),
+                    "",
+                )];
+                if self.chat_number(chat).is_some() {
+                    entries.push(item(
+                        "menu-copy-number",
+                        i18n::t("accounts.profile.copy_number"),
+                        I::Copy,
+                        Some(MenuAction::CopyNumber),
                         "",
-                    ),
+                    ));
+                }
+                entries.extend([
                     item(
                         "menu-search",
                         i18n::t("common.shell.menu_search"),
@@ -2784,7 +2840,7 @@ impl Shell {
                         caps.polls.then_some(MenuAction::NewPoll),
                         not_here(),
                     ),
-                ];
+                ]);
                 if super::hooks::hooks_offered(self, chat) {
                     entries.push(item(
                         "menu-hooks",
@@ -2848,6 +2904,11 @@ impl Shell {
                 return match self.menu_chat() {
                     Some(chat) => self.open_hooks(&chat, window, cx),
                     None => self.close_overlay(window, cx),
+                }
+            }
+            MenuAction::CopyNumber => {
+                if let Some(number) = self.menu_chat().and_then(|chat| self.chat_number(&chat)) {
+                    self.copy_phone(&number, cx);
                 }
             }
             MenuAction::MarkAllRead => self.mark_listed_read(),
@@ -3221,6 +3282,7 @@ impl Shell {
         };
         self.engine.want_file(&account, source.as_str());
         self.viewing = Some(media);
+        self.viewer.picture = None;
         self.open_overlay(Overlay::Viewer, window, cx);
     }
 

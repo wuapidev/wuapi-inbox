@@ -435,6 +435,8 @@ impl Shell {
             // list keeps that much of the inset inside itself, as padding.
             .pb(metrics::THREAD_INSET() - metrics::FOCUS_ROOM())
             .debug_selector(|| "thread".into())
+            .flex()
+            .flex_col()
             .child(
                 list(open.list.clone(), move |index, _, _| {
                     match rows.get(index) {
@@ -445,7 +447,9 @@ impl Shell {
                         None => div().into_any_element(),
                     }
                 })
-                .size_full()
+                .w_full()
+                .flex_1()
+                .min_h_0()
                 // The room of the outline, above the first row and under
                 // the last: padding of the list, inside what it paints.
                 // (Not a box around those rows: a row must stay what the
@@ -453,6 +457,8 @@ impl Shell {
                 .pt(metrics::FOCUS_ROOM())
                 .pb(metrics::FOCUS_ROOM()),
             )
+            // Files sent a moment ago that are not messages yet.
+            .children(self.render_preparing(&palette, settings::reduce_motion(cx)))
             .child(Scrollbar::vertical(&open.list))
             .children(self.render_jump_to_newest(open, &palette, cx))
     }

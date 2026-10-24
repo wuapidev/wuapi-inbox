@@ -8,8 +8,9 @@
 use crate::mapping::MediaPointer;
 use async_trait::async_trait;
 use client_provider::{
-    AvatarAnswer, BusinessProfile, ChatChange, Group, GroupChange, JoinOutcome, JoinRequest,
-    NewGroup, ParticipantChange, ParticipantOutcome, PresenceState, StoryPrivacy, SystemEvent,
+    Avatar, AvatarAnswer, BusinessProfile, ChatChange, Group, GroupChange, JoinOutcome,
+    JoinRequest, NewGroup, ParticipantChange, ParticipantOutcome, PresenceState, StoryPrivacy,
+    SystemEvent, UploadProgress,
 };
 use std::sync::Arc;
 use whatsapp_rust::waproto::whatsapp as wa;
@@ -409,8 +410,14 @@ pub trait Session: Send + Sync + 'static {
         ids: &[String],
     ) -> SessionResult<()>;
 
-    /// Downloads and decrypts a file.
-    async fn download(&self, pointer: &MediaPointer) -> SessionResult<Vec<u8>>;
+    /// Downloads and decrypts a file, telling `progress` how many bytes
+    /// have come. A download that is dropped stops, and one that hears
+    /// nothing for a while gives up: its length alone never ends it.
+    async fn download(
+        &self,
+        pointer: &MediaPointer,
+        progress: Option<UploadProgress>,
+    ) -> SessionResult<Vec<u8>>;
 
     /// Encrypts and uploads a file; `class` is what WhatsApp stores it as.
     async fn upload(&self, bytes: Vec<u8>, class: &str) -> SessionResult<MediaPointer>;
@@ -545,6 +552,12 @@ pub trait Session: Send + Sync + 'static {
     async fn picture(&self, whose: &Jid, known: Option<&str>) -> SessionResult<AvatarAnswer> {
         let _ = (whose, known);
         unsupported("profile pictures")
+    }
+
+    /// A person's or a group's picture at the size it was put up.
+    async fn full_picture(&self, whose: &Jid) -> SessionResult<Option<Avatar>> {
+        let _ = whose;
+        unsupported("full-size profile pictures")
     }
 
     /// The people the account blocked.

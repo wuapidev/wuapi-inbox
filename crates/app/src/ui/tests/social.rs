@@ -892,3 +892,108 @@ fn a_provider_that_cannot_read_the_own_profile_shows_what_is_known_and_says_so(
         Some("Busy")
     );
 }
+
+#[gpui_kit::test]
+fn a_profile_picture_opens_whole_and_closing_it_goes_back_to_the_profile(cx: &mut TestAppContext) {
+    let harness = open(cx, ShellOptions::default());
+    let account = with_contacts(&harness, cx);
+    let ana = ContactId::new("+584140000001");
+    // The lists show a small preview; the picture was put up larger.
+    let picture_of = ChatId::new(ana.as_str());
+    harness
+        .mock
+        .set_avatar(&account, &picture_of, Some(("picture-1", png(48, 48))));
+    harness
+        .mock
+        .set_full_avatar(&account, &picture_of, png(640, 640));
+    let chat = harness
+        .engine
+        .chat_with_contact(
+            &harness
+                .engine
+                .store()
+                .contact(&account, &ana)
+                .unwrap()
+                .unwrap(),
+        )
+        .unwrap();
+    assert_eq!(chat, picture_of);
+    open_chat(&harness, cx, &chat);
+    click(harness.window, "header-info", cx);
+    for _ in 0..300 {
+        harness.settle(cx);
+        if shows(harness.window, "profile-picture", cx) {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    assert!(shows(harness.window, "profile-picture", cx));
+
+    // A click opens it in the viewer, and the full one replaces the
+    // preview once WhatsApp gives it.
+    click(harness.window, "profile-picture", cx);
+    cx.update(|cx| assert_eq!(harness.shell.read(cx).overlay, Overlay::Viewer));
+    assert!(shows(harness.window, "viewer-toolbar", cx));
+    until(&harness, cx, |shell| {
+        shell
+            .viewer_shown()
+            .is_some_and(|shown| shown.natural == (640, 640))
+    });
+    assert_eq!(harness.mock.full_avatar_calls(), 1);
+
+    // Closing it goes back to the profile it was opened from.
+    press(harness.window, "escape", cx);
+    cx.update(|cx| assert_eq!(harness.shell.read(cx).overlay, Overlay::ContactInfo));
+    assert!(shows(harness.window, "contact-info", cx));
+}
+
+#[gpui_kit::test]
+fn a_number_is_copied_with_a_click_where_it_is_shown_and_from_the_chat_menu(
+    cx: &mut TestAppContext,
+) {
+    let harness = open(cx, ShellOptions::default());
+    let account = with_contacts(&harness, cx);
+    let ana = ContactId::new("+584140000001");
+    let chat = harness
+        .engine
+        .chat_with_contact(
+            &harness
+                .engine
+                .store()
+                .contact(&account, &ana)
+                .unwrap()
+                .unwrap(),
+        )
+        .unwrap();
+    open_chat(&harness, cx, &chat);
+    let notice = |cx: &mut TestAppContext| {
+        cx.update(|cx| {
+            harness
+                .shell
+                .read(cx)
+                .leaving
+                .notice
+                .as_ref()
+                .map(|notice| notice.text.to_string())
+        })
+    };
+
+    // The number under the name: as it is dialled, not as it is shown.
+    click(harness.window, "header-info", cx);
+    click(harness.window, "profile-number", cx);
+    assert_eq!(copied(cx).as_deref(), Some("+584140000001"));
+    assert_eq!(notice(cx).as_deref(), Some("Number copied."));
+    press(harness.window, "escape", cx);
+
+    // The chat's menu has it too.
+    cx.write_to_clipboard(gpui_kit::ClipboardItem::new_string(String::new()));
+    click(harness.window, "chat-menu", cx);
+    click(harness.window, "menu-copy-number", cx);
+    assert_eq!(copied(cx).as_deref(), Some("+584140000001"));
+
+    // Written any way, a number is copied as `+` and its digits.
+    assert_eq!(
+        crate::ui::social::dialable("+58 (414) 000-0001"),
+        "+584140000001"
+    );
+}

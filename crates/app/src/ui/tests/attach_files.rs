@@ -1223,3 +1223,26 @@ fn a_pdf_goes_with_the_top_of_its_first_page_for_the_other_side(cx: &mut TestApp
         "the top of the page"
     );
 }
+
+#[gpui_kit::test]
+fn a_file_sent_shows_in_the_chat_at_once_and_waits_there_until_it_is_a_message(
+    cx: &mut TestAppContext,
+) {
+    let dir = tempfile::tempdir().unwrap();
+    let harness = group_for_attaching(cx, pictures(dir.path(), 2));
+    open_sheet(&harness, cx, 2);
+    // The moment "Send" is pressed, before a picture is read: a bubble
+    // for each file, in the chat, waiting.
+    let waiting = harness.window.update(cx, |_, window, cx| {
+        harness.shell.update(cx, |shell, cx| {
+            shell.send_attachments(window, cx);
+            shell.preparing.len()
+        })
+    });
+    assert_eq!(waiting.unwrap(), 2);
+    // Each goes once its message is in the chat.
+    until(&harness, cx, |shell| {
+        own_media(shell) == 2 && shell.preparing.is_empty()
+    });
+    assert!(!shows(harness.window, "preparing", cx));
+}

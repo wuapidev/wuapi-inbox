@@ -13,8 +13,9 @@
 //! natural size stays that of the file.
 
 use super::media::{image_of, MediaShelf, MediaVisual, PLACEHOLDER};
-use super::shell::Shell;
+use super::shell::{Overlay, Shell};
 use crate::theme::px;
+use client_provider::{AccountId, ChatId};
 use gpui_kit::{point, size, AppContext as _, Bounds, Context, Image, Pixels, Point, RenderImage};
 use std::sync::Arc;
 
@@ -127,6 +128,20 @@ pub struct Viewer {
     decoding: Option<String>,
     /// Pictures let go, which the window still holds.
     stale: Vec<Arc<RenderImage>>,
+    /// The profile picture being looked at, when it is one.
+    pub(super) picture: Option<Picture>,
+    /// Where the menu of a right click is open, if it is.
+    pub(super) menu: Option<Point<Pixels>>,
+}
+
+/// A chat's picture in the viewer, opened from its panel.
+pub(super) struct Picture {
+    /// The address it is kept under ([`client_core::full_picture_url`]).
+    pub(super) url: String,
+    pub(super) account: AccountId,
+    pub(super) chat: ChatId,
+    /// The panel it was opened from, which closing the viewer goes back to.
+    pub(super) back: Overlay,
 }
 
 impl Viewer {
@@ -136,6 +151,7 @@ impl Viewer {
         self.pan = (0., 0.);
         self.pointer = None;
         self.decoding = None;
+        self.menu = None;
         if let Some(Shown {
             drawn: Drawn::Still(image),
             ..
@@ -263,6 +279,10 @@ impl Shell {
     /// known of yet.
     fn viewer_stand_in(&self) -> (f32, f32) {
         let fallback = (PLACEHOLDER().width.as_f32(), PLACEHOLDER().height.as_f32());
+        if self.viewed_picture().is_some() {
+            // Profile pictures are square.
+            return (fallback.1, fallback.1);
+        }
         let Some(url) = self
             .viewing
             .as_ref()
@@ -290,10 +310,26 @@ impl Shell {
             });
         }
         let (account, media) = (self.account.as_ref()?, self.viewing.as_ref()?);
+        if let Some(picture) = self.viewed_picture() {
+            // The preview the lists show, until the full one is here.
+            return self
+                .media
+                .avatar(&picture.account, &picture.chat)
+                .map(Into::into);
+        }
         match self.media.visual(account, media) {
             MediaVisual::Image(image) => Some(image.into()),
             _ => None,
         }
+    }
+
+    /// The profile picture in the viewer, when that is what it shows.
+    pub(super) fn viewed_picture(&self) -> Option<&Picture> {
+        let url = self.viewing.as_ref()?.source.as_ref()?.as_str();
+        self.viewer
+            .picture
+            .as_ref()
+            .filter(|picture| picture.url == url)
     }
 
     /// Scales the picture to `to`, keeping what is under `anchor` (a

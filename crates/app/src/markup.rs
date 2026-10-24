@@ -20,6 +20,8 @@ pub struct Style {
     pub mono: bool,
     /// The address a link opens, complete with its scheme.
     pub link: Option<String>,
+    /// A phone number written out, as `+` and its digits: a click copies it.
+    pub phone: Option<String>,
     /// The name of a mentioned contact.
     pub mention: bool,
     /// The mention is of the account itself.
@@ -285,6 +287,39 @@ fn link_at(chars: &[char], at: usize) -> Option<(usize, String)> {
     Some((end - at, address))
 }
 
+/// The fewest and the most digits a phone number is written with, its
+/// country's code included (E.164).
+const PHONE_DIGITS: std::ops::RangeInclusive<usize> = 8..=15;
+
+/// The phone number that starts at `at`: a `+`, then digits, perhaps in
+/// groups apart by a space, `-`, `.` or brackets (`+58 (412) 555-0100`).
+/// As (characters taken, `+` and the digits). Only with the `+`: a
+/// number without it is too often an amount or a code.
+fn phone_at(chars: &[char], at: usize) -> Option<(usize, String)> {
+    let starts_word = at == 0 || chars[at - 1].is_whitespace() || "(<[:".contains(chars[at - 1]);
+    if !starts_word || chars[at] != '+' {
+        return None;
+    }
+    let mut digits = String::new();
+    // Just after the last digit, and how many apart signs since it.
+    let (mut taken, mut apart) = (at + 1, 0);
+    for (offset, &c) in chars[at + 1..].iter().enumerate() {
+        if c.is_ascii_digit() {
+            digits.push(c);
+            (taken, apart) = (at + 1 + offset + 1, 0);
+        } else if " -.()".contains(c) && apart < 2 && !digits.is_empty()
+            || c == '(' && digits.is_empty()
+        {
+            apart += 1;
+        } else {
+            break;
+        }
+    }
+    // A letter right after the last digit makes it something else.
+    let glued = chars.get(taken).is_some_and(|c| c.is_alphanumeric());
+    (PHONE_DIGITS.contains(&digits.len()) && !glued).then(|| (taken - at, format!("+{digits}")))
+}
+
 /// The mention that starts at `at` (an `@`), as (characters taken, what
 /// to show, whether it is the account itself).
 fn mention_at<'h>(
@@ -342,6 +377,19 @@ fn spans(chars: &[char], style: &Style, mentions: &[&Handle], out: &mut Builder)
                 &shown,
                 &Style {
                     link: Some(address),
+                    ..style.clone()
+                },
+            );
+            at += taken;
+            continue;
+        }
+        if let Some((taken, number)) = phone_at(chars, at) {
+            out.push(&std::mem::take(&mut plain), style);
+            let shown: String = chars[at..at + taken].iter().collect();
+            out.push(
+                &shown,
+                &Style {
+                    phone: Some(number),
                     ..style.clone()
                 },
             );
@@ -600,6 +648,26 @@ mod tests {
                 }
             )]
         );
+    }
+
+    #[test]
+    fn a_number_written_with_its_plus_is_found_whole() {
+        let read = line("Call +58 (412) 555-0100, or +56967653255. Not 1.000.000");
+        let spans = styled(&read);
+        assert_eq!(spans.len(), 2);
+        assert_eq!(spans[0].0, "+58 (412) 555-0100");
+        assert_eq!(spans[0].1.phone.as_deref(), Some("+584125550100"));
+        assert_eq!(spans[1].0, "+56967653255");
+        assert_eq!(spans[1].1.phone.as_deref(), Some("+56967653255"));
+        // Too short, too long, glued to letters, or inside a word.
+        for typed in ["+1234", "+1234567890123456", "+12345678abc", "a+12345678"] {
+            assert!(
+                styled(&line(typed))
+                    .iter()
+                    .all(|(_, style)| style.phone.is_none()),
+                "{typed}"
+            );
+        }
     }
 
     #[test]

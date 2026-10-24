@@ -75,6 +75,7 @@ One number, one chat; what you write comes back.
 | `start_chat` | no | `start_chat` |
 | `fetch_media`, `fetch_media_reporting` | no | `media_download`: the defaults wrap `download_media` |
 | `fetch_avatar` | no | `avatars` |
+| `fetch_full_avatar` | no | `avatars` |
 | `upload_media`, `media_upload_limit`, `media_upload_ready` | no | `media_upload` |
 | `vote_poll` | no | `poll_votes` |
 | `edit_message` | no | `edits` |
@@ -145,7 +146,7 @@ pub trait Provider: Send + Sync + 'static {
 }
 ```
 
-`fetch_avatar` (a chat's picture, with `AvatarAnswer::Unchanged` when the id the client holds is still current) and `fetch_media` (a download within a size and type limit; the default wraps `download_media`, an HTTP provider should override it to refuse from the headers) are optional too; `Capabilities::avatars` says whether pictures exist.
+`fetch_avatar` (a chat's picture, with `AvatarAnswer::Unchanged` when the id the client holds is still current), `fetch_full_avatar` (the same picture at the size it was put up, asked only when someone clicks to look at it; without it the client enlarges the preview) and `fetch_media` (a download within a size and type limit; the default wraps `download_media`, an HTTP provider should override it to refuse from the headers) are optional too; `Capabilities::avatars` says whether pictures exist.
 
 `unavailable` says that a part the capabilities promise is missing for now, for one account: the backend does not have its routes yet, or has not turned it on for that number (`Feature::ForwardAny`, `StickerFavorites`, `Stories`). Capabilities are what the provider is built to do and are read once; this is what, of that, does not work right now. A provider learns it from its backend's answers, answers `Unsupported` for that part meanwhile (without a request, so a missing part costs nothing), and forgets it after a while so that it is tried again. The client then says "not available yet" in that place and keeps everything else working (see "What a backend does not have yet" in ARCHITECTURE.md). It is cheap and makes no request: the client asks whenever it draws. The default is `false`. `recheck(account, feature)` is the other half: the user went to the place that offers the part, or pressed "Check again", so whatever you remembered about it is forgotten and your next call asks the backend. The default does nothing, which is right for a provider that remembers nothing.
 

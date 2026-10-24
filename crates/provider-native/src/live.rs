@@ -20,10 +20,11 @@ use client_provider::{
     refusal, AccountId, Avatar, AvatarAnswer, BusinessHours, BusinessProfile, ChatChange,
     ContactId, Group, GroupChange, GroupParticipant, GroupRole, JoinOutcome, JoinRequest, NewGroup,
     ParticipantChange, ParticipantOutcome, Party, PresenceState, StoryAudience, StoryPrivacy,
-    Subgroup, SystemEvent, SystemKind, Timestamp,
+    Subgroup, SystemEvent, SystemKind, Timestamp, UploadProgress,
 };
 use std::collections::HashMap;
 use std::path::Path;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use whatsapp_rust::bot::{Bot, BotHandle};
@@ -36,6 +37,7 @@ use whatsapp_rust::store::{SqliteDatabase, SqliteDatabaseConfig};
 use whatsapp_rust::types::events::Event;
 use whatsapp_rust::upload::UploadOptions;
 use whatsapp_rust::voip::CallHandle;
+use whatsapp_rust::wacore::download::DownloadWriter;
 use whatsapp_rust::wacore::iq::contacts::{ProfilePictureLookup, ProfilePictureType};
 use whatsapp_rust::wacore::iq::groups::{
     GroupCreateOptions, GroupDescription, GroupParticipantOptions, GroupSubject,
@@ -56,8 +58,11 @@ const DEVICE_NAME: &str = "Wuapi";
 
 /// How long a request to WhatsApp may take before it counts as "not now".
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
-/// How long a file may take, either way.
+/// How long an upload may take.
 const MEDIA_TIMEOUT: Duration = Duration::from_secs(180);
+/// How long a download may go without a byte before it gives up. Its
+/// length alone never ends it: a long video on a slow line takes long.
+const MEDIA_QUIET: Duration = Duration::from_secs(60);
 /// How many chats of the phone's history travel in one piece.
 const HISTORY_CHUNK: usize = 40;
 
@@ -154,6 +159,93 @@ async fn bounded<T>(
         Err(_) => Err(SessionError::NotNow(
             "WhatsApp did not answer in time".into(),
         )),
+    }
+}
+
+/// A profile picture's file: a plain one on WhatsApp's hosts. `None`
+/// when the host has nothing there.
+async fn fetch_picture(url: &str) -> SessionResult<Option<Vec<u8>>> {
+    bounded(REQUEST_TIMEOUT, async {
+        let response = reqwest::get(url)
+            .await
+            .map_err(|error| SessionError::NotNow(error.to_string()))?;
+        if !response.status().is_success() {
+            return Ok(None);
+        }
+        let bytes = response
+            .bytes()
+            .await
+            .map_err(|error| SessionError::NotNow(error.to_string()))?;
+        Ok(Some(bytes.to_vec()))
+    })
+    .await
+}
+
+/// Where a download is written: memory, with the bytes counted as they
+/// come, and a stop that is pulled when the download is no longer wanted.
+struct Received {
+    bytes: std::io::Cursor<Vec<u8>>,
+    received: Arc<AtomicU64>,
+    stop: Arc<AtomicBool>,
+    progress: Option<UploadProgress>,
+}
+
+impl Received {
+    fn new(progress: Option<UploadProgress>) -> Self {
+        Self {
+            bytes: std::io::Cursor::new(Vec::new()),
+            received: Arc::new(AtomicU64::new(0)),
+            stop: Arc::new(AtomicBool::new(false)),
+            progress,
+        }
+    }
+
+    fn into_bytes(self) -> Vec<u8> {
+        self.bytes.into_inner()
+    }
+}
+
+impl std::io::Write for Received {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        if self.stop.load(Ordering::Relaxed) {
+            return Err(std::io::Error::other("the download is no longer wanted"));
+        }
+        let written = self.bytes.write(buf)?;
+        let at = self.bytes.get_ref().len() as u64;
+        self.received.store(at, Ordering::Relaxed);
+        if let Some(progress) = &self.progress {
+            progress(at);
+        }
+        Ok(written)
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+impl std::io::Seek for Received {
+    fn seek(&mut self, to: std::io::SeekFrom) -> std::io::Result<u64> {
+        self.bytes.seek(to)
+    }
+}
+
+impl DownloadWriter for Received {
+    fn truncate(&mut self, len: u64) -> std::io::Result<()> {
+        self.bytes.get_mut().truncate(len as usize);
+        if self.bytes.position() > len {
+            self.bytes.set_position(len);
+        }
+        Ok(())
+    }
+}
+
+/// Pulls a download's stop when the request is dropped, however it ends.
+struct StopOnDrop(Arc<AtomicBool>);
+
+impl Drop for StopOnDrop {
+    fn drop(&mut self) {
+        self.0.store(true, Ordering::Relaxed);
     }
 }
 
@@ -1147,6 +1239,34 @@ fn media_type(class: &str) -> MediaType {
 }
 
 impl LiveSession {
+    /// Asks WhatsApp where a person's or a group's picture is, at this
+    /// size, unless it is the one `known`. `None` when the account may
+    /// see none.
+    async fn look_up_picture(
+        &self,
+        whose: &Jid,
+        known: Option<&str>,
+        size: ProfilePictureType,
+    ) -> SessionResult<Option<ProfilePictureLookup>> {
+        let target = if matches!(whose.server, whatsapp_rust::Server::Group) {
+            ProfilePictureTarget::Group(whose)
+        } else {
+            ProfilePictureTarget::Contact(whose)
+        };
+        let request = ProfilePictureRequest::new(target, size).existing_id(known);
+        bounded(REQUEST_TIMEOUT, async {
+            match self.client.pictures().lookup(request).await {
+                Ok(found) => Ok(Some(found)),
+                // No picture the account may see is an answer, not a failure.
+                Err(error) => match failed(error) {
+                    SessionError::Refused { .. } => Ok(None),
+                    other => Err(other),
+                },
+            }
+        })
+        .await
+    }
+
     /// The range WhatsApp wants named when a chat is archived or marked:
     /// the chat's newest message.
     fn range(
@@ -1264,7 +1384,11 @@ impl Session for LiveSession {
         .await
     }
 
-    async fn download(&self, pointer: &MediaPointer) -> SessionResult<Vec<u8>> {
+    async fn download(
+        &self,
+        pointer: &MediaPointer,
+        progress: Option<UploadProgress>,
+    ) -> SessionResult<Vec<u8>> {
         let params = DownloadParams::encrypted(
             pointer.direct_path.clone(),
             &pointer.media_key,
@@ -1279,22 +1403,43 @@ impl Session for LiveSession {
                 format!("This file cannot be fetched ({error})."),
             )
         })?;
-        bounded(MEDIA_TIMEOUT, async {
-            self.client.download(&params).await.map_err(|error| {
-                let words = error.to_string();
-                // WhatsApp keeps a file for a few weeks; after that its
-                // address answers 404 or 410.
-                if words.contains("404") || words.contains("410") {
-                    SessionError::refused(
-                        refusal::FORWARD_FILE_GONE,
-                        "WhatsApp no longer has this file. Ask for it to be sent again.",
-                    )
-                } else {
-                    failed(error)
+        // The library reads and decrypts on a thread of its own, which
+        // dropping the request does not stop: `Received` does, at its next
+        // write, once `_stop` is dropped with the request.
+        let into = Received::new(progress);
+        let (received, _stop) = (into.received.clone(), StopOnDrop(into.stop.clone()));
+        let download = self.client.download_to_writer(&params, into);
+        tokio::pin!(download);
+        let (mut heard, mut quiet_since) = (0, tokio::time::Instant::now());
+        loop {
+            tokio::select! {
+                done = &mut download => {
+                    return done.map(Received::into_bytes).map_err(|error| {
+                        let words = error.to_string();
+                        // WhatsApp keeps a file for a few weeks; after that
+                        // its address answers 404 or 410.
+                        if words.contains("404") || words.contains("410") {
+                            SessionError::refused(
+                                refusal::FORWARD_FILE_GONE,
+                                "WhatsApp no longer has this file. Ask for it to be sent again.",
+                            )
+                        } else {
+                            failed(error)
+                        }
+                    });
                 }
-            })
-        })
-        .await
+                _ = tokio::time::sleep(Duration::from_secs(1)) => {
+                    let now = received.load(Ordering::Relaxed);
+                    if now != heard {
+                        (heard, quiet_since) = (now, tokio::time::Instant::now());
+                    } else if quiet_since.elapsed() >= MEDIA_QUIET {
+                        return Err(SessionError::NotNow(
+                            "the download stopped coming".into(),
+                        ));
+                    }
+                }
+            }
+        }
     }
 
     async fn upload(&self, bytes: Vec<u8>, class: &str) -> SessionResult<MediaPointer> {
@@ -1659,51 +1804,39 @@ impl Session for LiveSession {
     }
 
     async fn picture(&self, whose: &Jid, known: Option<&str>) -> SessionResult<AvatarAnswer> {
-        let target = if matches!(whose.server, whatsapp_rust::Server::Group) {
-            ProfilePictureTarget::Group(whose)
-        } else {
-            ProfilePictureTarget::Contact(whose)
+        Ok(
+            match self
+                .look_up_picture(whose, known, ProfilePictureType::Preview)
+                .await?
+            {
+                Some(ProfilePictureLookup::Found(picture)) => {
+                    match fetch_picture(&picture.url).await? {
+                        Some(bytes) => AvatarAnswer::New(Avatar {
+                            id: picture.id,
+                            bytes,
+                            mime_type: Some("image/jpeg".into()),
+                        }),
+                        None => AvatarAnswer::None,
+                    }
+                }
+                Some(ProfilePictureLookup::Unchanged) => AvatarAnswer::Unchanged,
+                _ => AvatarAnswer::None,
+            },
+        )
+    }
+
+    async fn full_picture(&self, whose: &Jid) -> SessionResult<Option<Avatar>> {
+        let Some(ProfilePictureLookup::Found(picture)) = self
+            .look_up_picture(whose, None, ProfilePictureType::Full)
+            .await?
+        else {
+            return Ok(None);
         };
-        let request =
-            ProfilePictureRequest::new(target, ProfilePictureType::Preview).existing_id(known);
-        let found = bounded(REQUEST_TIMEOUT, async {
-            match self.client.pictures().lookup(request).await {
-                Ok(found) => Ok(Some(found)),
-                // No picture the account may see is an answer, not a failure.
-                Err(error) => match failed(error) {
-                    SessionError::Refused { .. } => Ok(None),
-                    other => Err(other),
-                },
-            }
-        })
-        .await?;
-        let picture = match found {
-            Some(ProfilePictureLookup::Found(picture)) => picture,
-            Some(ProfilePictureLookup::Unchanged) => return Ok(AvatarAnswer::Unchanged),
-            _ => return Ok(AvatarAnswer::None),
-        };
-        // The picture itself is a plain file on WhatsApp's hosts.
-        let fetch = async {
-            let response = reqwest::get(&picture.url)
-                .await
-                .map_err(|error| SessionError::NotNow(error.to_string()))?;
-            if !response.status().is_success() {
-                return Ok(None);
-            }
-            let bytes = response
-                .bytes()
-                .await
-                .map_err(|error| SessionError::NotNow(error.to_string()))?;
-            Ok(Some(bytes.to_vec()))
-        };
-        Ok(match bounded(REQUEST_TIMEOUT, fetch).await? {
-            Some(bytes) => AvatarAnswer::New(Avatar {
-                id: picture.id,
-                bytes,
-                mime_type: Some("image/jpeg".into()),
-            }),
-            None => AvatarAnswer::None,
-        })
+        Ok(fetch_picture(&picture.url).await?.map(|bytes| Avatar {
+            id: picture.id,
+            bytes,
+            mime_type: Some("image/jpeg".into()),
+        }))
     }
 
     async fn blocked(&self) -> SessionResult<Vec<Jid>> {
@@ -2375,5 +2508,33 @@ impl Session for LiveSession {
         let ringing = self.hearing.calls.ringing();
         let (link, _) = ringing.get(id)?.preview.as_ref()?;
         Some(link.pictures.clone())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Write as _;
+
+    #[test]
+    fn a_download_counts_what_came_and_stops_when_no_longer_wanted() {
+        let told = Arc::new(AtomicU64::new(0));
+        let heard = told.clone();
+        let mut into = Received::new(Some(Arc::new(move |at| heard.store(at, Ordering::Relaxed))));
+        into.write_all(b"hello ").unwrap();
+        into.write_all(b"world").unwrap();
+        assert_eq!(told.load(Ordering::Relaxed), 11);
+        assert_eq!(into.received.load(Ordering::Relaxed), 11);
+
+        // A try that failed half way starts again from nothing.
+        into.truncate(0).unwrap();
+        std::io::Seek::rewind(&mut into).unwrap();
+        into.write_all(b"again").unwrap();
+
+        // The request is dropped: the next write fails, and the library
+        // stops reading.
+        drop(StopOnDrop(into.stop.clone()));
+        assert!(into.write_all(b"more").is_err());
+        assert_eq!(into.into_bytes(), b"again");
     }
 }

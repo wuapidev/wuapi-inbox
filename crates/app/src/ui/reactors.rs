@@ -273,6 +273,7 @@ impl Shell {
                     removable.then(|| crate::i18n::t("chat.reactors.remove").to_owned()),
                     AvatarKind::Person,
                     palette,
+                    cx,
                 )
                 .child(
                     div()

@@ -810,10 +810,21 @@ impl Shell {
                         // it; two toggle between whole and actual size.
                         .on_click(cx.listener(|this, event: &ClickEvent, window, cx| {
                             cx.stop_propagation();
+                            if this.viewer.menu.take().is_some() {
+                                return cx.notify();
+                            }
                             if event.click_count() == 2 {
                                 this.toggle_viewer_zoom(event.position(), window, cx);
                             }
                         }))
+                        // A right click opens the menu at the pointer.
+                        .on_mouse_down(
+                            gpui_kit::MouseButton::Right,
+                            cx.listener(|this, event: &gpui_kit::MouseDownEvent, _, cx| {
+                                cx.stop_propagation();
+                                this.open_viewer_menu(event.position, cx);
+                            }),
+                        )
                         .child(
                             img(image)
                                 .size_full()
@@ -823,6 +834,7 @@ impl Shell {
                 )
                 .child(toolbar)
                 .children(button)
+                .children(self.render_viewer_menu(palette, cx))
                 .children(self.render_overlay_word(palette))
                 .text_color(palette.text),
         )
