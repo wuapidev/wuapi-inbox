@@ -836,6 +836,45 @@ impl Archive {
         Ok((after, changed))
     }
 
+    /// Brings what is known of a person under their hidden id over to
+    /// their number: what the number already has stays.
+    pub fn merge_contact(&self, account: &str, from: &str, into: &str) -> ArchiveResult<()> {
+        let Some(hidden) = self.contact(account, from)? else {
+            return Ok(());
+        };
+        let mut merged = self
+            .contact(account, into)?
+            .unwrap_or_else(|| StoredContact {
+                id: into.to_owned(),
+                ..StoredContact::default()
+            });
+        merged.saved_name = merged.saved_name.or(hidden.saved_name);
+        merged.profile_name = merged.profile_name.or(hidden.profile_name);
+        merged.business_name = merged.business_name.or(hidden.business_name);
+        merged.username = merged.username.or(hidden.username);
+        let mut db = self.db();
+        let tx = db.transaction()?;
+        tx.execute(
+            "INSERT OR REPLACE INTO contacts
+                 (account, id, saved_name, profile_name, business_name, username)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            params![
+                account,
+                merged.id,
+                merged.saved_name,
+                merged.profile_name,
+                merged.business_name,
+                merged.username
+            ],
+        )?;
+        tx.execute(
+            "DELETE FROM contacts WHERE account = ?1 AND id = ?2",
+            params![account, from],
+        )?;
+        tx.commit()?;
+        Ok(())
+    }
+
     /// Forgets the name the account saved somebody under.
     pub fn forget_saved_name(&self, account: &str, id: &str) -> ArchiveResult<()> {
         self.db().execute(

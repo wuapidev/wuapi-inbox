@@ -1178,6 +1178,36 @@ impl Store {
         Ok(())
     }
 
+    /// Forgets a chat and everything stored in it: its messages, their
+    /// reactions, and what was waiting to be sent to it.
+    pub fn remove_chat(&self, account: &AccountId, chat: &ChatId) -> StoreResult<()> {
+        let removed = self.write(|tx| {
+            let keys = params![account.as_str(), chat.as_str()];
+            tx.execute(
+                "DELETE FROM outbox_files WHERE client_id IN
+                    (SELECT client_id FROM outbox WHERE account_id = ?1 AND chat_id = ?2)",
+                keys,
+            )?;
+            for table in ["outbox", "reactions", "messages"] {
+                tx.execute(
+                    &format!("DELETE FROM {table} WHERE account_id = ?1 AND chat_id = ?2"),
+                    keys,
+                )?;
+            }
+            Ok(tx.execute("DELETE FROM chats WHERE account_id = ?1 AND id = ?2", keys)?)
+        })?;
+        if removed > 0 {
+            self.notify(StoreChange::Chats {
+                account_id: account.clone(),
+            });
+            self.notify(StoreChange::Messages {
+                account_id: account.clone(),
+                chat_id: chat.clone(),
+            });
+        }
+        Ok(())
+    }
+
     /// Records an account's new connection state.
     pub fn set_connection(&self, account: &AccountId, state: &ConnectionState) -> StoreResult<()> {
         let changed = self.write(|tx| {

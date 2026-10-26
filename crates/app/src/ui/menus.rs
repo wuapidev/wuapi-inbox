@@ -194,6 +194,10 @@ impl Shell {
                 true,
             ),
             Overlay::NewPoll => (self.render_poll_form(palette, cx)?.into_any_element(), true),
+            Overlay::DeleteChat => (
+                self.render_delete_chat(palette, cx)?.into_any_element(),
+                true,
+            ),
             Overlay::ConfirmSignOut => (
                 self.render_confirm_sign_out(palette, cx).into_any_element(),
                 true,

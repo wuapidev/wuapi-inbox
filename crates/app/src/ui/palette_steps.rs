@@ -387,7 +387,7 @@ impl Shell {
             | C::MuteAChat
             | C::MarkAChat => state(caps.chat_state),
             // In the menus too, as an entry that says the same.
-            C::DeleteChat => Disabled(super::shell::not_yet()),
+            C::DeleteChat => state(caps.delete_chat),
             // Only where the chat's number has them: a cloud feature is
             // not listed as missing everywhere else.
             C::IncomingWebhooks => {

@@ -366,6 +366,8 @@ pub(super) enum Overlay {
     Hooks,
     /// A group's invite: the group, and whether to join it.
     JoinGroup,
+    /// "Delete this chat?", then the wait for the provider.
+    DeleteChat,
 }
 
 /// The sections of the settings panel.
@@ -404,6 +406,8 @@ pub(super) enum MenuAction {
     IncomingWebhooks,
     /// Copies the number of the menu's chat, a person's.
     CopyNumber,
+    /// Asks whether to delete the menu's chat.
+    DeleteChat,
     /// A command of the registry, for the message in focus.
     Run(crate::keys::Command),
 }
@@ -420,11 +424,6 @@ pub(super) struct MenuItem {
     pub(super) hint: Option<&'static str>,
     /// The command whose keys are printed beside the entry.
     pub(super) keys: Option<crate::keys::Command>,
-}
-
-/// Why an entry that is not here yet is disabled.
-pub(super) fn not_yet() -> &'static str {
-    i18n::t("common.shell.not_yet")
 }
 
 /// Why an entry the provider cannot do is disabled.
@@ -835,6 +834,8 @@ pub struct Shell {
     pub(super) overlay: Overlay,
     /// The chat a row menu is about, and where the menu opens.
     pub(super) menu_target: Option<ChatSummary>,
+    /// The chat "Delete chat" asks about.
+    pub(super) deleting_chat: Option<super::delete_chat::DeletingChat>,
     pub(super) menu_at: gpui_kit::Point<gpui_kit::Pixels>,
     /// Something that did not work, said for a few seconds.
     pub(super) problem: Option<SharedString>,
@@ -1259,6 +1260,7 @@ impl Shell {
             focus: cx.focus_handle(),
             overlay: Overlay::None,
             menu_target: None,
+            deleting_chat: None,
             menu_at: gpui_kit::Point::default(),
             problem: None,
             _problem: None,
@@ -2064,6 +2066,7 @@ impl Shell {
             | Overlay::Palette
             | Overlay::EmojiPicker
             | Overlay::NumberAction
+            | Overlay::DeleteChat
             | Overlay::JoinGroup => self.overlay_focus.focus(window, cx),
             // The post sheet is typed in: its fields take the keyboard.
             Overlay::Status => {
@@ -2144,6 +2147,9 @@ impl Shell {
         }
         if self.overlay == Overlay::Task {
             self.tasks.sheet = None;
+        }
+        if self.overlay == Overlay::DeleteChat {
+            self.deleting_chat = None;
         }
         if self.overlay == Overlay::Status {
             self.status.sheet = None;
@@ -2362,6 +2368,13 @@ impl Shell {
         if self.overlay == Overlay::JoinGroup {
             if key == "enter" {
                 self.join_invite(cx);
+                cx.stop_propagation();
+            }
+            return;
+        }
+        if self.overlay == Overlay::DeleteChat {
+            if key == "enter" {
+                self.confirm_delete_chat(cx);
                 cx.stop_propagation();
             }
             return;
@@ -2754,8 +2767,8 @@ impl Shell {
                     "menu-delete",
                     i18n::t("common.shell.menu_delete"),
                     I::Trash,
-                    None,
-                    not_yet(),
+                    caps.delete_chat.then_some(MenuAction::DeleteChat),
+                    not_here(),
                 ));
                 entries
             }
@@ -2862,8 +2875,8 @@ impl Shell {
                         "menu-delete",
                         i18n::t("common.shell.menu_delete"),
                         I::Trash,
-                        None,
-                        not_yet(),
+                        caps.delete_chat.then_some(MenuAction::DeleteChat),
+                        not_here(),
                     ),
                     item(
                         "menu-shortcuts",
@@ -2948,6 +2961,12 @@ impl Shell {
                 }
             }
             MenuAction::CloseChat => self.close_chat(cx),
+            MenuAction::DeleteChat => {
+                return match self.menu_chat() {
+                    Some(chat) => self.begin_delete_chat(chat, window, cx),
+                    None => self.close_overlay(window, cx),
+                }
+            }
             MenuAction::Run(command) => {
                 // The menu goes first: what the command opens (a sheet,
                 // the composer) is then on top of nothing.
@@ -3834,8 +3853,11 @@ impl Render for Shell {
         let alive = self.retouch_alive();
         self.retouching.release(&alive, window);
         if std::mem::take(&mut self.attach_wants_focus) && self.overlay == Overlay::AttachSheet {
-            if let Some(caption) = self.captioned_field() {
-                caption.update(cx, |field, cx| field.focus(window, cx));
+            match self.captioned_field() {
+                Some(caption) => caption.update(cx, |field, cx| field.focus(window, cx)),
+                // Nothing to write in yet (the files are on their way):
+                // the sheet has the keyboard, so Escape is its own.
+                None => self.overlay_focus.focus(window, cx),
             }
         }
         let features = FontFeatures(Arc::new(

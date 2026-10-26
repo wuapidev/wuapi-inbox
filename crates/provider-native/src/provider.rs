@@ -65,6 +65,8 @@ pub(crate) struct Inner {
     pub calls: Mutex<HashMap<String, HeldCall>>,
     /// What sessions said before their number was written down.
     pub early: Mutex<Vec<(i32, crate::session::Inbound)>>,
+    /// The numbers whose address book is being asked for again.
+    pub replaying: Mutex<std::collections::HashSet<AccountId>>,
 }
 
 /// A call that is ringing or on.
@@ -78,6 +80,8 @@ pub(crate) struct HeldCall {
     pub incoming: bool,
     /// When both sides started hearing each other.
     pub connected_ms: Option<i64>,
+    /// The chat it belongs to, from the first signal of it.
+    pub chat: String,
 }
 
 /// The provider that speaks WhatsApp's own protocol from this machine.
@@ -159,7 +163,7 @@ impl Inner {
     }
 
     /// The session of a number, whatever its connection.
-    fn session(&self, account: &AccountId) -> ProviderResult<Arc<dyn Session>> {
+    pub(crate) fn session(&self, account: &AccountId) -> ProviderResult<Arc<dyn Session>> {
         let live = self
             .live_of(account.as_str())
             .ok_or_else(|| rejected(refusal::NOT_FOUND, "This number is not on this computer."))?;
@@ -249,6 +253,7 @@ impl Inner {
             return;
         }
         let _ = self.archive.merge_chat(account, lid, pn);
+        let _ = self.archive.merge_contact(account, lid, pn);
         let id = AccountId::new(account);
         let known = self
             .archive
@@ -264,6 +269,10 @@ impl Inner {
             &known,
             Some(lid.to_owned()),
         )));
+        // The chat is named after what was known under either id.
+        if let Ok(Some(chat)) = self.archive.chat(account, pn) {
+            self.chat_changed(account, &chat);
+        }
     }
 
     fn jid(&self, id: &str) -> ProviderResult<Jid> {
@@ -603,6 +612,7 @@ impl NativeProvider {
             history_news: Notify::new(),
             calls: Mutex::new(HashMap::new()),
             early: Mutex::new(Vec::new()),
+            replaying: Mutex::new(std::collections::HashSet::new()),
         });
         let listener = inner.clone();
         runtime.spawn(async move {
@@ -780,6 +790,7 @@ impl Provider for NativeProvider {
             // pins, mutes and the archive, and every later change is heard.
             chat_list: true,
             chat_state: true,
+            delete_chat: true,
             start_chat: true,
             link_accounts: true,
             link_by_code: true,
@@ -1219,6 +1230,40 @@ impl Provider for NativeProvider {
                 ChatChange::MarkedUnread => chat.marked_unread = true,
             })
             .map_err(db)?;
+        Ok(())
+    }
+
+    async fn delete_chat(&self, account: &AccountId, chat: &ChatId) -> ProviderResult<()> {
+        let inner = &self.inner;
+        // A chat with no address WhatsApp knows (the call service's, kept
+        // by mistake) was only ever here.
+        let to = inner
+            .jid(chat.as_str())
+            .ok()
+            .filter(|to| to.server != whatsapp_rust::Server::Call);
+        if let Some(to) = to {
+            let session = inner.online(account)?;
+            // WhatsApp keeps the chat of a group its member is in.
+            if ids::is_group(chat.as_str()) {
+                match session.leave_group(&to).await {
+                    Err(SessionError::Refused { code, .. }) if code == refusal::NOT_MEMBER => {}
+                    other => other.map_err(fail)?,
+                }
+            }
+            let last = inner.newest_target(account, chat);
+            session
+                .delete_chat(&to, last.as_ref())
+                .await
+                .map_err(fail)?;
+        }
+        inner
+            .archive
+            .remove_chat(account.as_str(), chat.as_str())
+            .map_err(db)?;
+        inner.emit(ProviderEvent::ChatRemoved {
+            account_id: account.clone(),
+            chat_id: chat.clone(),
+        });
         Ok(())
     }
 
@@ -2361,6 +2406,7 @@ impl Provider for NativeProvider {
                     answered: false,
                     incoming: false,
                     connected_ms: None,
+                    chat: chat.as_str().to_owned(),
                 },
             );
         inner.emit(ProviderEvent::Call(CallEvent {

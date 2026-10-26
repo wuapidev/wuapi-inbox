@@ -20,6 +20,7 @@ mod calls;
 mod chat_list;
 mod connection;
 mod conversation;
+mod delete_chat;
 mod emoji_picker;
 mod forward_sheet;
 mod gallery;

@@ -1788,6 +1788,7 @@ fn a_sticker_still_being_prepared_is_not_sent_once_files_are_being_attached(
                 selected: 0,
                 notes: Vec::new(),
                 confirm_discard: false,
+                reading: Vec::new(),
             });
         })
     })

@@ -38,6 +38,7 @@ use gpui_kit::{
     Stateful, StyledImage, Subscription, Window,
 };
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
 /// Why the attach button and the paste of a file say no.
@@ -47,6 +48,9 @@ pub(in crate::ui) fn not_available() -> &'static str {
 
 /// The longest edge of the picture the sheet keeps of an image.
 const PREVIEW_EDGE: u32 = 480;
+
+/// The number of the next batch of files read for the sheet.
+static NEXT_BATCH: AtomicU64 = AtomicU64::new(1);
 
 /// One file in the sheet.
 pub(in crate::ui) struct AttachItem {
@@ -117,12 +121,21 @@ pub(in crate::ui) struct AttachDraft {
     /// Leaving was asked for and the sheet asked whether to throw the
     /// files and their captions away.
     pub(in crate::ui) confirm_discard: bool,
+    /// The batches still being read, by their numbers, with how many
+    /// files each has: the sheet shows them as on their way, and sends
+    /// nothing until they are in.
+    pub(in crate::ui) reading: Vec<(u64, usize)>,
 }
 
 impl AttachDraft {
     /// The file on show.
     pub(in crate::ui) fn current(&self) -> Option<&AttachItem> {
         self.items.get(self.selected)
+    }
+
+    /// How many files are still being read.
+    fn files_reading(&self) -> usize {
+        self.reading.iter().map(|(_, files)| files).sum()
     }
 
     /// The first file that can go: the one a reply goes with.
@@ -227,73 +240,123 @@ impl Shell {
             return self.show_problem(format!("{}.", not_available()), cx);
         }
         let limit = self.engine.upload_limit();
-        let runtime = self.engine.runtime().clone();
-        let work = runtime.spawn_blocking(move || {
+        let files = paths.len();
+        self.read_for_sheet(files, cx, move || {
             let (files, refused) = attach::read_files(&paths, limit);
             let staged: Vec<Staged> = files.into_iter().map(|read| stage(read, limit)).collect();
             (staged, refused)
         });
+    }
+
+    /// A picture straight from the clipboard. Its small picture is made
+    /// off this thread too: a large screenshot takes a moment to decode.
+    fn attach_pasted(&mut self, file: Attachment, cx: &mut Context<Self>) {
+        let limit = self.engine.upload_limit();
+        self.read_for_sheet(1, cx, move || {
+            (vec![stage(Read::Ready(file), limit)], Vec::new())
+        });
+    }
+
+    /// Opens the sheet at once with `files` on their way, and reads them
+    /// with `read` off this thread. Each batch is read on its own: files
+    /// that arrive while others are still being read join them, and none
+    /// is dropped on the way. A batch that comes back to a sheet that was
+    /// closed meanwhile is dropped with it.
+    fn read_for_sheet(
+        &mut self,
+        files: usize,
+        cx: &mut Context<Self>,
+        read: impl FnOnce() -> (Vec<Staged>, Vec<String>) + Send + 'static,
+    ) {
+        let batch = NEXT_BATCH.fetch_add(1, Ordering::Relaxed);
+        let Some(draft) = self.open_attach_sheet() else {
+            return;
+        };
+        draft.reading.push((batch, files));
+        cx.notify();
+        let runtime = self.engine.runtime().clone();
+        let work = runtime.spawn_blocking(read);
         // Awaited on the runtime, so the answer wakes this view properly.
         let work = runtime.spawn(work);
-        // Each batch is read on its own: files that arrive while others
-        // are still being read join them, and none is dropped on the way.
         cx.spawn(async move |this, cx| {
             let read = work.await;
-            this.update(cx, |this, cx| match read {
-                Ok(Ok((staged, refused))) => this.add_attachments(staged, refused, cx),
-                _ => this.show_problem(
-                    crate::i18n::t("chat.attach_sheet.unreadable").to_owned(),
-                    cx,
-                ),
+            this.update(cx, |this, cx| {
+                let Some(draft) = this.attach.as_mut() else {
+                    return;
+                };
+                let Some(at) = draft.reading.iter().position(|(id, _)| *id == batch) else {
+                    return;
+                };
+                draft.reading.remove(at);
+                match read {
+                    Ok(Ok((staged, refused))) => this.add_attachments(staged, refused, cx),
+                    _ => {
+                        this.add_attachments(Vec::new(), Vec::new(), cx);
+                        this.show_problem(
+                            crate::i18n::t("chat.attach_sheet.unreadable").to_owned(),
+                            cx,
+                        );
+                    }
+                }
             })
             .ok();
         })
         .detach();
     }
 
-    /// A picture straight from the clipboard.
-    fn attach_pasted(&mut self, file: Attachment, cx: &mut Context<Self>) {
-        let staged = stage(Read::Ready(file), self.engine.upload_limit());
-        self.add_attachments(vec![staged], Vec::new(), cx);
+    /// The sheet, opened if it is not open; `None` where it cannot open:
+    /// no chat, or a form with something typed in it, which is not swept
+    /// away by a drop on the conversation behind it.
+    fn open_attach_sheet(&mut self) -> Option<&mut AttachDraft> {
+        if self.open.is_none()
+            || matches!(
+                self.overlay,
+                Overlay::NewPoll | Overlay::NewGroup | Overlay::OwnProfile
+            )
+        {
+            return None;
+        }
+        // A profile or a group's details give way, and are closed properly.
+        if self.overlay == Overlay::ContactInfo {
+            self.social.close();
+        }
+        if self.attach.is_none() {
+            self.attach_strip
+                .set_offset(gpui_kit::point(px(0.), px(0.)));
+        }
+        self.attach_wants_focus = true;
+        self.overlay = Overlay::AttachSheet;
+        Some(self.attach.get_or_insert_with(|| AttachDraft {
+            items: Vec::new(),
+            selected: 0,
+            notes: Vec::new(),
+            confirm_discard: false,
+            reading: Vec::new(),
+        }))
     }
 
-    /// Puts files in the sheet, opening it if it is not open. The first
-    /// of the new ones is the one on show.
+    /// Puts files read for the sheet in it. The first of the new ones is
+    /// the one on show. A sheet left with nothing in it and nothing on
+    /// its way closes, and says why, where problems go.
     fn add_attachments(
         &mut self,
         staged: Vec<Staged>,
         refused: Vec<String>,
         cx: &mut Context<Self>,
     ) {
-        if self.open.is_none() {
+        let Some(draft) = self.attach.as_mut() else {
             return;
-        }
-        // A form with something typed in it is not swept away by a drop
-        // on the conversation behind it.
-        if matches!(
-            self.overlay,
-            Overlay::NewPoll | Overlay::NewGroup | Overlay::OwnProfile
-        ) {
-            return;
-        }
-        // A profile or a group's details give way, and are closed properly.
-        if self.overlay == Overlay::ContactInfo {
-            self.social.close();
-        }
-        if staged.is_empty() && self.attach.is_none() {
-            // Nothing to show a sheet for: say why, where problems go.
+        };
+        if staged.is_empty() && draft.items.is_empty() && draft.reading.is_empty() {
+            self.attach = None;
+            if self.overlay == Overlay::AttachSheet {
+                self.overlay = Overlay::None;
+            }
             if let Some(first) = refused.into_iter().next() {
                 self.show_problem(first, cx);
             }
-            return;
+            return cx.notify();
         }
-        let opening = self.attach.is_none();
-        let draft = self.attach.get_or_insert_with(|| AttachDraft {
-            items: Vec::new(),
-            selected: 0,
-            notes: Vec::new(),
-            confirm_discard: false,
-        });
         let first_new = draft.items.len();
         draft
             .items
@@ -315,13 +378,8 @@ impl Shell {
         draft
             .notes
             .extend(refused.into_iter().map(SharedString::from));
-        if opening {
-            self.attach_strip
-                .set_offset(gpui_kit::point(px(0.), px(0.)));
-        }
         self.attach_strip.scroll_to_item(first_new);
         self.attach_wants_focus = true;
-        self.overlay = Overlay::AttachSheet;
         cx.notify();
     }
 
@@ -477,7 +535,7 @@ impl Shell {
             }
             draft.confirm_discard = false;
         }
-        if draft.items.is_empty() {
+        if draft.items.is_empty() && draft.reading.is_empty() {
             return self.close_attach_sheet(window, cx);
         }
         let selected = draft.selected;
@@ -540,10 +598,11 @@ impl Shell {
     /// caption and mentions; a reply goes with the first. The bubbles
     /// appear at once.
     pub(in crate::ui) fn send_attachments(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        // Files still being read go with the rest: the sheet waits.
         if self
             .attach
             .as_ref()
-            .is_none_or(|draft| draft.first_sendable().is_none())
+            .is_none_or(|draft| draft.first_sendable().is_none() || !draft.reading.is_empty())
         {
             return;
         }
@@ -711,7 +770,13 @@ impl Shell {
             .collect();
         let total: u64 = sendable.iter().map(|item| item.size).sum();
         let blocked = draft.items.len() - sendable.len();
-        let title = crate::i18n::plural("chat.attach_sheet.title", draft.items.len() as u64, &[]);
+        let reading = draft.files_reading();
+        let title = crate::i18n::plural(
+            "chat.attach_sheet.title",
+            (draft.items.len() + reading) as u64,
+            &[],
+        );
+        let still = crate::settings::reduce_motion(cx);
         let media = draft
             .items
             .iter()
@@ -719,6 +784,16 @@ impl Shell {
             .count();
         let current = draft.current();
         let first = draft.first_sendable();
+        // The wheel that turns while a file is read.
+        let wheel = |index: usize| {
+            super::transfer::transfer_button(
+                ("attach-reading-wheel", index),
+                &super::transfer::Transfer::Loading { fraction: None },
+                palette,
+                still,
+                |_, _, _| {},
+            )
+        };
         let room = self.viewport;
 
         // ----- the file on show
@@ -819,6 +894,31 @@ impl Shell {
                             &[("reason", reason)],
                         ))
                 }))
+        });
+        // Nothing to show yet: the files are being read.
+        let show = show.or_else(|| {
+            (reading > 0).then(|| {
+                div()
+                    .debug_selector(|| "attach-reading".into())
+                    .flex_1()
+                    .min_h(px(96.))
+                    .h(px(280.))
+                    .w_full()
+                    .rounded(metrics::RADIUS())
+                    .bg(palette.muted)
+                    .flex()
+                    .flex_col()
+                    .items_center()
+                    .justify_center()
+                    .gap_2()
+                    .child(wheel(usize::MAX))
+                    .child(
+                        div()
+                            .text_size(metrics::TEXT_SMALL())
+                            .text_color(palette.text_muted)
+                            .child(crate::i18n::t("chat.attach_sheet.reading")),
+                    )
+            })
         });
 
         // ----- its caption: the field of the file on show
@@ -1050,6 +1150,23 @@ impl Shell {
                     ),
             );
         }
+        // The files still being read, where they will be.
+        for index in 0..reading {
+            strip = strip.child(
+                div()
+                    .debug_selector(move || format!("attach-reading-{index}"))
+                    .flex_none()
+                    .size(px(56.))
+                    .rounded(metrics::RADIUS())
+                    .border_2()
+                    .border_color(palette.border)
+                    .bg(palette.muted)
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .child(wheel(index)),
+            );
+        }
         let add_hint = super::hints::with_keys(
             crate::i18n::t("chat.attach_sheet.add_more"),
             Some(Command::Attach),
@@ -1147,7 +1264,7 @@ impl Shell {
                         ),
                 )
         } else {
-            let can_send = first.is_some() && !self.retouch_busy();
+            let can_send = first.is_some() && reading == 0 && !self.retouch_busy();
             footer
                 .child(
                     mono(summary)

@@ -34,6 +34,9 @@ pub struct Capabilities {
     /// mute, archive and mark a chat as unread. When `false` the client
     /// shows those actions disabled.
     pub chat_state: bool,
+    /// [`Provider::delete_chat`](crate::Provider::delete_chat) deletes a
+    /// chat and its messages, on every device of the account.
+    pub delete_chat: bool,
     /// [`Provider::start_chat`](crate::Provider::start_chat) can open a
     /// conversation with a phone number the account has never talked to.
     pub start_chat: bool,
@@ -272,6 +275,7 @@ impl Capabilities {
             group_invites: false,
             group_join_requests: false,
             group_leave: false,
+            delete_chat: false,
             group_join: false,
             community_manage: false,
             community_members: false,
@@ -342,6 +346,7 @@ impl Capabilities {
             group_invites: true,
             group_join_requests: true,
             group_leave: true,
+            delete_chat: true,
             group_join: true,
             community_manage: true,
             community_members: true,
@@ -414,6 +419,7 @@ impl Capabilities {
             group_invites: self.group_invites || other.group_invites,
             group_join_requests: self.group_join_requests || other.group_join_requests,
             group_leave: self.group_leave || other.group_leave,
+            delete_chat: self.delete_chat || other.delete_chat,
             group_join: self.group_join || other.group_join,
             community_manage: self.community_manage || other.community_manage,
             community_members: self.community_members || other.community_members,

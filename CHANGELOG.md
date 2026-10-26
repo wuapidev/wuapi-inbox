@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 
+* A chat can be deleted, from the menu of its row, the menu of the conversation and the palette: it asks first, as nothing deleted comes back, and the chat goes once WhatsApp has deleted it, here and on the other devices. When it could not, the question stays and says why, and the button tries again. A group the number is still in is left on the way, as WhatsApp keeps the chat of a group its member is in; the button says "Leave and delete". A chat deleted on the phone now goes from the list too. With the numbers of this computer; Wuapi Cloud has no way to delete a chat yet.
+* The name a contact is saved with in the address book is the name shown, in the list, the chat and the search, not the name they gave their own profile. A contact entry that came without a name no longer wiped the saved one, and a contact deleted on the phone is forgotten. The address book is asked for again once, so contacts not written to in a long time are found by the search.
+* A picture pasted or files attached open the sheet at once, with a spinner for each file still being read, instead of nothing for a moment with a large photo or a video. The pasted picture is read off the interface's thread. Closing the sheet while it reads drops what was being read; "Send" waits for it.
+* The end of a group call no longer opens a chat named after the call (`00B8D52CF21AB…`): WhatsApp says a group call ended from the address of the call service, not the one who called. A call's notices go to the chat it rang in. An existing chat of that kind can be deleted.
+* A story the phone hands over with a chat's history is a story, not a message of its author's chat.
+* `Capabilities::delete_chat`, `Provider::delete_chat`, `ProviderEvent::ChatRemoved` and `SyncEngine::delete_chat`, for the numbers of this computer.
+
 ## [0.9.0]
 
 * A profile picture opens in the viewer with a click, in a contact's panel, a group's and the account's own: at the size it was put up, not the small preview the lists show, with the viewer's zoom, copy and save. The preview shows at once and the whole picture replaces it when WhatsApp sends it; where there is none at that size, the preview is what opens. Closing it goes back to the panel.

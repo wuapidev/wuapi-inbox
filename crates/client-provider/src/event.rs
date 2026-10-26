@@ -34,6 +34,15 @@ pub enum ProviderEvent {
     /// count). Carries the full chat.
     ChatUpdated(Chat),
 
+    /// A chat was deleted, with its messages, here or on another device
+    /// of the account. The client forgets it.
+    ChatRemoved {
+        /// The account.
+        account_id: AccountId,
+        /// The chat.
+        chat_id: ChatId,
+    },
+
     /// A contact's name, number or picture became known or changed. The
     /// client uses contacts to name the senders of group messages.
     ContactUpdated(Contact),

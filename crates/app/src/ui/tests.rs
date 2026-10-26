@@ -1578,6 +1578,53 @@ fn the_conversation_menu_pins_and_archives_the_chat(cx: &mut TestAppContext) {
 }
 
 #[gpui_kit::test]
+fn a_chat_is_deleted_once_the_provider_has_deleted_it(cx: &mut TestAppContext) {
+    let harness = open(cx, ShellOptions::default());
+    let chat = cx
+        .update(|cx| client_provider::ChatId::new(chat_rows(harness.shell.read(cx))[2].0.clone()));
+    harness
+        .shell
+        .update(cx, |shell, cx| shell.open_chat(chat.clone(), None, cx));
+    cx.run_until_parked();
+    let account = cx.update(|cx| harness.shell.read(cx).account.clone().unwrap());
+    let listed = |shell: &Shell| chat_rows(shell).iter().any(|(id, ..)| id == chat.as_str());
+
+    // Refused: the question stays, says why, and nothing is gone.
+    harness
+        .mock
+        .fail_next_chat_updates([client_provider::ProviderError::Rejected {
+            code: "nope".into(),
+            message: "Not now.".into(),
+        }]);
+    click(harness.window, "chat-menu", cx);
+    click(harness.window, "menu-delete", cx);
+    assert!(shows(harness.window, "delete-chat", cx));
+    click(harness.window, "delete-chat-confirm", cx);
+    until(&harness, cx, |shell| {
+        shell
+            .deleting_chat
+            .as_ref()
+            .is_some_and(|deleting| deleting.error.is_some())
+    });
+    assert!(shows(harness.window, "delete-chat-error", cx));
+    cx.update(|cx| {
+        let shell = harness.shell.read(cx);
+        assert!(listed(shell));
+        assert!(shell.open.is_some());
+    });
+
+    // Again: gone from the list, the conversation closes, the provider
+    // has it no more.
+    click(harness.window, "delete-chat-confirm", cx);
+    until(&harness, cx, |shell| {
+        shell.deleting_chat.is_none() && !listed(shell)
+    });
+    assert!(!shows(harness.window, "delete-chat", cx));
+    cx.update(|cx| assert!(harness.shell.read(cx).open.is_none()));
+    assert!(harness.mock.chat(&account, &chat).is_none());
+}
+
+#[gpui_kit::test]
 fn contact_info_and_search_open_from_the_conversation(cx: &mut TestAppContext) {
     let harness = open(
         cx,
@@ -4809,7 +4856,10 @@ fn a_number_is_dragged_between_onto_and_out_and_a_click_is_still_a_click(cx: &mu
 // ----- attachments ----------------------------------------------------------
 
 fn sheet_open(shell: &Shell) -> bool {
-    shell.attach.is_some()
+    shell
+        .attach
+        .as_ref()
+        .is_some_and(|draft| draft.reading.is_empty())
 }
 
 /// How many of the user's own media bubbles the open chat shows.
@@ -5072,7 +5122,12 @@ fn a_paste_is_a_picture_files_or_text(cx: &mut TestAppContext) {
         })
     });
     press(harness.window, "ctrl-v", cx);
+    // The sheet is there at once, with the picture on its way.
     assert!(shows(harness.window, "attach-sheet", cx));
+    assert!(shows(harness.window, "attach-reading", cx));
+    assert!(shows(harness.window, "attach-reading-0", cx));
+    until(&harness, cx, sheet_open);
+    assert!(!shows(harness.window, "attach-reading", cx));
     cx.update(|cx| {
         let shell = harness.shell.read(cx);
         let draft = shell.attach.as_ref().unwrap();
@@ -5119,6 +5174,27 @@ fn a_paste_is_a_picture_files_or_text(cx: &mut TestAppContext) {
             "the address was not pasted as text"
         );
     });
+    press(harness.window, "escape", cx);
+
+    // Closed while the picture was on its way: it does not open the
+    // sheet again when it is read.
+    focus_composer(&harness, cx);
+    cx.update(|cx| {
+        cx.write_to_clipboard(ClipboardItem {
+            entries: vec![ClipboardEntry::Image(Image::from_bytes(
+                ImageFormat::Png,
+                screenshot.clone(),
+            ))],
+        })
+    });
+    press(harness.window, "ctrl-v", cx);
+    assert!(shows(harness.window, "attach-reading", cx));
+    press(harness.window, "escape", cx);
+    for _ in 0..20 {
+        harness.settle(cx);
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    cx.update(|cx| assert!(harness.shell.read(cx).attach.is_none()));
 }
 
 #[gpui_kit::test]

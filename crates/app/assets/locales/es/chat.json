@@ -25,6 +25,7 @@
   "chat.attach_sheet.none_prepared": "Los archivos no se enviaron: no se pudieron preparar.",
   "chat.attach_sheet.not_available": "El envío de archivos aún no está disponible",
   "chat.attach_sheet.preparing": "Preparando…",
+  "chat.attach_sheet.reading": "Leyendo…",
   "chat.attach_sheet.not_prepared": "{name} no se envió: no se pudo preparar.",
   "chat.attach_sheet.reply_note": "La respuesta va con el primer archivo, {name}.",
   "chat.attach_sheet.send": "Enviar",
