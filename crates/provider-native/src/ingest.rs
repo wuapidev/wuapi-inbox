@@ -13,6 +13,10 @@ use client_provider::{
 use std::sync::Arc;
 use whatsapp_rust::Jid;
 
+/// The key under which a number keeps that its address book was asked for
+/// again: see [`Inner::replay_contacts_once`].
+const CONTACTS_REPLAYED: &str = "contacts.replayed";
+
 impl Inner {
     /// Takes one piece of news from the session kept under `device`.
     pub(crate) fn apply(self: &Arc<Self>, device: i32, inbound: Inbound) {
@@ -63,6 +67,7 @@ impl Inner {
                     self.learn_alias(&account, lid, pn);
                 }
                 self.connection(&account, ConnectionState::Connected, Some(LinkStep::Linked));
+                self.replay_contacts_once(&id);
             }
             Inbound::Reconnecting => {
                 let linked = self
@@ -146,7 +151,12 @@ impl Inner {
             }),
             Inbound::ChatDeleted { chat } => {
                 let chat = self.canonical(&account, &chat, None);
-                let _ = self.archive.remove_chat(&account, &chat);
+                if self.archive.remove_chat(&account, &chat).is_ok() {
+                    self.emit(ProviderEvent::ChatRemoved {
+                        account_id: id.clone(),
+                        chat_id: ChatId::new(chat),
+                    });
+                }
             }
             Inbound::Starred {
                 chat,
@@ -178,10 +188,9 @@ impl Inner {
                 saved_name,
                 username,
             } => {
+                // An entry without a name forgets nothing: the one filed
+                // under the person's other address may carry it.
                 let person = self.canonical(&account, &jid, alt.as_ref());
-                if saved_name.is_none() {
-                    let _ = self.archive.forget_saved_name(&account, &person);
-                }
                 self.learn(
                     &id,
                     StoredContact {
@@ -192,6 +201,12 @@ impl Inner {
                     },
                     true,
                 );
+            }
+            Inbound::ContactRemoved { jid } => {
+                let person = self.canonical(&account, &jid, None);
+                if self.archive.forget_saved_name(&account, &person).is_ok() {
+                    self.contact_changed(&id, &person);
+                }
             }
             Inbound::ProfileName { jid, name } => {
                 self.learn_name(&id, &jid, None, Some(name), true)
@@ -390,6 +405,66 @@ impl Inner {
         if !changed || !announce {
             return;
         }
+        self.announce_contact(account, &known);
+    }
+
+    /// Asks the phone for the whole address book again, once for each
+    /// number. Earlier versions forgot a saved name whenever WhatsApp sent
+    /// the entry under the person's other address without it, and only the
+    /// address book from its start brings those names back.
+    fn replay_contacts_once(self: &Arc<Self>, account: &AccountId) {
+        let done = self
+            .archive
+            .value(account.as_str(), CONTACTS_REPLAYED)
+            .ok()
+            .flatten()
+            .is_some();
+        let Ok(runtime) = tokio::runtime::Handle::try_current() else {
+            return;
+        };
+        if done
+            || !self
+                .replaying
+                .lock()
+                .unwrap_or_else(|p| p.into_inner())
+                .insert(account.clone())
+        {
+            return;
+        }
+        let inner = self.clone();
+        let account = account.clone();
+        runtime.spawn(async move {
+            let replayed = match inner.session(&account) {
+                Ok(session) => session.replay_contacts().await,
+                Err(error) => Err(crate::session::SessionError::NotNow(error.to_string())),
+            };
+            match replayed {
+                Ok(()) => {
+                    let _ = inner
+                        .archive
+                        .set_value(account.as_str(), CONTACTS_REPLAYED, Some("1"));
+                }
+                Err(error) => {
+                    tracing::warn!(%error, "the address book could not be asked for again");
+                }
+            }
+            inner
+                .replaying
+                .lock()
+                .unwrap_or_else(|p| p.into_inner())
+                .remove(&account);
+        });
+    }
+
+    /// Says what is known about a person now, after a change made here.
+    fn contact_changed(&self, account: &AccountId, id: &str) {
+        if let Ok(Some(known)) = self.archive.contact(account.as_str(), id) {
+            self.announce_contact(account, &known);
+        }
+    }
+
+    /// Says what is known about a person, and renames the chat with them.
+    fn announce_contact(&self, account: &AccountId, known: &StoredContact) {
         let alt = if known.id.starts_with('+') {
             self.archive
                 .hidden_id_of(account.as_str(), &known.id)
@@ -402,7 +477,7 @@ impl Inner {
                 .flatten()
         };
         self.emit(ProviderEvent::ContactUpdated(convert::to_contact(
-            account, &known, alt,
+            account, known, alt,
         )));
         // The chat with them is named after them.
         if let Ok(Some(chat)) = self.archive.chat(account.as_str(), &known.id) {
@@ -650,6 +725,11 @@ impl Inner {
         let mut newest = 0;
         let mut newest_mine = 0;
         for mut incoming in history.messages {
+            if !story && id_of(&incoming.chat) == STATUS_CHAT {
+                // A story among a person's messages: it goes to the stories.
+                self.take_message(account, incoming, false);
+                continue;
+            }
             newest = newest.max(incoming.timestamp_ms);
             if incoming.from_me {
                 newest_mine = newest_mine.max(incoming.timestamp_ms);
@@ -809,11 +889,19 @@ impl Inner {
         timestamp_ms: i64,
     ) {
         let me = account.as_str();
-        let chat = self.canonical(me, &peer, None);
         let mut calls = self
             .calls
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
+        // A call stays in the chat it rang in. The end of a group call
+        // comes from the call service's own address (`<call id>@call`),
+        // which is nobody's chat: a signal from there about a call not
+        // heard of is left alone.
+        let chat = match calls.get(&call) {
+            Some(held) => held.chat.clone(),
+            None if peer.server == whatsapp_rust::Server::Call => return,
+            None => self.canonical(me, &peer, None),
+        };
         let video = calls.get(&call).map(|held| held.video);
         // What the call leaves in the chat when it ends, if this is where
         // it ends.
@@ -827,6 +915,7 @@ impl Inner {
                         answered: false,
                         incoming: true,
                         connected_ms: None,
+                        chat: chat.clone(),
                     },
                 );
                 CallState::Ringing {

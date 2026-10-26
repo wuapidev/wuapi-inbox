@@ -1806,6 +1806,10 @@ impl SyncEngine {
                     .store
                     .upsert_chat(&chat, !inner.capabilities.chat_list)?;
             }
+            ProviderEvent::ChatRemoved {
+                account_id,
+                chat_id,
+            } => inner.store.remove_chat(&account_id, &chat_id)?,
             ProviderEvent::ContactUpdated(contact) => {
                 inner.store.upsert_contact(&contact)?;
             }

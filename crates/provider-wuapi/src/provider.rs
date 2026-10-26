@@ -250,6 +250,8 @@ impl Provider for WuapiProvider {
             // Pin, mute, archive and mark-unread endpoints, and a direct
             // chat's id is the contact's number, so one can be started.
             chat_state: true,
+            // No route deletes a chat.
+            delete_chat: false,
             start_chat: true,
             // `POST /v1/accounts`, by QR code or by pairing code, and the
             // rename, reconnect, logout and delete routes.

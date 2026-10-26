@@ -1157,6 +1157,17 @@ impl SyncEngine {
         Ok(inner.store.set_departed(account, group, true)?)
     }
 
+    /// Deletes a chat and its messages, on every device of the account (a
+    /// group the account is in is left first). Await it off the UI
+    /// thread. The chat is forgotten here only once the provider has
+    /// deleted it: nothing deleted could be put back.
+    pub async fn delete_chat(&self, account: &AccountId, chat: &ChatId) -> Result<(), SyncError> {
+        let inner = &self.inner;
+        self.ask(|| inner.provider.delete_chat(account, chat))
+            .await?;
+        Ok(inner.store.remove_chat(account, chat)?)
+    }
+
     // ----- contacts -----------------------------------------------------
 
     /// Says a contact's profile is about to be shown: WhatsApp is asked

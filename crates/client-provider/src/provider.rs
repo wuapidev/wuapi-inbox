@@ -257,6 +257,19 @@ pub trait Provider: Send + Sync + 'static {
         Err(ProviderError::Unsupported("changing a chat's state"))
     }
 
+    /// Deletes a chat and its messages, here and on the account's other
+    /// devices. A group the account is still in is left first: WhatsApp
+    /// keeps the chat of a group its member is in. Deleting a chat that
+    /// is gone already is a success.
+    ///
+    /// Only called when [`Capabilities::delete_chat`] is set; the default
+    /// answers [`ProviderError::Unsupported`]. The client waits for the
+    /// answer before it forgets the chat: nothing deleted can be put back.
+    async fn delete_chat(&self, account: &AccountId, chat: &ChatId) -> ProviderResult<()> {
+        let _ = (account, chat);
+        Err(ProviderError::Unsupported("deleting a chat"))
+    }
+
     /// The chat with a phone number, for starting a conversation the
     /// account has not had yet. `phone` is what the user typed; the
     /// provider normalises it and rejects what cannot be a number.

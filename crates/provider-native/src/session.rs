@@ -262,16 +262,23 @@ pub enum Inbound {
         /// The message.
         id: String,
     },
-    /// An entry of the address book: a name saved, or removed.
+    /// An entry of the address book: a name saved.
     Contact {
         /// Who.
         jid: Jid,
         /// Their other address.
         alt: Option<Jid>,
-        /// The saved name; `None` when the entry was removed.
+        /// The saved name; `None` when this entry does not say it. WhatsApp
+        /// files a person under both their addresses, and the entry under
+        /// one of them may come without the name the other carries.
         saved_name: Option<String>,
         /// Their username.
         username: Option<String>,
+    },
+    /// An entry of the address book was removed.
+    ContactRemoved {
+        /// Who.
+        jid: Jid,
     },
     /// A name somebody gave themselves.
     ProfileName {
@@ -664,6 +671,13 @@ pub trait Session: Send + Sync + 'static {
         unsupported("answering requests to join")
     }
 
+    /// Deletes a chat on every device of the account. `last` is the
+    /// chat's newest message, which WhatsApp wants named.
+    async fn delete_chat(&self, chat: &Jid, last: Option<&Target>) -> SessionResult<()> {
+        let _ = (chat, last);
+        unsupported("deleting a chat")
+    }
+
     /// Leaves a group.
     async fn leave_group(&self, group: &Jid) -> SessionResult<()> {
         let _ = group;
@@ -756,6 +770,12 @@ pub trait Session: Send + Sync + 'static {
     async fn set_call_camera(&self, id: &str, on: bool) -> SessionResult<()> {
         let _ = (id, on);
         unsupported("video calls")
+    }
+
+    /// Asks for the whole address book again: every entry is heard anew,
+    /// as [`Inbound::Contact`].
+    async fn replay_contacts(&self) -> SessionResult<()> {
+        unsupported("asking for the address book again")
     }
 
     /// The pictures of a call with video.

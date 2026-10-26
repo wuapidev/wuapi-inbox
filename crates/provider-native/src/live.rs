@@ -644,6 +644,9 @@ impl Hearing {
                     username: action.username.clone().filter(|name| !name.is_empty()),
                 });
             }
+            Event::ContactRemoved(update) => self.tell(Inbound::ContactRemoved {
+                jid: update.jid.to_non_ad(),
+            }),
             Event::PinUpdate(update) => self.tell(Inbound::Pinned {
                 chat: update.jid.to_non_ad(),
                 pinned: update.action.pinned.unwrap_or(false),
@@ -1058,6 +1061,13 @@ fn history_messages(chat: &Jid, info: &wa::WebMessageInfo) -> Vec<Incoming> {
     };
     let (Some(id), Some(message)) = (key.id.clone(), info.message.as_option()) else {
         return Vec::new();
+    };
+    // A story kept among a person's messages is still a story.
+    let status = Jid::status_broadcast();
+    let chat = if parse(&key.remote_jid).as_ref() == Some(&status) {
+        &status
+    } else {
+        chat
     };
     let from_me = key.from_me.unwrap_or(false);
     let author = parse(&key.participant)
@@ -1665,6 +1675,18 @@ impl Session for LiveSession {
                 ChatChange::MarkedUnread => actions.mark_chat_as_read(chat, false, range).await,
             }
             .map_err(failed)
+        })
+        .await
+    }
+
+    async fn delete_chat(&self, chat: &Jid, last: Option<&Target>) -> SessionResult<()> {
+        let range = self.range(last);
+        bounded(REQUEST_TIMEOUT, async {
+            self.client
+                .chat_actions()
+                .delete_chat(chat, false, range)
+                .await
+                .map_err(failed)
         })
         .await
     }
@@ -2495,6 +2517,29 @@ impl Session for LiveSession {
                 .map_err(failed)
         })
         .await
+    }
+
+    async fn replay_contacts(&self) -> SessionResult<()> {
+        // The address book is the collection the phone keeps contacts in;
+        // from its start again, every entry is dispatched again.
+        let report = bounded(MEDIA_TIMEOUT, async {
+            self.client
+                .resync_app_state_collection(whatsapp_rust::WAPatchName::CriticalUnblockLow)
+                .await
+                .map_err(failed)
+        })
+        .await?;
+        if report.all_synced() {
+            Ok(())
+        } else if report.unsynced().all(|name| report.fatal.contains(&name)) {
+            // Refused outright: asking again gets the same answer.
+            tracing::warn!("WhatsApp refused to hand the address book over again");
+            Ok(())
+        } else {
+            Err(SessionError::NotNow(
+                "the address book did not come back whole".into(),
+            ))
+        }
     }
 
     fn call_devices_changed(&self) {

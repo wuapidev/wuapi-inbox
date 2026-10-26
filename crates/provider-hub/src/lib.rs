@@ -501,6 +501,10 @@ impl Provider for HubProvider {
         route!(self, account, |p| p.update_chat(account, chat, change))
     }
 
+    async fn delete_chat(&self, account: &AccountId, chat: &ChatId) -> ProviderResult<()> {
+        route!(self, account, |p| p.delete_chat(account, chat))
+    }
+
     async fn start_chat(&self, account: &AccountId, phone: &str) -> ProviderResult<Chat> {
         route!(self, account, |p| p.start_chat(account, phone))
     }

@@ -555,6 +555,12 @@ impl Shell {
                     self.close_chat(cx);
                 }
             }
+            C::DeleteChat if caps.delete_chat => {
+                let Some(chat) = self.open_summary() else {
+                    return false;
+                };
+                self.begin_delete_chat(chat, window, cx);
+            }
             C::CloseChat => {
                 if self.open.is_none() {
                     return false;

@@ -45,6 +45,12 @@ struct Wire {
     sink: Mutex<Option<(i32, Sink)>>,
     removed: Mutex<Vec<i32>>,
     ended_calls: Mutex<Vec<String>>,
+    /// How many times the address book was asked for again.
+    contacts_replayed: AtomicUsize,
+    /// The next ask for the address book fails.
+    replay_fails: std::sync::atomic::AtomicBool,
+    /// The chats deleted, and the groups left, in order.
+    deleted: Mutex<Vec<String>>,
 }
 
 struct FakeSession(Arc<Wire>);
@@ -171,6 +177,32 @@ impl Session for FakeSession {
     }
 
     async fn accept_call(&self, _id: &str) -> SessionResult<()> {
+        Ok(())
+    }
+
+    async fn delete_chat(&self, chat: &Jid, _last: Option<&Target>) -> SessionResult<()> {
+        self.0
+            .deleted
+            .lock()
+            .unwrap()
+            .push(format!("delete {chat}"));
+        Ok(())
+    }
+
+    async fn leave_group(&self, group: &Jid) -> SessionResult<()> {
+        self.0
+            .deleted
+            .lock()
+            .unwrap()
+            .push(format!("leave {group}"));
+        Ok(())
+    }
+
+    async fn replay_contacts(&self) -> SessionResult<()> {
+        self.0.contacts_replayed.fetch_add(1, Ordering::SeqCst);
+        if self.0.replay_fails.swap(false, Ordering::SeqCst) {
+            return Err(SessionError::NotNow("not now".into()));
+        }
         Ok(())
     }
 }
@@ -950,6 +982,151 @@ async fn one_person_under_a_hidden_id_and_a_number_is_one_chat() {
     assert_eq!(ana.phone.as_deref(), Some(ANA_ID));
 }
 
+const ANA_LID: &str = "77001122334455@lid";
+
+async fn ana_contact(world: &World) -> Option<client_provider::Contact> {
+    world
+        .provider
+        .list_contacts(&world.account, None)
+        .await
+        .unwrap()
+        .items
+        .into_iter()
+        .find(|contact| contact.id.as_str() == ANA_ID)
+}
+
+#[tokio::test]
+async fn an_entry_under_the_other_address_without_a_name_forgets_nothing() {
+    let world = world().await;
+    world.hear(Inbound::Messages(vec![incoming(
+        ANA,
+        "A1",
+        1_000,
+        text_proto("hi"),
+    )]));
+    // WhatsApp files the person under both addresses; the entry under the
+    // hidden one comes without the name.
+    world.hear(Inbound::Contact {
+        jid: jid(ANA),
+        alt: Some(jid(ANA_LID)),
+        saved_name: Some("Ana Quintero".into()),
+        username: None,
+    });
+    world.hear(Inbound::Contact {
+        jid: jid(ANA_LID),
+        alt: Some(jid(ANA)),
+        saved_name: None,
+        username: None,
+    });
+    let chats = world
+        .provider
+        .list_chats(&world.account, None)
+        .await
+        .unwrap();
+    assert_eq!(
+        chats.items[0].title, "Ana Quintero",
+        "the saved name, not the profile's"
+    );
+    assert_eq!(
+        ana_contact(&world)
+            .await
+            .and_then(|c| c.saved_name)
+            .as_deref(),
+        Some("Ana Quintero")
+    );
+
+    // Removed from the address book: the name goes.
+    world.hear(Inbound::ContactRemoved { jid: jid(ANA) });
+    let chats = world
+        .provider
+        .list_chats(&world.account, None)
+        .await
+        .unwrap();
+    assert_eq!(chats.items[0].title, "Ana P.", "the profile's name again");
+}
+
+#[tokio::test]
+async fn a_name_saved_under_the_hidden_id_reaches_the_number_once_they_are_one() {
+    let world = world().await;
+    // Saved under the hidden id alone: nothing says yet whose number it is.
+    world.hear(Inbound::Contact {
+        jid: jid(ANA_LID),
+        alt: None,
+        saved_name: Some("Ana Quintero".into()),
+        username: None,
+    });
+    let mut message = incoming(ANA, "A1", 1_000, text_proto("hi"));
+    message.chat_alt = Some(jid(ANA_LID));
+    world.hear(Inbound::Messages(vec![message]));
+    let chats = world
+        .provider
+        .list_chats(&world.account, None)
+        .await
+        .unwrap();
+    assert_eq!(chats.items.len(), 1);
+    assert_eq!(chats.items[0].title, "Ana Quintero");
+    let contacts = world
+        .provider
+        .list_contacts(&world.account, None)
+        .await
+        .unwrap()
+        .items;
+    assert_eq!(
+        contacts
+            .iter()
+            .filter(|c| c.saved_name.as_deref() == Some("Ana Quintero"))
+            .map(|c| c.id.as_str())
+            .collect::<Vec<_>>(),
+        [ANA_ID],
+        "one person, under the number"
+    );
+}
+
+#[tokio::test]
+async fn the_address_book_is_asked_for_again_once_for_each_number() {
+    let world = world().await;
+    let replayed = || world.wire.contacts_replayed.load(Ordering::SeqCst);
+    until("the address book is asked for", || replayed() == 1).await;
+    // Connected again: it is not asked for again.
+    world.hear(Inbound::Connected(Identity {
+        pn: Some(ME.parse().unwrap()),
+        lid: None,
+        push_name: "Me".into(),
+    }));
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    assert_eq!(replayed(), 1);
+
+    // On a number where asking failed, the next connection asks again.
+    let world = world_where_the_replay_fails().await;
+    let replayed = || world.wire.contacts_replayed.load(Ordering::SeqCst);
+    until("the address book is asked for", || replayed() == 1).await;
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    world.hear(Inbound::Connected(Identity {
+        pn: Some(ME.parse().unwrap()),
+        lid: None,
+        push_name: "Me".into(),
+    }));
+    until("asked again", || replayed() == 2).await;
+}
+
+async fn world_where_the_replay_fails() -> World {
+    let wire = Arc::new(Wire::default());
+    wire.replay_fails.store(true, Ordering::SeqCst);
+    let provider = provider_on(&wire);
+    let status = provider.create_account(&new_account()).await.unwrap();
+    let world = World {
+        account: status.account.id,
+        provider,
+        wire,
+    };
+    world.hear(Inbound::Connected(Identity {
+        pn: Some(ME.parse().unwrap()),
+        lid: None,
+        push_name: "Me".into(),
+    }));
+    world
+}
+
 #[tokio::test]
 async fn the_phones_history_lists_chats_as_the_phone_has_them() {
     let world = world().await;
@@ -1236,6 +1413,36 @@ async fn a_chats_state_is_changed_here_and_remembered() {
 // ----- stories --------------------------------------------------------------
 
 #[tokio::test]
+async fn a_story_the_phone_hands_over_among_a_persons_messages_stays_a_story() {
+    let world = world().await;
+    let now = client_provider::Timestamp::now().as_millis();
+    let mut story = incoming("status@broadcast", "S1", now, text_proto("today"));
+    story.sender = jid(ANA);
+    world.hear(Inbound::History {
+        chats: vec![HistoryChat {
+            chat: jid(ANA),
+            chat_alt: None,
+            name: None,
+            unread: None,
+            marked_unread: false,
+            archived: false,
+            pinned_at_ms: None,
+            muted_until_ms: None,
+            messages: vec![incoming(ANA, "A1", now - 60_000, text_proto("hi")), story],
+        }],
+        names: Vec::new(),
+        aliases: Vec::new(),
+        asked: false,
+    });
+    let stories = world.provider.list_stories(&world.account).await.unwrap();
+    assert_eq!(stories.len(), 1, "the story is among the stories");
+    assert_eq!(stories[0].author.as_str(), ANA_ID);
+    let messages = history(&world).await;
+    assert_eq!(messages.len(), 1, "and not among Ana's messages");
+    assert_eq!(messages[0].id.as_str(), "A1");
+}
+
+#[tokio::test]
 async fn a_contacts_story_is_listed_seen_once_and_answered_by_quoting_it() {
     let world = world().await;
     let mut story = incoming(
@@ -1358,6 +1565,100 @@ async fn a_call_nobody_answered_is_a_line_in_the_chat() {
         .await
         .unwrap();
     assert_eq!(chats.items[0].unread_count, 1);
+}
+
+#[tokio::test]
+async fn a_deleted_chat_is_gone_everywhere_and_a_group_is_left_first() {
+    const GROUP: &str = "120363000000000001@g.us";
+    let world = world().await;
+    let mut said = incoming(GROUP, "G1", 2_000, text_proto("hola"));
+    said.sender = jid(ANA);
+    world.hear(Inbound::Messages(vec![
+        incoming(ANA, "A1", 1_000, text_proto("hi")),
+        said,
+    ]));
+    let mut events = listen(&world).await;
+    let chats = || async {
+        world
+            .provider
+            .list_chats(&world.account, None)
+            .await
+            .unwrap()
+            .items
+            .len()
+    };
+    assert_eq!(chats().await, 2);
+
+    world
+        .provider
+        .delete_chat(&world.account, &ChatId::new(ANA_ID))
+        .await
+        .unwrap();
+    world
+        .provider
+        .delete_chat(&world.account, &ChatId::new(GROUP))
+        .await
+        .unwrap();
+
+    assert_eq!(
+        *world.wire.deleted.lock().unwrap(),
+        [
+            format!("delete {ANA}"),
+            format!("leave {GROUP}"),
+            format!("delete {GROUP}"),
+        ]
+    );
+    assert_eq!(chats().await, 0);
+    assert!(history(&world).await.is_empty());
+    let Some(ProviderEvent::ChatRemoved { chat_id, .. }) = events.next().await else {
+        panic!("the client is told");
+    };
+    assert_eq!(chat_id.as_str(), ANA_ID);
+}
+
+#[tokio::test]
+async fn the_end_of_a_group_call_from_the_call_service_stays_in_the_chat_it_rang_in() {
+    let world = world().await;
+    let hear = |peer: &str, signal: CallSignal, at: i64| {
+        world.hear(Inbound::Call {
+            id: "00B8D52CF21AB4758B2C8024".into(),
+            peer: jid(peer),
+            signal,
+            timestamp_ms: at,
+        });
+    };
+    let over = || CallSignal::Ended {
+        missed: false,
+        reason: None,
+    };
+    let service = "00B8D52CF21AB4758B2C8024@call";
+    hear(
+        ANA,
+        CallSignal::Ringing {
+            video: false,
+            group: true,
+        },
+        1_000,
+    );
+    hear(service, over(), 2_000);
+    // One about a call never heard of is nobody's chat.
+    world.hear(Inbound::Call {
+        id: "OTHER".into(),
+        peer: jid("OTHER@call"),
+        signal: over(),
+        timestamp_ms: 3_000,
+    });
+
+    let chats = world
+        .provider
+        .list_chats(&world.account, None)
+        .await
+        .unwrap();
+    let ids: Vec<&str> = chats.items.iter().map(|chat| chat.id.as_str()).collect();
+    assert_eq!(ids, [ANA_ID]);
+    let stored = history(&world).await;
+    assert!(matches!(&stored[0].content, MessageContent::System(notice)
+        if notice.kind == SystemKind::VoiceCall));
 }
 
 #[tokio::test]

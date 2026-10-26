@@ -888,6 +888,18 @@ impl MockProvider {
         {
             let mut state = self.state();
             match &event {
+                ProviderEvent::ChatRemoved {
+                    account_id,
+                    chat_id,
+                } => {
+                    let world = &mut state.world;
+                    world
+                        .chats
+                        .retain(|chat| !(chat.id == *chat_id && chat.account_id == *account_id));
+                    world
+                        .messages
+                        .remove(&(account_id.clone(), chat_id.clone()));
+                }
                 ProviderEvent::MessageUpserted(message) => {
                     let key = (message.account_id.clone(), message.chat_id.clone());
                     let thread = state.world.messages.entry(key).or_default();
@@ -1829,6 +1841,28 @@ impl Provider for MockProvider {
             self.state().timed_mutes.push((chat.clone(), seconds));
         }
         self.emit(ProviderEvent::ChatUpdated(updated));
+        Ok(())
+    }
+
+    async fn delete_chat(&self, account: &AccountId, chat: &ChatId) -> ProviderResult<()> {
+        {
+            let mut state = self.state();
+            if let Some(error) = state.chat_failures.pop_front() {
+                return Err(error);
+            }
+            state
+                .world
+                .chats
+                .retain(|c| !(&c.id == chat && &c.account_id == account));
+            state
+                .world
+                .messages
+                .remove(&(account.clone(), chat.clone()));
+        }
+        self.emit(ProviderEvent::ChatRemoved {
+            account_id: account.clone(),
+            chat_id: chat.clone(),
+        });
         Ok(())
     }
 
