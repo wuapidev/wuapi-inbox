@@ -510,6 +510,27 @@ fn a_participant_is_promoted_at_once_and_what_only_admins_do_is_only_offered_to_
     assert!(shows(harness.window, "profile", cx));
     press(harness.window, "escape", cx);
     assert!(shows(harness.window, "group-info", cx));
+
+    // And the conversation with them, straight from the list: the panel
+    // closes and their chat is the one open.
+    if !shows(harness.window, row, cx) {
+        click(harness.window, "group-tab-participants", cx);
+    }
+    if !shows(harness.window, "participant-message", cx) {
+        click(harness.window, row, cx);
+    }
+    click(harness.window, "participant-message", cx);
+    harness.settle(cx);
+    assert!(!shows(harness.window, "group-info", cx));
+    cx.update(|cx| {
+        let open = harness
+            .shell
+            .read(cx)
+            .open
+            .as_ref()
+            .map(|open| open.chat.id.clone());
+        assert_eq!(open, Some(ChatId::new(member.as_str())));
+    });
 }
 
 #[gpui_kit::test]

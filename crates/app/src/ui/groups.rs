@@ -818,6 +818,38 @@ impl Shell {
             account: account.clone(),
             contact: person.contact.clone(),
         };
+        // The conversation with them, one click away: the chat there is
+        // when there is one, under their number or the id the group gives.
+        let (message_account, message_to) = {
+            let by_phone = person
+                .phone
+                .as_ref()
+                .map(|phone| ContactId::new(phone.as_str()))
+                .filter(|by_phone| {
+                    self.engine
+                        .store()
+                        .chat(account, &ChatId::new(by_phone.as_str()))
+                        .ok()
+                        .flatten()
+                        .is_some()
+                });
+            (
+                account.clone(),
+                by_phone.unwrap_or_else(|| person.contact.clone()),
+            )
+        };
+        actions = actions.child(
+            small_button(
+                "participant-message",
+                "participant-message".into(),
+                i18n::t("groups.group.message"),
+                palette,
+            )
+            .on_click(cx.listener(move |this, _, window, cx| {
+                cx.stop_propagation();
+                this.message_from_panel(&message_account, &message_to, window, cx);
+            })),
+        );
         actions = actions.child(
             small_button(
                 "participant-profile",
