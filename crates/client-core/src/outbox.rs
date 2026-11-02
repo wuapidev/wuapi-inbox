@@ -176,6 +176,46 @@ pub fn local_message_id(client_id: &ClientMessageId) -> MessageId {
 /// Prefix of [`local_message_id`].
 pub(crate) const LOCAL_ID: &str = "local:";
 
+/// The bubble a text has the moment it is sent, before the store has it:
+/// the pending message [`Store::enqueue`] writes for it, with the same ids,
+/// so that a window can draw it at once and let the stored one take its
+/// place. Queueing waits for whatever the engine is writing (a catch-up
+/// holds the writer for a while); the bubble does not. `None` for anything
+/// but a text.
+pub fn pending_text_bubble(message: &OutgoingMessage, now: Timestamp) -> Option<Message> {
+    let OutgoingContent::Text { body } = &message.content else {
+        return None;
+    };
+    Some(Message {
+        id: local_message_id(&message.client_id),
+        client_id: Some(message.client_id.clone()),
+        account_id: message.account_id.clone(),
+        chat_id: message.chat_id.clone(),
+        sender: ContactId::new("me"),
+        sender_name: None,
+        direction: Direction::Outgoing,
+        timestamp: now,
+        content: MessageContent::text(body.clone()),
+        reply_to: message
+            .reply_to
+            .clone()
+            .map(|id| client_provider::ReplyRef {
+                message_id: id,
+                sender_name: None,
+                preview: None,
+                mentions: Vec::new(),
+            }),
+        status: DeliveryStatus::Pending,
+        edited: false,
+        deleted: false,
+        extras: client_provider::MessageExtras {
+            mentions: message.mentions.clone(),
+            forwarded: message.forwarded,
+            ..Default::default()
+        },
+    })
+}
+
 /// Where a queued message's payload says which story it answers. The
 /// payload is the [`OutgoingMessage`] as JSON; this key rides beside its
 /// fields, and reading the message back ignores it.

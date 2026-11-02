@@ -521,16 +521,30 @@ impl SyncEngine {
         reply_to: Option<MessageId>,
         mentions: Vec<ContactId>,
     ) -> Result<ClientMessageId, StoreError> {
-        let mentions = self.mentions_of(mentions);
-        self.send(OutgoingMessage {
+        self.send(self.text_message(account, chat, body, reply_to, mentions))
+    }
+
+    /// The text [`send_text_mentioning`](Self::send_text_mentioning)
+    /// would queue, with a fresh client id, not queued yet: for a window
+    /// that draws its bubble ([`crate::pending_text_bubble`]) before it
+    /// hands it to [`send`](Self::send) off its own thread.
+    pub fn text_message(
+        &self,
+        account: &AccountId,
+        chat: &ChatId,
+        body: impl Into<String>,
+        reply_to: Option<MessageId>,
+        mentions: Vec<ContactId>,
+    ) -> OutgoingMessage {
+        OutgoingMessage {
             client_id: new_client_id(),
             account_id: account.clone(),
             chat_id: chat.clone(),
             content: OutgoingContent::Text { body: body.into() },
             reply_to,
-            mentions,
+            mentions: self.mentions_of(mentions),
             forwarded: false,
-        })
+        }
     }
 
     /// The time to queue a message at: now, and never the same
@@ -557,11 +571,23 @@ impl SyncEngine {
 
     /// Queues any outgoing message. See [`send_text`](Self::send_text).
     pub fn send(&self, message: OutgoingMessage) -> Result<ClientMessageId, StoreError> {
+        let began = std::time::Instant::now();
         self.inner.store.enqueue(
             &message,
             self.queue_time(),
             self.inner.config.outbox.max_age,
         )?;
+        // Queueing waits for whatever the engine is writing: said when it
+        // waited long enough for the user to notice.
+        let took = began.elapsed();
+        if took >= SLOW_QUEUE {
+            tracing::warn!(
+                took_ms = took.as_millis() as u64,
+                "queueing a message waited for the store"
+            );
+        } else {
+            tracing::debug!(took_us = took.as_micros() as u64, "a message was queued");
+        }
         self.inner.outbox_wake.notify_one();
         Ok(message.client_id)
     }
@@ -3356,6 +3382,9 @@ fn undo_of(change: ChatChange) -> Option<ChatChange> {
         ChatChange::MarkedUnread => None,
     }
 }
+
+/// Queueing a message that takes this long or longer is said in the log.
+const SLOW_QUEUE: std::time::Duration = std::time::Duration::from_millis(100);
 
 /// A fresh, globally unique client message id.
 pub fn new_client_id() -> ClientMessageId {

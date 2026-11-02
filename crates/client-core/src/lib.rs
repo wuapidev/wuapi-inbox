@@ -43,8 +43,9 @@ pub use library::{
 pub use mentions::{mention_name, with_mention_names, UNKNOWN_PERSON, YOU};
 pub use migrations::SCHEMA_VERSION;
 pub use outbox::{
-    local_media_ref, local_message_id, run_outbox_pass, run_outbox_pass_with, upload_entry,
-    OutboxConfig, OutboxEntry, OutboxFile, OutboxPass, UploadHooks, UploadOutcome, LOCAL_MEDIA,
+    local_media_ref, local_message_id, pending_text_bubble, run_outbox_pass, run_outbox_pass_with,
+    upload_entry, OutboxConfig, OutboxEntry, OutboxFile, OutboxPass, UploadHooks, UploadOutcome,
+    LOCAL_MEDIA,
 };
 pub use picture::{profile_picture, PICTURE_MAX_FILE, PICTURE_SIDE};
 pub use store::{
