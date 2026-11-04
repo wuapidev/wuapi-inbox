@@ -39,7 +39,7 @@ impl Default for Schedule {
     fn default() -> Self {
         Self {
             first: Duration::from_secs(45),
-            every: Duration::from_secs(6 * 60 * 60),
+            every: Duration::from_secs(60 * 60),
             retry: Duration::from_secs(15 * 60),
             retry_max: Duration::from_secs(24 * 60 * 60),
             jitter: 0.2,
@@ -682,7 +682,7 @@ mod tests {
             jitter: 0.0,
             ..Schedule::default()
         };
-        assert_eq!(schedule.wait(0, 0.5), Duration::from_secs(6 * 60 * 60));
+        assert_eq!(schedule.wait(0, 0.5), Duration::from_secs(60 * 60));
         assert_eq!(schedule.wait(1, 0.5), Duration::from_secs(15 * 60));
         assert_eq!(schedule.wait(2, 0.5), Duration::from_secs(30 * 60));
         assert_eq!(schedule.wait(3, 0.5), Duration::from_secs(60 * 60));

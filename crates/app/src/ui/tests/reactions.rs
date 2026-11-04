@@ -429,6 +429,37 @@ fn a_sticker_that_answers_a_message_shows_what_it_answers(cx: &mut TestAppContex
 }
 
 #[gpui_kit::test]
+fn a_sticker_has_the_button_to_react_beside_it_like_a_bubble(cx: &mut TestAppContext) {
+    let harness = open_chat_one(cx);
+    let (account, chat) = open_ids(&harness, cx);
+    let mut message = text_message(&account, &chat, "st1", false, "", 1);
+    let mut sticker = client_provider::Media::new(client_provider::MediaKind::Sticker);
+    sticker.source = Some(client_provider::MediaRef::new("https://media.example/dog"));
+    sticker.mime_type = Some("image/webp".into());
+    message.content = MessageContent::Media(sticker);
+    harness
+        .engine
+        .apply_event(ProviderEvent::MessageUpserted(message))
+        .unwrap();
+    cx.run_until_parked();
+
+    let frame = bounds(harness.window, "media-box", cx);
+    let mut visual = VisualTestContext::from_window(harness.window.into(), cx);
+    visual.simulate_mouse_move(frame.center(), None, Modifiers::none());
+    visual.run_until_parked();
+    // Received: on its right, toward the middle of the pane.
+    let button = bounds(harness.window, "react-button-st1", cx);
+    assert!(
+        button.left() >= frame.right(),
+        "{button:?} right of {frame:?}"
+    );
+    let mut visual = VisualTestContext::from_window(harness.window.into(), cx);
+    visual.simulate_click(button.center(), Modifiers::none());
+    visual.run_until_parked();
+    assert_eq!(overlay(&harness, cx), Overlay::React);
+}
+
+#[gpui_kit::test]
 fn the_button_beside_a_bubble_opens_the_reactions_right_there(cx: &mut TestAppContext) {
     let harness = open_chat_one(cx);
     put(&harness, cx, "in1", false, "is the place nice?", 1);

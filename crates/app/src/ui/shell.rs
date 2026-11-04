@@ -42,12 +42,33 @@ const PROBLEM_SHOWN: Duration = Duration::from_secs(8);
 /// How often a playing clip's position is repainted.
 const AUDIO_TICK: Duration = Duration::from_millis(100);
 
-/// Audio in the open chat: the player, the clips decoded so far, and what
-/// the user is waiting to hear.
+/// How much decoded sound is kept, in bytes of samples: a clip heard a
+/// moment ago, in this chat or another, plays again without being decoded
+/// again. About an hour of voice notes.
+const CLIPS_KEPT: usize = 96 * 1024 * 1024;
+
+/// Where the clip in the player comes from: what the bar that follows it
+/// to other chats says, and where a click on it goes.
+#[derive(Clone, Debug, PartialEq)]
+pub(super) struct NowPlaying {
+    pub(super) url: String,
+    pub(super) chat: ChatId,
+    pub(super) message: MessageId,
+    /// Who sent it, and in which chat: "Ana · Family".
+    pub(super) label: SharedString,
+}
+
+/// Audio: the player, the clips decoded so far, and what the user is
+/// waiting to hear. What plays goes on when another chat is opened.
 pub(super) struct AudioDeck {
     pub(super) player: Player,
-    /// Decoded clips, by URL. Let go when the chat is left.
+    /// Decoded clips, by URL, the most recently used last. Kept across
+    /// chats, up to [`CLIPS_KEPT`].
     pub(super) clips: HashMap<String, Arc<Clip>>,
+    clips_used: Vec<String>,
+    /// The chat and message of the clip in the player, when it was
+    /// started from a chat.
+    pub(super) now: Option<NowPlaying>,
     /// The output device chosen in the settings; `None` is the system's.
     pub(super) output_device: Option<String>,
     /// The clip being fetched or decoded because play was pressed.
@@ -68,6 +89,8 @@ impl AudioDeck {
         Self {
             player,
             clips: HashMap::new(),
+            clips_used: Vec::new(),
+            now: None,
             output_device: None,
             waiting: None,
             failed: HashMap::new(),
@@ -114,18 +137,69 @@ impl AudioDeck {
                 self.clips.insert(url.clone(), clip);
             }
             self.player.rename(was, &url);
+            if let Some(now) = self.now.as_mut().filter(|now| &now.url == was) {
+                now.url = url.clone();
+            }
         }
     }
 
-    /// The chat was closed (or another opened): silence, and nothing kept.
+    /// A decoded clip, kept for the next time it is played.
+    fn keep_clip(&mut self, url: &str, clip: Arc<Clip>) {
+        self.clips.insert(url.to_owned(), clip);
+        self.touch_clip(url);
+        let size = |clip: &Clip| clip.samples.len() * std::mem::size_of::<i16>();
+        let mut total: usize = self.clips.values().map(|clip| size(clip)).sum();
+        let playing = self.player.current().map(str::to_owned);
+        let mut index = 0;
+        while total > CLIPS_KEPT && index < self.clips_used.len() {
+            let oldest = &self.clips_used[index];
+            if Some(oldest) == playing.as_ref() || oldest == url {
+                index += 1;
+                continue;
+            }
+            let oldest = self.clips_used.remove(index);
+            if let Some(clip) = self.clips.remove(&oldest) {
+                total -= size(&clip);
+            }
+        }
+    }
+
+    fn touch_clip(&mut self, url: &str) {
+        self.clips_used.retain(|used| used != url);
+        self.clips_used.push(url.to_owned());
+    }
+
+    /// Another chat was opened, or none: what plays goes on, and the
+    /// decoded clips are kept. What was being waited for is not waited
+    /// for any more (its download is dropped with the chat's).
     fn leave_chat(&mut self) {
-        self.player.stop();
-        self.clips.clear();
+        // Nothing to come back to (a story's sound, say): silence.
+        if self.now.is_none() {
+            self.player.stop();
+            self._watching = None;
+        }
         self.waiting = None;
         self.failed.clear();
         self.no_output = None;
         self._decoding = None;
+    }
+
+    /// Another number: silence, and nothing kept.
+    fn stop_all(&mut self) {
+        self.player.stop();
+        self.now = None;
+        self.clips.clear();
+        self.clips_used.clear();
         self._watching = None;
+        self.leave_chat();
+    }
+
+    /// The clip in the player, from the chat it was started in, while it
+    /// is playing or paused.
+    pub(super) fn now_playing(&self) -> Option<&NowPlaying> {
+        self.now
+            .as_ref()
+            .filter(|now| self.player.current() == Some(now.url.as_str()))
     }
 
     /// What the bubbles need to know to draw themselves.
@@ -1136,6 +1210,13 @@ impl Shell {
                         }
                         InputEvent::Change => {
                             this.mention_text_changed();
+                            // Writing in a chat is done with the search
+                            // that found it: the list is whole again.
+                            if !this.query.is_empty()
+                                && !this.composer.read(cx).value().trim().is_empty()
+                            {
+                                this.set_search("", window, cx);
+                            }
                             cx.notify()
                         }
                         _ => {}
@@ -1911,7 +1992,7 @@ impl Shell {
             return;
         }
         self.account = Some(account);
-        self.audio.leave_chat();
+        self.audio.stop_all();
         self.leave_recording();
         self.media.leave_chat();
         self.open = None;
@@ -3432,6 +3513,7 @@ impl Shell {
         };
         self.audio.failed.remove(url);
         if self.audio.clips.contains_key(url) {
+            self.audio.touch_clip(url);
             return self.play_clip(url, cx);
         }
         self.audio.waiting = Some(url.to_owned());
@@ -3467,7 +3549,7 @@ impl Shell {
                 match decoded {
                     Ok(Ok(clip)) => {
                         this.media.keep_shape(&url, Shape::of(&clip));
-                        this.audio.clips.insert(url.clone(), Arc::new(clip));
+                        this.audio.keep_clip(&url, Arc::new(clip));
                         if this.audio.waiting.as_deref() == Some(url.as_str()) {
                             this.play_clip(&url, cx);
                         }
@@ -3489,6 +3571,12 @@ impl Shell {
         match self.audio.player.play(url, clip) {
             Ok(()) => {
                 self.audio.no_output = None;
+                // Resumed from the bar in another chat, it is still the
+                // same message.
+                let from = self.now_playing_from_open(url);
+                if from.is_some() || self.audio.now.as_ref().is_none_or(|now| now.url != url) {
+                    self.audio.now = from;
+                }
                 self.watch_audio(cx);
             }
             // No device to play on, say: said in the bubble.
@@ -3517,10 +3605,91 @@ impl Shell {
         }));
     }
 
+    /// The message of the open chat whose file is `url`, as the bar that
+    /// follows it to other chats names it.
+    fn now_playing_from_open(&self, url: &str) -> Option<NowPlaying> {
+        let open = self.open.as_ref()?;
+        let message = open.rows.iter().find_map(|row| match row {
+            Row::Message(row) => match &row.stored.message.content {
+                MessageContent::Media(media)
+                    if media
+                        .source
+                        .as_ref()
+                        .map(|source| source.to_string())
+                        .as_deref()
+                        == Some(url) =>
+                {
+                    Some(&row.stored.message)
+                }
+                _ => None,
+            },
+            Row::Day(_) => None,
+        })?;
+        let who = match (&message.direction, &message.sender_name) {
+            (client_provider::Direction::Outgoing, _) => i18n::t("chat.you").to_owned(),
+            (_, Some(name)) if !name.is_empty() => name.clone(),
+            _ => open.chat.title.clone(),
+        };
+        let label = if who == open.chat.title {
+            who
+        } else {
+            format!("{who} · {}", open.chat.title)
+        };
+        Some(NowPlaying {
+            url: url.to_owned(),
+            chat: open.chat.id.clone(),
+            message: message.id.clone(),
+            label: label.into(),
+        })
+    }
+
+    /// The bar's own controls: play or pause the clip, wherever its chat.
+    pub(super) fn toggle_now_playing(&mut self, cx: &mut Context<Self>) {
+        let Some(url) = self.audio.now_playing().map(|now| now.url.clone()) else {
+            return;
+        };
+        match self.audio.player.playback(&url) {
+            Playback::Playing(_) => self.audio.player.pause(),
+            _ => self.play_clip(&url, cx),
+        }
+        cx.notify();
+    }
+
+    /// The bar's ×: silence.
+    pub(super) fn stop_now_playing(&mut self, cx: &mut Context<Self>) {
+        self.audio.player.stop();
+        self.audio.now = None;
+        self.audio._watching = None;
+        cx.notify();
+    }
+
+    /// A click on the bar: back to the chat, at the message playing.
+    pub(super) fn open_now_playing(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(now) = self.audio.now_playing().cloned() else {
+            return;
+        };
+        let here = self
+            .open
+            .as_ref()
+            .is_some_and(|open| open.chat.id == now.chat);
+        if !here {
+            self.show_chat(now.chat.clone(), Some(window), cx);
+        }
+        self.jump_and_flash(now.message, cx);
+    }
+
     /// After a voice note, the one right after it in the chat, if the
-    /// next message is one.
+    /// next message is one and that chat is the one open.
     fn play_next_voice_note(&mut self, finished: &str, cx: &mut Context<Self>) {
         let Some(open) = &self.open else { return };
+        if self
+            .audio
+            .now
+            .as_ref()
+            .is_some_and(|now| now.chat != open.chat.id)
+        {
+            return;
+        }
         let voice_note = |row: &Row| match row {
             // Never one that opens once: that file is not fetched here.
             Row::Message(row) if row.stored.message.extras.view_once => None,
@@ -3832,6 +4001,14 @@ impl Shell {
     }
 
     pub(super) fn send_composed(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        // An edit under way is saved, whether by Enter or the button:
+        // never sent as a message of its own.
+        if matches!(
+            self.acting.compose,
+            super::message_actions::Compose::Edit(_)
+        ) {
+            return self.save_message_edit(window, cx);
+        }
         let Some(open) = &self.open else { return };
         let text = self.composer.read(cx).value().trim().to_owned();
         if text.is_empty() {

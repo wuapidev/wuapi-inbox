@@ -35,6 +35,9 @@ pub(super) struct UpdateUi {
     pub(super) warned: bool,
     /// The advanced part (the update source) is unfolded.
     pub(super) advanced: bool,
+    /// The version whose banner over the chats was put off with "Not
+    /// now": the rail's notice stays, and a newer version asks again.
+    pub(super) banner_put_off: Option<String>,
     /// Where the move to the Applications folder stands.
     moving: Moving,
     _moving: Option<Task<()>>,
@@ -67,6 +70,7 @@ impl UpdateUi {
             said: None,
             warned: false,
             advanced: from != UrlFrom::Default,
+            banner_put_off: None,
             moving: Moving::No,
             _moving: None,
         }
@@ -194,6 +198,77 @@ impl Shell {
             })
             .ok();
         }));
+    }
+
+    /// The banner at the top of the chats while a restart would install a
+    /// new version: "Restart now" and "Not now". Put off, the notice in
+    /// the rail is still there.
+    pub(super) fn render_update_banner(
+        &self,
+        palette: &Palette,
+        cx: &mut Context<Self>,
+    ) -> Option<Div> {
+        let version = update::ready_version(cx)?.to_string();
+        if self.updates.banner_put_off.as_deref() == Some(version.as_str()) {
+            return None;
+        }
+        Some(
+            div()
+                .flex_none()
+                .debug_selector(|| "update-banner".into())
+                .px_4()
+                .py_3()
+                .border_b_1()
+                .border_color(palette.border)
+                .bg(palette.muted)
+                .flex()
+                .flex_col()
+                .gap_2()
+                .text_size(metrics::TEXT_SMALL())
+                .line_height(px(18.))
+                .text_color(palette.text)
+                .child(SharedString::from(i18n::tr(
+                    "accounts.about.update_ready",
+                    &[("name", &PRODUCT_NAME), ("version", &version)],
+                )))
+                .child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap_2()
+                        .child(
+                            text_button(
+                                "update-banner-restart",
+                                i18n::t("accounts.about.restart_now"),
+                                None,
+                                true,
+                                palette,
+                            )
+                            .on_click(cx.listener(
+                                |this, _, window, cx| {
+                                    cx.stop_propagation();
+                                    this.restart_to_update(false, window, cx);
+                                },
+                            )),
+                        )
+                        .child(
+                            text_button(
+                                "update-banner-later",
+                                i18n::t("accounts.about.not_now"),
+                                None,
+                                false,
+                                palette,
+                            )
+                            .on_click(cx.listener(
+                                move |this, _, _, cx| {
+                                    cx.stop_propagation();
+                                    this.updates.banner_put_off = Some(version.clone());
+                                    cx.notify();
+                                },
+                            )),
+                        ),
+                ),
+        )
     }
 
     /// The question at the top of the chats, for a copy that was opened

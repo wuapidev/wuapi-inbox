@@ -37,6 +37,7 @@ mod mentions;
 mod menus;
 mod message_actions;
 mod message_menu;
+mod now_playing;
 mod numbers;
 mod onboarding;
 mod palette;

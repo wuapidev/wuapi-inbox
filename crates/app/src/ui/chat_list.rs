@@ -134,10 +134,12 @@ impl Shell {
                         )
                     })
             }))
+            .children(self.render_update_banner(&palette, cx))
             .children(self.render_move_prompt(&palette, cx))
             .children(self.render_connection_banner(&palette, cx))
             // Who has something new, a click away from the chats.
             .children(self.render_story_strip(&palette, cx))
+            .children(self.render_now_playing(&palette, cx))
             .child(self.render_search(&palette))
             .child(self.render_filters(&palette, cx))
             .child(

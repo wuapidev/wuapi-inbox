@@ -2,6 +2,15 @@
 
 ## [Unreleased]
 
+## [0.12.0]
+
+* A voice note goes on playing when another chat is opened, or none. While its chat is not the one on screen, a bar over the chats says who sent it and where, how far it is, and holds play and pause, the speed and × to stop it; a click on the name goes back to the message. The next voice note follows on by itself only in the chat it is in.
+* A voice note played a moment ago, in this chat or another, plays again at once: decoded clips are kept across chats, up to about an hour of them. A file that is already here no longer shows the download arrow and "Downloading" while it is decoded.
+* The send button saves an edit under way. It sent the new text as a message of its own; only Enter saved the edit.
+* Writing in a chat clears the chat list's search: the list is whole again.
+* A sticker's buttons stand in one row beside the message's arrow, not under it; the button to react is beside the sticker, as beside a bubble; and its reactions sit under the time instead of over it.
+* Updates are looked for every hour instead of every six, and one that is ready is said over the chats, with "Restart now" and "Not now", besides the notice in the rail.
+
 ## [0.11.0]
 
 * A message sent shows in the chat the moment Enter is pressed, with its clock. It only showed once it was written to the chats of this computer, and while a number caught up that waited for the catch-up to let go of the database: for seconds the text left the box and nothing was there, as if it had not been sent. The bubble is drawn at once now and the stored one takes its place, one bubble; a message that could not be queued takes its bubble away and its text goes back to the box.

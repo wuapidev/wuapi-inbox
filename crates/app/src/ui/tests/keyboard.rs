@@ -596,6 +596,27 @@ fn up_then_e_edits_a_message_and_a_refusal_puts_it_back(cx: &mut TestAppContext)
 }
 
 #[gpui_kit::test]
+fn the_send_button_saves_an_edit_instead_of_sending_a_new_message(cx: &mut TestAppContext) {
+    let harness = open_chat_one(cx);
+    let id = send(&harness, cx, "see you at 8");
+    focus_composer(&harness, cx);
+    press(harness.window, "up", cx);
+    press(harness.window, "e", cx);
+    press(harness.window, "ctrl-a", cx);
+    type_text(harness.window, "see you at 9", cx);
+    click(harness.window, "send", cx);
+
+    assert!(!shows(harness.window, "compose-edit", cx));
+    assert_eq!(composer_text(&harness, cx), "");
+    let stored = row(&harness, cx, &id).unwrap().message;
+    assert_eq!(stored.content, MessageContent::text("see you at 9"));
+    assert!(stored.edited);
+    harness.settle(cx);
+    assert_eq!(harness.mock.actions(), [format!("edit {id}")]);
+    assert_eq!(harness.mock.delivered_count(), 1, "no second message");
+}
+
+#[gpui_kit::test]
 fn a_message_that_has_not_left_yet_is_edited_in_the_outbox(cx: &mut TestAppContext) {
     let harness = open_chat_one(cx);
     let (account, chat) = open_ids(&harness, cx);

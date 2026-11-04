@@ -45,9 +45,11 @@ enum Button {
     Missing,
     /// Could not be played: a click tries again.
     Retry,
-    /// Being fetched or decoded: a ring, as much of it filled as has
-    /// arrived when the size is known.
+    /// Being fetched: a ring, as much of it filled as has arrived when
+    /// the size is known.
     Loading(Option<f32>),
+    /// Here already, being decoded: a moment, with nothing to download.
+    Decoding,
     /// Playing: a click pauses.
     Pause,
     /// Ready, or not here yet: a click plays it, fetching it first if
@@ -62,6 +64,7 @@ impl Button {
             Self::Missing => IconName::Ban,
             Self::Retry => IconName::RotateCw,
             Self::Loading(_) => IconName::ArrowDownToLine,
+            Self::Decoding => IconName::Play,
             Self::Pause => IconName::Pause,
             Self::Play => IconName::Play,
         }
@@ -73,6 +76,7 @@ impl Button {
             Self::Missing => "audio-missing",
             Self::Retry => "audio-retry",
             Self::Loading(_) => "audio-loading",
+            Self::Decoding => "audio-decoding",
             Self::Pause => "audio-pause",
             Self::Play => "audio-play",
         }
@@ -132,6 +136,7 @@ pub(super) fn audio_block(
     let state = match &url {
         None => Button::Missing,
         Some(_) if failure.is_some() || no_output.is_some() => Button::Retry,
+        Some(_) if waiting && file == Some(FileState::Ready) => Button::Decoding,
         Some(url) if waiting => Button::Loading(context.shelf.file_fraction(url, media)),
         Some(_) if matches!(playback, Playback::Playing(_)) => Button::Pause,
         Some(_) => Button::Play,
@@ -172,6 +177,7 @@ pub(super) fn audio_block(
         .when_some(
             match state {
                 Button::Loading(fraction) => Some(fraction),
+                Button::Decoding => Some(None),
                 _ => None,
             },
             |this, fraction| this.child(ring(fraction, ink.opacity(0.25), ink, context.still)),
@@ -379,7 +385,7 @@ pub(super) fn audio_block(
             ),
             true,
         )
-    } else if waiting {
+    } else if waiting && file != Some(FileState::Ready) {
         (Some(i18n::t("common.voice.downloading").into()), false)
     } else {
         // The length when it is known; never a made-up 0:00. A file that

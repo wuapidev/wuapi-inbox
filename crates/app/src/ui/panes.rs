@@ -274,7 +274,7 @@ impl Shell {
 
     /// Puts `text` in the search field and searches for it. (A value set
     /// from here is not a change the field reports.)
-    fn set_search(&mut self, text: &str, window: &mut Window, cx: &mut Context<Self>) {
+    pub(super) fn set_search(&mut self, text: &str, window: &mut Window, cx: &mut Context<Self>) {
         self.search
             .update(cx, |field, cx| field.set_value(text, window, cx));
         self.query = text.trim().to_owned();

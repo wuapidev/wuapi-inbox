@@ -902,13 +902,35 @@ fn sticker_row(
         )
         .child(image_block(media, message, &side, context, false))
         .child(meta_line(row, &side, palette))
+        // Under the time, not over it: there is no bubble edge to sit on.
         .when(!row.stored.reactions.is_empty(), |this| {
-            this.child(reaction_chips(row, context))
+            this.child(reaction_chips(row, context).mt(px(2.)))
         });
     let column = with_keyboard(column, row, context).child(menu_arrow(row, context));
+    // The way to react, beside the sticker as beside a bubble: on the
+    // side away from the edge.
+    let hover = SharedString::from(format!("row-hover-{}", row.key));
+    let react = (context.can_react && !message.deleted).then(|| {
+        div()
+            .absolute()
+            .top_0()
+            .bottom_0()
+            .map(|this| {
+                if outgoing {
+                    this.left(px(-32.))
+                } else {
+                    this.right(px(-32.))
+                }
+            })
+            .flex()
+            .items_center()
+            .child(react_button(row, hover.clone(), context))
+    });
+    let column = column.relative().children(react);
     let beside_avatar = in_group && !outgoing;
     row_marks(row, context)
         .debug_selector(|| format!("row-{}", message.id))
+        .group(hover)
         .w_full()
         .flex()
         .pl(leading_gutter(in_group))
@@ -1309,11 +1331,14 @@ fn picture_buttons(media: &Media, message: &Message, context: &RowContext) -> Di
     };
     let (keep_view, keep_media) = (context.view.clone(), media.clone());
     let sent = message.direction == Direction::Outgoing;
+    // A sticker has no bubble around it: the message's arrow is on the
+    // same corner, so the buttons stand beside it, in one row with it.
+    let sticker = media.kind == MediaKind::Sticker;
     div()
         .debug_selector(|| "picture-buttons".into())
         .absolute()
-        .top(px(6.))
-        .right(px(6.))
+        .top(px(if sticker { 0. } else { 6. }))
+        .right(px(if sticker { 27. } else { 6. }))
         .flex()
         .gap(px(4.))
         .invisible()
