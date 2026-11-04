@@ -38,6 +38,7 @@
   "accounts.about.source_not_saved": "Not saved: {why}.",
   "accounts.about.source_saved": "Saved. Updates are taken from this address.",
   "accounts.about.source_this": "Updates are taken from this address.",
+  "accounts.about.update_ready": "{name} {version} is ready. Restart to install it.",
   "accounts.about.update_source": "Update source",
   "accounts.about.version": "Version",
   "accounts.connection.action_link": "Link",

@@ -38,6 +38,7 @@
   "accounts.about.source_not_saved": "No se guardó: {why}.",
   "accounts.about.source_saved": "Guardado. Las actualizaciones se toman de esta dirección.",
   "accounts.about.source_this": "Las actualizaciones se toman de esta dirección.",
+  "accounts.about.update_ready": "{name} {version} está lista. Reinicia para instalarla.",
   "accounts.about.update_source": "Origen de las actualizaciones",
   "accounts.about.version": "Versión",
   "accounts.connection.action_link": "Vincular",

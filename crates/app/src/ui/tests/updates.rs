@@ -218,6 +218,33 @@ fn a_downloaded_update_is_a_quiet_notice_and_a_restart_away(cx: &mut TestAppCont
 }
 
 #[gpui_kit::test]
+fn a_downloaded_update_says_so_over_the_chats_until_put_off(cx: &mut TestAppContext) {
+    cx.update(|cx| prepare(cx, None));
+    let recorded = with_updater(cx, Phase::UpToDate);
+    let harness = open_prepared(cx, ShellOptions::default());
+    assert!(!shows(harness.window, "update-banner", cx));
+
+    says(cx, |snapshot| snapshot.phase = ready());
+    assert!(shows(harness.window, "update-banner", cx));
+
+    // "Not now": the banner goes, the rail's notice stays.
+    click(harness.window, "update-banner-later", cx);
+    assert!(!shows(harness.window, "update-banner", cx));
+    assert!(shows(harness.window, "update-ready", cx));
+
+    // A newer version asks again, and "Restart now" restarts.
+    says(cx, |snapshot| {
+        snapshot.phase = Phase::Ready {
+            version: version("9.2.0"),
+            notes: String::new(),
+        }
+    });
+    assert!(shows(harness.window, "update-banner", cx));
+    click(harness.window, "update-banner-restart", cx);
+    assert_eq!(calls(&recorded), ["restart"]);
+}
+
+#[gpui_kit::test]
 fn restarting_with_messages_on_their_way_out_asks_first(cx: &mut TestAppContext) {
     cx.update(|cx| prepare(cx, None));
     let recorded = with_updater(cx, ready());

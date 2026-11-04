@@ -499,6 +499,36 @@ fn search_for(harness: &Harness, text: &str, cx: &mut TestAppContext) {
 }
 
 #[gpui_kit::test]
+fn writing_in_a_chat_clears_the_search_that_found_it(cx: &mut TestAppContext) {
+    let harness = open(
+        cx,
+        ShellOptions {
+            open_chat: Some(1),
+            ..Default::default()
+        },
+    );
+    search_for(&harness, "dentist", cx);
+    let search = cx.update(|cx| harness.shell.read(cx).search.clone());
+    assert!(cx.update(|cx| !harness.shell.read(cx).query.is_empty()));
+
+    let composer = cx.update(|cx| harness.shell.read(cx).composer.clone());
+    let field: ElementId = ("input", composer.entity_id()).into();
+    cx.update_window(harness.window.into(), |_, window, cx| {
+        window.click(field, cx);
+        window.input("h", cx);
+    })
+    .unwrap();
+    cx.run_until_parked();
+
+    cx.update(|cx| {
+        let shell = harness.shell.read(cx);
+        assert!(shell.query.is_empty());
+        assert!(search.read(cx).value().is_empty());
+        assert_eq!(composer.read(cx).value().as_ref() as &str, "h");
+    });
+}
+
+#[gpui_kit::test]
 fn a_newer_search_wins_and_an_emptied_one_clears_the_messages(cx: &mut TestAppContext) {
     let harness = open(cx, ShellOptions::default());
 
@@ -2884,9 +2914,7 @@ fn a_voice_note_downloads_decodes_and_plays_on_the_first_click(cx: &mut TestAppC
 }
 
 #[gpui_kit::test]
-fn one_voice_note_at_a_time_then_the_next_and_silence_when_the_chat_closes(
-    cx: &mut TestAppContext,
-) {
+fn one_voice_note_at_a_time_then_the_next_and_on_when_the_chat_closes(cx: &mut TestAppContext) {
     let (harness, tape, notes) = with_voice_notes(cx);
     let current = |cx: &mut TestAppContext| {
         cx.update(|cx| {
@@ -2944,15 +2972,16 @@ fn one_voice_note_at_a_time_then_the_next_and_silence_when_the_chat_closes(
     harness.settle(cx);
     assert_eq!(current(cx), None, "nothing follows the last one");
 
-    // Closing the chat mid-note stops it.
+    // Closing the chat mid-note does not stop it: the bar over the chats
+    // holds it.
     harness
         .shell
         .update(cx, |shell, cx| shell.toggle_audio(notes[1].clone(), cx));
     until(&harness, cx, |shell| shell.audio.player.is_playing());
-    let halts = tape.borrow().halts;
     harness.shell.update(cx, |shell, cx| shell.close_chat(cx));
-    assert!(tape.borrow().halts > halts);
-    assert_eq!(current(cx), None);
+    cx.run_until_parked();
+    assert_eq!(current(cx).as_deref(), Some(url_of(&notes[1]).as_str()));
+    assert!(shows(harness.window, "now-playing", cx));
 }
 
 #[gpui_kit::test]
@@ -3100,6 +3129,85 @@ fn downloading_a_voice_note_does_not_stop_the_one_being_heard(cx: &mut TestAppCo
         ));
         assert_eq!(shell.audio.waiting, None, "nothing else waits to be played");
     });
+}
+
+#[gpui_kit::test]
+fn a_voice_note_goes_on_in_another_chat_with_its_bar_over_the_chats(cx: &mut TestAppContext) {
+    let (harness, tape, notes) = with_voice_notes(cx);
+    let first = url_of(&notes[0]);
+    harness
+        .shell
+        .update(cx, |shell, cx| shell.toggle_audio(notes[0].clone(), cx));
+    until(&harness, cx, |shell| shell.audio.player.is_playing());
+    // In its own chat the bubble is the control: no bar.
+    assert!(!shows(harness.window, "now-playing", cx));
+    let (home, other) = cx.update(|cx| {
+        let shell = harness.shell.read(cx);
+        let home = shell.open.as_ref().unwrap().chat.id.clone();
+        let other = shell
+            .list_rows
+            .iter()
+            .find_map(|row| match row {
+                ListRow::Chat(chat) if chat.id != home => Some(chat.id.clone()),
+                _ => None,
+            })
+            .expect("another chat");
+        (home, other)
+    });
+
+    // Another chat: it goes on, and the bar says so.
+    let other_id = other.clone();
+    harness
+        .shell
+        .update(cx, |shell, cx| shell.open_chat(other_id, None, cx));
+    cx.run_until_parked();
+    cx.update(|cx| {
+        let shell = harness.shell.read(cx);
+        assert!(matches!(
+            shell.audio.player.playback(&first),
+            Playback::Playing(_)
+        ));
+        assert!(
+            shell.audio.clips.contains_key(&first),
+            "kept, not decoded again"
+        );
+    });
+    assert!(shows(harness.window, "now-playing", cx));
+
+    // Its controls: pause and play again from here.
+    click(harness.window, "now-playing-toggle", cx);
+    cx.update(|cx| {
+        let shell = harness.shell.read(cx);
+        assert!(matches!(
+            shell.audio.player.playback(&first),
+            Playback::Paused(_)
+        ));
+    });
+    click(harness.window, "now-playing-toggle", cx);
+    cx.update(|cx| assert!(harness.shell.read(cx).audio.player.is_playing()));
+
+    // A click on it goes back to the message, and the bar steps aside.
+    click(harness.window, "now-playing-open", cx);
+    cx.update(|cx| {
+        let shell = harness.shell.read(cx);
+        assert_eq!(shell.open.as_ref().unwrap().chat.id, home);
+        assert!(shell.audio.player.is_playing());
+    });
+    assert!(!shows(harness.window, "now-playing", cx));
+
+    // Away again, the × stops it.
+    harness
+        .shell
+        .update(cx, |shell, cx| shell.open_chat(other, None, cx));
+    cx.run_until_parked();
+    click(harness.window, "now-playing-close", cx);
+    cx.update(|cx| assert_eq!(harness.shell.read(cx).audio.player.current(), None));
+    assert!(!shows(harness.window, "now-playing", cx));
+    assert_eq!(
+        tape.borrow().started.len(),
+        2,
+        "played, then played again after the pause"
+    );
 }
 
 #[gpui_kit::test]
