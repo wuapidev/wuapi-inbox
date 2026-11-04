@@ -72,6 +72,10 @@ pub enum StoreError {
 #[derive(Clone, PartialEq, Eq)]
 pub struct StoreKey([u8; 32]);
 
+/// A write that waited for the writer, or held it, this long or longer is
+/// said in the log.
+const SLOW_WRITE: std::time::Duration = std::time::Duration::from_millis(150);
+
 impl StoreKey {
     /// Wraps 32 bytes.
     pub fn from_bytes(bytes: [u8; 32]) -> Self {
@@ -714,15 +718,35 @@ impl Store {
         f()
     }
 
+    #[track_caller]
     pub(crate) fn write<T>(
         &self,
         f: impl FnOnce(&Transaction<'_>) -> StoreResult<T>,
     ) -> StoreResult<T> {
+        let caller = std::panic::Location::caller();
+        let asked = std::time::Instant::now();
         let mut conn = Self::lock(&self.writer);
-        let tx = conn.transaction()?;
-        let value = f(&tx)?;
-        tx.commit()?;
-        Ok(value)
+        let got = std::time::Instant::now();
+        let written = (|| {
+            let tx = conn.transaction()?;
+            let value = f(&tx)?;
+            tx.commit()?;
+            Ok(value)
+        })();
+        drop(conn);
+        // There is one writer: a write that holds it long makes everything
+        // else wait (a message being queued among them). Said, with where
+        // it was asked for, so that the long ones can be found and cut.
+        let (waited, held) = (got - asked, got.elapsed());
+        if held >= SLOW_WRITE || waited >= SLOW_WRITE {
+            tracing::warn!(
+                at = %caller,
+                waited_ms = waited.as_millis() as u64,
+                held_ms = held.as_millis() as u64,
+                "a write to the store was slow"
+            );
+        }
+        written
     }
 
     // ----- pictures and media -----------------------------------------

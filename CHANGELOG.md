@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+## [0.11.0]
+
+* A message sent shows in the chat the moment Enter is pressed, with its clock. It only showed once it was written to the chats of this computer, and while a number caught up that waited for the catch-up to let go of the database: for seconds the text left the box and nothing was there, as if it had not been sent. The bubble is drawn at once now and the stored one takes its place, one bubble; a message that could not be queued takes its bubble away and its text goes back to the box.
+* Queueing a message that waits 100 ms or more, and any write to the chats of this computer that waits for the database or holds it 150 ms or more, is said in the log with where it was asked for, to find the long ones.
+* A group's participant has "Message" among their actions in the group's list: it opens the chat with them, the one under their number when there is one, or makes it.
+
 ## [0.10.0]
 
 * A chat can be deleted, from the menu of its row, the menu of the conversation and the palette: it asks first, as nothing deleted comes back, and the chat goes once WhatsApp has deleted it, here and on the other devices. When it could not, the question stays and says why, and the button tries again. A group the number is still in is left on the way, as WhatsApp keeps the chat of a group its member is in; the button says "Leave and delete". A chat deleted on the phone now goes from the list too. With the numbers of this computer; Wuapi Cloud has no way to delete a chat yet.

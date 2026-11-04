@@ -128,6 +128,7 @@
   "groups.group.try_again": "Reintentar",
   "groups.group.unlink_question": "¿Sacar \"{name}\" de \"{community}\"? El grupo y su chat se quedan; ya no será parte de la comunidad.",
   "groups.group.unmute": "Activar notificaciones",
+  "groups.group.message": "Mensaje",
   "groups.group.view_profile": "Ver perfil",
   "groups.group.you": "Tú",
   "groups.group.your_role": "Tu rol",

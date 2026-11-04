@@ -722,6 +722,17 @@ pub(super) struct OpenChat {
     stale: bool,
     /// What waits for the rows being read to be on screen.
     then: Vec<AfterReading>,
+    /// What was last read, for laying the rows out again without a read
+    /// (a bubble drawn at Enter).
+    shown: Option<Shown>,
+}
+
+/// The messages of the open chat as last read, and what goes with them.
+pub(super) struct Shown {
+    messages: Vec<StoredMessage>,
+    digests: Vec<u64>,
+    first_unread: Option<(String, u32)>,
+    tasked: HashSet<MessageId>,
 }
 
 /// What was unread in a chat when it was opened.
@@ -935,6 +946,9 @@ pub struct Shell {
     /// What was sent from here, on its way into the outbox: see
     /// [`Outgoing`].
     outgoing: futures::channel::mpsc::UnboundedSender<Outgoing>,
+    /// Texts sent from here whose bubble is drawn while the store does not
+    /// have them yet: queueing waits for whatever the engine is writing.
+    pub(super) local_sends: Vec<StoredMessage>,
     _sending: Task<()>,
 }
 
@@ -947,11 +961,7 @@ pub(super) enum Outgoing {
     /// Typed in the composer; `typed` goes back there if it could not be
     /// queued.
     Text {
-        account: AccountId,
-        chat: ChatId,
-        body: String,
-        reply_to: Option<client_provider::MessageId>,
-        mentions: Vec<client_provider::ContactId>,
+        message: client_provider::OutgoingMessage,
         typed: String,
     },
     /// Anything else, ready to queue: a poll.
@@ -1171,27 +1181,29 @@ impl Shell {
                     let (queued, typed) = cx
                         .background_spawn(async move {
                             match message {
-                                Outgoing::Text {
-                                    account,
-                                    chat,
-                                    body,
-                                    reply_to,
-                                    mentions,
-                                    typed,
-                                } => (
-                                    engine.send_text_mentioning(
-                                        &account, &chat, body, reply_to, mentions,
-                                    ),
-                                    Some(typed),
-                                ),
-                                Outgoing::Message(message) => (engine.send(message), None),
+                                Outgoing::Text { message, typed } => {
+                                    let client_id = message.client_id.clone();
+                                    let queued = engine.send(message).map_err(|e| (e, client_id));
+                                    (queued, Some(typed))
+                                }
+                                Outgoing::Message(message) => {
+                                    let client_id = message.client_id.clone();
+                                    (engine.send(message).map_err(|e| (e, client_id)), None)
+                                }
                             }
                         })
                         .await;
-                    let Err(error) = queued else { continue };
-                    tracing::error!(%error, "could not queue the message");
-                    let alive =
-                        this.update_in(cx, |this, window, cx| this.not_queued(typed, window, cx));
+                    let alive = match queued {
+                        Ok(client_id) => {
+                            this.update(cx, |this, cx| this.local_stored(&client_id, cx))
+                        }
+                        Err((error, client_id)) => {
+                            tracing::error!(%error, "could not queue the message");
+                            this.update_in(cx, |this, window, cx| {
+                                this.not_queued(&client_id, typed, window, cx)
+                            })
+                        }
+                    };
                     if alive.is_err() {
                         break;
                     }
@@ -1322,6 +1334,7 @@ impl Shell {
             _subscriptions: subscriptions,
             _changes: changes,
             outgoing,
+            local_sends: Vec::new(),
             _sending: sending,
         };
         // Whatever is already in the store shows up in the first frame:
@@ -1748,45 +1761,21 @@ impl Shell {
             tasked,
             pinned,
         } = read;
-        let rows = build_rows(
+        // A bubble drawn at Enter that the store now has gives way to it.
+        self.local_sends.retain(|local| {
+            let key = row_key(&local.message);
+            !messages
+                .iter()
+                .any(|stored| row_key(&stored.message) == key)
+        });
+        open.shown = Some(Shown {
             messages,
-            &digests,
-            &open.chat,
-            &self.senders,
-            first_unread.as_ref(),
-            &tasked,
-        );
-        // The row at the top of the view stays there. The list keeps its
-        // place only when that row is outside what changed; a window of
-        // older history changes the first rows (their day, their runs),
-        // and the list would jump to the top of what was added, which
-        // asks for older history again. A day's separator is no anchor: the
-        // older messages of that day go under it, so the first message is.
-        let top = open.list.logical_scroll_top();
-        let anchor = open
-            .rows
-            .iter()
-            .enumerate()
-            .skip(top.item_ix)
-            .find_map(|(index, row)| match row {
-                Row::Message(row) => Some((row.key.clone(), index == top.item_ix)),
-                Row::Day(_) => None,
-            });
-        splice_rows(&open.list, &open.rows, &rows);
-        if let Some((index, same_row)) = anchor.and_then(|(key, same_row)| {
-            rows.iter()
-                .position(|row| matches!(row, Row::Message(row) if row.key == key))
-                .map(|index| (index, same_row))
-        }) {
-            if index != open.list.logical_scroll_top().item_ix {
-                open.list.scroll_to(ListOffset {
-                    item_ix: index,
-                    offset_in_item: if same_row { top.offset_in_item } else { px(0.) },
-                });
-            }
-        }
-        self.audio.follow(&open.rows, &rows);
-        open.rows = Rc::new(rows);
+            digests,
+            first_unread: first_unread.clone(),
+            tasked,
+        });
+        self.place_rows();
+        let Some(open) = &mut self.open else { return };
         open.subtitle = chat_subtitle(&self.store, &self.senders, &open.chat);
         open.pinned = pinned;
         // The panel of who reacted lists what the store has now.
@@ -1820,6 +1809,94 @@ impl Shell {
             }
         }
         cx.notify();
+    }
+
+    /// A message sent from here is in the store: a bubble drawn for it in
+    /// a chat that is not open goes (the open chat's goes when its read
+    /// has it, so that nothing blinks).
+    fn local_stored(
+        &mut self,
+        client_id: &client_provider::ClientMessageId,
+        cx: &mut Context<Self>,
+    ) {
+        let open = self
+            .open
+            .as_ref()
+            .map(|open| (open.chat.account_id.clone(), open.chat.id.clone()));
+        self.local_sends.retain(|local| {
+            local.message.client_id.as_ref() != Some(client_id)
+                || open.as_ref().is_some_and(|(account, chat)| {
+                    local.message.account_id == *account && local.message.chat_id == *chat
+                })
+        });
+        cx.notify();
+    }
+
+    /// Lays the open chat's rows out again from what was last read and
+    /// the bubbles drawn at Enter that the store does not have yet.
+    fn place_rows(&mut self) {
+        let Some(open) = &mut self.open else { return };
+        let Some(shown) = &open.shown else { return };
+        let mut messages = shown.messages.clone();
+        let mut digests = shown.digests.clone();
+        let local: Vec<&StoredMessage> = self
+            .local_sends
+            .iter()
+            .filter(|local| {
+                local.message.account_id == open.chat.account_id
+                    && local.message.chat_id == open.chat.id
+            })
+            .collect();
+        if !local.is_empty() {
+            let mut merged: Vec<(StoredMessage, u64)> = messages.into_iter().zip(digests).collect();
+            merged.extend(
+                local
+                    .into_iter()
+                    .map(|local| (local.clone(), content_digest(local))),
+            );
+            // Oldest first; a stable sort keeps the order of equal times.
+            merged.sort_by_key(|(stored, _)| stored.message.timestamp);
+            (messages, digests) = merged.into_iter().unzip();
+        }
+        let rows = build_rows(
+            messages,
+            &digests,
+            &open.chat,
+            &self.senders,
+            shown.first_unread.as_ref(),
+            &shown.tasked,
+        );
+        // The row at the top of the view stays there. The list keeps its
+        // place only when that row is outside what changed; a window of
+        // older history changes the first rows (their day, their runs),
+        // and the list would jump to the top of what was added, which
+        // asks for older history again. A day's separator is no anchor: the
+        // older messages of that day go under it, so the first message is.
+        let top = open.list.logical_scroll_top();
+        let anchor = open
+            .rows
+            .iter()
+            .enumerate()
+            .skip(top.item_ix)
+            .find_map(|(index, row)| match row {
+                Row::Message(row) => Some((row.key.clone(), index == top.item_ix)),
+                Row::Day(_) => None,
+            });
+        splice_rows(&open.list, &open.rows, &rows);
+        if let Some((index, same_row)) = anchor.and_then(|(key, same_row)| {
+            rows.iter()
+                .position(|row| matches!(row, Row::Message(row) if row.key == key))
+                .map(|index| (index, same_row))
+        }) {
+            if index != open.list.logical_scroll_top().item_ix {
+                open.list.scroll_to(ListOffset {
+                    item_ix: index,
+                    offset_in_item: if same_row { top.offset_in_item } else { px(0.) },
+                });
+            }
+        }
+        self.audio.follow(&open.rows, &rows);
+        open.rows = Rc::new(rows);
     }
 
     // ----- user actions -------------------------------------------------
@@ -3647,6 +3724,7 @@ impl Shell {
             reading: None,
             stale: false,
             then: Vec::new(),
+            shown: None,
         });
         // Local first: show what is stored now, let the engine catch up.
         // The newest window is read at once, so the first frame has it
@@ -3767,16 +3845,25 @@ impl Shell {
             _ => None,
         };
         let typed = self.composer.read(cx).value().to_string();
-        // Into the outbox, off this thread: the bubble appears as soon as
-        // it is queued, the network comes later.
-        self.queue_send(Outgoing::Text {
-            account: open.chat.account_id.clone(),
-            chat: open.chat.id.clone(),
-            body: text,
+        let message = self.engine.text_message(
+            &open.chat.account_id,
+            &open.chat.id,
+            text,
             reply_to,
             mentions,
-            typed,
-        });
+        );
+        // The bubble is drawn now; into the outbox off this thread, which
+        // waits for whatever the engine is writing, and the network later.
+        // The stored bubble takes this one's place when it is read.
+        if let Some(bubble) = client_core::pending_text_bubble(&message, Timestamp::now()) {
+            self.local_sends.push(StoredMessage {
+                message: bubble,
+                reactions: Vec::new(),
+            });
+            self.place_rows();
+        }
+        self.queue_send(Outgoing::Text { message, typed });
+        let Some(open) = &self.open else { return };
         open.list.scroll_to_end();
         self.acting.compose = super::message_actions::Compose::New;
         self.mentioning.clear();
@@ -3795,7 +3882,20 @@ impl Shell {
     /// A message sent from here could not be queued: said, and what was
     /// typed goes back into the composer unless something else was typed
     /// since.
-    fn not_queued(&mut self, typed: Option<String>, window: &mut Window, cx: &mut Context<Self>) {
+    fn not_queued(
+        &mut self,
+        client_id: &client_provider::ClientMessageId,
+        typed: Option<String>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        // Its bubble goes: it was never sent.
+        let before = self.local_sends.len();
+        self.local_sends
+            .retain(|local| local.message.client_id.as_ref() != Some(client_id));
+        if self.local_sends.len() != before {
+            self.place_rows();
+        }
         self.show_problem(i18n::t("common.shell.not_queued").to_owned(), cx);
         if let Some(typed) = typed {
             if self.composer.read(cx).value().is_empty() {

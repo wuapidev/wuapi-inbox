@@ -284,6 +284,62 @@ fn messages_sent_one_after_the_other_are_queued_in_that_order_without_the_window
 }
 
 #[gpui_kit::test]
+fn a_sent_text_shows_at_once_before_the_store_has_it_and_only_once_after(cx: &mut TestAppContext) {
+    let harness = open(
+        cx,
+        ShellOptions {
+            open_chat: Some(1),
+            ..Default::default()
+        },
+    );
+    let composer = cx.update(|cx| harness.shell.read(cx).composer.clone());
+    let field: ElementId = ("input", composer.entity_id()).into();
+    let bubbles = |shell: &Shell, text: &str| {
+        shell
+            .open
+            .as_ref()
+            .unwrap()
+            .rows
+            .iter()
+            .filter(|row| {
+                matches!(row, Row::Message(row)
+                    if matches!(&row.stored.message.content,
+                        MessageContent::Text { body } if body == text))
+            })
+            .count()
+    };
+
+    cx.update_window(harness.window.into(), |_, window, cx| {
+        window.click(field, cx);
+        window.input("on my way", cx);
+        window.press("enter", cx);
+    })
+    .unwrap();
+
+    // Nothing has run off the window's thread yet: the outbox is empty,
+    // as when the engine holds the writer through a catch-up, and the
+    // bubble is on screen, pending, all the same.
+    assert!(harness.engine.store().outbox_pending().unwrap().is_empty());
+    cx.update(|cx| {
+        let shell = harness.shell.read(cx);
+        assert_eq!(
+            newest_message(shell),
+            Some(("on my way".to_owned(), DeliveryStatus::Pending, true))
+        );
+        assert_eq!(bubbles(shell, "on my way"), 1);
+    });
+
+    // Queued and read back: the stored bubble takes its place, one bubble.
+    cx.run_until_parked();
+    assert_eq!(harness.engine.store().outbox_pending().unwrap().len(), 1);
+    cx.update(|cx| {
+        let shell = harness.shell.read(cx);
+        assert_eq!(bubbles(shell, "on my way"), 1);
+        assert!(shell.local_sends.is_empty(), "the drawn bubble gave way");
+    });
+}
+
+#[gpui_kit::test]
 fn typing_and_pressing_enter_sends_through_the_outbox(cx: &mut TestAppContext) {
     let harness = open(
         cx,
