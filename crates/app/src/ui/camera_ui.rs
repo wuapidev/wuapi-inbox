@@ -49,6 +49,7 @@ impl Cameras {
 /// The machine's camera, through `ffmpeg`, as calls with video use it.
 struct System;
 
+#[cfg(feature = "provider-native")]
 impl CameraSource for System {
     fn available(&self) -> bool {
         provider_native::camera::available_now()
@@ -65,10 +66,37 @@ impl CameraSource for System {
     }
 }
 
+/// Without the numbers of this computer there is no `ffmpeg` camera.
+#[cfg(not(feature = "provider-native"))]
+impl CameraSource for System {
+    fn available(&self) -> bool {
+        false
+    }
+
+    fn open(&self, _camera: Option<String>) -> Result<CameraFeed, String> {
+        Err("There is no camera in this build.".into())
+    }
+}
+
 /// The machine's own camera.
 pub fn system_cameras() -> Cameras {
+    #[cfg(feature = "provider-native")]
     provider_native::call_video::look_ahead();
     Cameras(Rc::new(System))
+}
+
+/// A picture the camera showed, as a JPEG to send.
+pub(super) fn jpeg(picture: &CallPicture) -> Option<Vec<u8>> {
+    let mut rgb = Vec::with_capacity((picture.width * picture.height * 3) as usize);
+    for pixel in picture.bgra.as_chunks::<4>().0 {
+        rgb.extend_from_slice(&[pixel[2], pixel[1], pixel[0]]);
+    }
+    let image = image::RgbImage::from_raw(picture.width, picture.height, rgb)?;
+    let mut out = std::io::Cursor::new(Vec::new());
+    image::codecs::jpeg::JpegEncoder::new_with_quality(&mut out, 90)
+        .encode_image(&image)
+        .ok()?;
+    Some(out.into_inner())
 }
 
 /// The camera while its sheet is open.
@@ -182,7 +210,7 @@ impl Shell {
         cx.notify();
         let made = cx
             .background_executor()
-            .spawn(async move { provider_native::camera::jpeg(&picture) });
+            .spawn(async move { jpeg(&picture) });
         let name = chrono::Local::now()
             .format("IMG-%Y%m%d-%H%M%S.jpg")
             .to_string();
@@ -221,7 +249,12 @@ impl Shell {
         let view = self.camera.as_ref()?;
         let picture = view.picture();
         let ready = picture.is_some() && !view.taking;
-        let (width, height) = provider_native::camera::SIZE;
+        // As the camera shows it; 4:3 until it shows anything.
+        let (width, height) = view
+            .feed
+            .as_ref()
+            .and_then(|feed| feed.screen.newest().1)
+            .map_or((4, 3), |picture| (picture.width.max(1), picture.height));
         let shown_height = SHOWN_WIDTH * height as f32 / width as f32;
         let screen = div()
             .debug_selector(|| "camera-screen".into())
@@ -298,5 +331,27 @@ impl Shell {
                         ),
                 ),
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::jpeg;
+    use client_provider::CallPicture;
+
+    #[test]
+    fn a_picture_is_kept_as_a_jpeg_of_its_size_and_colours() {
+        // Blue, green, red, alpha: a red picture.
+        let picture = CallPicture {
+            width: 16,
+            height: 8,
+            bgra: [0u8, 0, 255, 255].repeat(16 * 8),
+        };
+        let bytes = jpeg(&picture).expect("a jpeg");
+        assert_eq!(&bytes[..2], &[0xFF, 0xD8]);
+        let back = image::load_from_memory(&bytes).unwrap().to_rgb8();
+        assert_eq!(back.dimensions(), (16, 8));
+        let [r, g, b] = back.get_pixel(4, 4).0;
+        assert!(r > 200 && g < 60 && b < 60, "{r} {g} {b}");
     }
 }

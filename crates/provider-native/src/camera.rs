@@ -120,39 +120,3 @@ impl Drop for Viewfinder {
         call_video::end(&mut lock(&self.child));
     }
 }
-
-/// A picture the camera showed, as a JPEG to send.
-pub fn jpeg(picture: &CallPicture) -> Option<Vec<u8>> {
-    let mut rgb = Vec::with_capacity((picture.width * picture.height * 3) as usize);
-    for pixel in picture.bgra.as_chunks::<4>().0 {
-        rgb.extend_from_slice(&[pixel[2], pixel[1], pixel[0]]);
-    }
-    let image = image::RgbImage::from_raw(picture.width, picture.height, rgb)?;
-    let mut out = std::io::Cursor::new(Vec::new());
-    image::codecs::jpeg::JpegEncoder::new_with_quality(&mut out, 90)
-        .encode_image(&image)
-        .ok()?;
-    Some(out.into_inner())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::jpeg;
-    use client_provider::CallPicture;
-
-    #[test]
-    fn a_picture_is_kept_as_a_jpeg_of_its_size_and_colours() {
-        // Blue, green, red, alpha: a red picture.
-        let picture = CallPicture {
-            width: 16,
-            height: 8,
-            bgra: [0u8, 0, 255, 255].repeat(16 * 8),
-        };
-        let bytes = jpeg(&picture).expect("a jpeg");
-        assert_eq!(&bytes[..2], &[0xFF, 0xD8]);
-        let back = image::load_from_memory(&bytes).unwrap().to_rgb8();
-        assert_eq!(back.dimensions(), (16, 8));
-        let [r, g, b] = back.get_pixel(4, 4).0;
-        assert!(r > 200 && g < 60 && b < 60, "{r} {g} {b}");
-    }
-}
