@@ -201,6 +201,7 @@ impl AppView {
             pick_files: None,
             out: None,
             cloud: Default::default(),
+            cameras: None,
         };
         let (screen, subscription) = chats(&engine, options, window, cx);
         self.screen = screen;
@@ -230,6 +231,7 @@ impl AppView {
             pick_files: None,
             out: None,
             cloud,
+            cameras: None,
         };
         let (screen, subscription) = chats(&engine, options, window, cx);
         self.screen = screen;
@@ -491,6 +493,7 @@ fn enter(
                 cloud: cloud
                     .as_ref()
                     .map_or(CloudOffer::Unavailable, |cloud| cloud.offer),
+                cameras: None,
             };
             let (screen, subscription) = chats(&engine, options, window, cx);
             Opening {

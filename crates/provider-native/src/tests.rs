@@ -1379,6 +1379,102 @@ async fn a_poll_counts_votes_as_they_are_heard_and_the_accounts_own() {
 }
 
 #[tokio::test]
+async fn an_event_goes_out_as_whatsapps_own_with_a_secret_and_shows_as_sent() {
+    let world = world().await;
+    let event = client_provider::CalendarEvent {
+        title: "  Dinner  ".into(),
+        description: Some("At eight".into()),
+        starts_at: Some(client_provider::Timestamp::from_millis(1_800_000_000_000)),
+        ends_at: Some(client_provider::Timestamp::from_millis(1_800_007_200_000)),
+        place: Some(client_provider::EventPlace {
+            name: Some("Home".into()),
+            address: None,
+            point: None,
+        }),
+        call: None,
+        join_url: None,
+        cancelled: false,
+    };
+    let mut message = text(&world, "key-e", "");
+    message.content = OutgoingContent::Event(event.clone());
+    let receipt = world.provider.send(message.clone()).await.unwrap();
+    // Sent again once it was accepted: still one message.
+    world.provider.send(message).await.unwrap();
+    let sent = world.sent();
+    assert_eq!(sent.len(), 1);
+    let wire = &sent[0].2;
+    let out = wire.event_message.as_option().expect("an event message");
+    assert_eq!(out.name.as_deref(), Some("Dinner"));
+    assert_eq!(out.description.as_deref(), Some("At eight"));
+    assert_eq!(out.start_time, Some(1_800_000_000));
+    assert_eq!(out.end_time, Some(1_800_007_200));
+    assert_eq!(
+        out.location
+            .as_option()
+            .and_then(|place| place.name.as_deref()),
+        Some("Home")
+    );
+    assert_eq!(out.is_schedule_call, Some(false));
+    let secret = |message: &wa::Message| {
+        message
+            .message_context_info
+            .as_option()
+            .and_then(|info| info.message_secret.clone())
+    };
+    // The answers are encrypted under a secret that is the same on every
+    // attempt, so a send repeated after a drop is the same event.
+    assert!(secret(wire).is_some_and(|secret| secret.len() == 32));
+    let again = crate::convert::event_message(&event, None, &ClientMessageId::new("key-e"));
+    assert_eq!(secret(wire), secret(&again));
+    let shown = history(&world).await;
+    let mine = shown
+        .iter()
+        .find(|kept| kept.id == receipt.message_id)
+        .expect("the event is in the chat");
+    let MessageContent::Event(kept) = &mine.content else {
+        panic!("an event, not {:?}", mine.content);
+    };
+    assert_eq!(kept.title, "Dinner");
+    assert_eq!(kept.starts_at, event.starts_at);
+    assert_eq!(
+        kept.place.as_ref().and_then(|p| p.name.as_deref()),
+        Some("Home")
+    );
+}
+
+#[tokio::test]
+async fn an_event_without_a_name_or_a_start_is_refused() {
+    let world = world().await;
+    let event = client_provider::CalendarEvent {
+        title: " ".into(),
+        description: None,
+        starts_at: Some(client_provider::Timestamp::from_millis(1_800_000_000_000)),
+        ends_at: None,
+        place: None,
+        call: None,
+        join_url: None,
+        cancelled: false,
+    };
+    let mut message = text(&world, "key-e1", "");
+    message.content = OutgoingContent::Event(event.clone());
+    assert!(matches!(
+        world.provider.send(message).await,
+        Err(ProviderError::Rejected { .. })
+    ));
+    let mut message = text(&world, "key-e2", "");
+    message.content = OutgoingContent::Event(client_provider::CalendarEvent {
+        title: "Dinner".into(),
+        starts_at: None,
+        ..event
+    });
+    assert!(matches!(
+        world.provider.send(message).await,
+        Err(ProviderError::Rejected { .. })
+    ));
+    assert!(world.sent().is_empty());
+}
+
+#[tokio::test]
 async fn a_chats_state_is_changed_here_and_remembered() {
     // The session of these tests refuses chat changes; this provider
     // reports that as what it is.
