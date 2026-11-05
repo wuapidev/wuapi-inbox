@@ -2579,3 +2579,79 @@ fn contacts_updates_show_when_the_provider_has_them_and_say_so_when_it_does_not_
     assert!(recent_authors(&harness, cx) > 0);
     assert!(!shows(harness.window, "status-none", cx));
 }
+
+/// With the numbers of this computer, which fetch straight from WhatsApp,
+/// every story not seen yet is fetched ahead, videos too, whatever the
+/// policy says about the videos of chats (but "Nothing").
+#[cfg(feature = "provider-native")]
+#[gpui_kit::test]
+fn on_this_computer_every_new_story_is_fetched_ahead_videos_too(cx: &mut TestAppContext) {
+    use client_provider::{Media, MediaRef};
+    let harness = open(
+        cx,
+        ShellOptions {
+            session: crate::ui::shell::SessionKind::Local,
+            ..Default::default()
+        },
+    );
+    cx.update(|cx| {
+        settings::update(cx, |settings| {
+            settings.media = settings::MediaChoice::Images
+        })
+    });
+    let urls = [
+        "https://files.example/first-clip.mp4",
+        "https://files.example/second-clip.mp4",
+    ];
+    let mut posted = Vec::new();
+    for url in urls {
+        harness.mock.set_media(url, b"clip".to_vec(), "video/mp4");
+        let mut media = Media::new(MediaKind::Video);
+        media.source = Some(MediaRef::new(url));
+        media.mime_type = Some("video/mp4".into());
+        // Both from one author: not only the first of each.
+        posted.push(harness.mock.contact_posts_story(
+            &personal(),
+            &ContactId::new("+15550009444"),
+            "Video Person",
+            StoryBody::Media(media),
+        ));
+    }
+    harness
+        .runtime
+        .block_on(harness.engine.sync_stories(&personal()))
+        .unwrap();
+    harness.settle(cx);
+    go_to_status(&harness, cx);
+    let file_cached = |url: &str| {
+        harness
+            .engine
+            .store()
+            .media(&client_core::file_key(url), Timestamp::now())
+            .unwrap()
+            .is_some()
+    };
+    let mut here = false;
+    for _ in 0..200 {
+        harness.settle(cx);
+        here = urls.iter().all(|url| file_cached(url));
+        if here {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(3));
+    }
+    assert!(here, "both videos are here before they are opened");
+    for story in &posted {
+        assert!(
+            !harness
+                .engine
+                .store()
+                .story(&personal(), &story.id)
+                .unwrap()
+                .unwrap()
+                .viewed,
+            "fetching is not seeing"
+        );
+    }
+    assert!(harness.mock.story_views().is_empty());
+}

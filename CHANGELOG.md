@@ -6,6 +6,8 @@
 * An event can be sent from the "+" or the palette ("New event"): a name, when it starts, when it ends if it is said, a description and a place. It starts at the next whole hour unless it is changed, and goes as WhatsApp's own events go, with the secret its answers are encrypted under, made from the message's key so that a send repeated after a drop is one event. With the numbers of this computer; Wuapi Cloud has no way to send an event yet. `Capabilities::events` and `OutgoingContent::Event`.
 * A photo can be taken with the camera from the "+": what it sees shows live, "Take photo" takes it and it opens in the sheet that sends files, to caption it like any picture. The camera is the one chosen for calls, through `ffmpeg`, on Linux and macOS; it is let go as soon as the photo is taken or the sheet closed.
 * A second photo sent while the first is still going up starts its own upload at once instead of waiting for the first to finish: up to three files go up together. They are still sent in the order they were queued, and a text typed after them still goes after them.
+* Statuses are fetched ahead while Status is open: every one not seen yet (up to forty, newest authors first), not only the first of the first twelve authors, so each shows the moment it is opened. With the numbers of this computer, which fetch straight from WhatsApp, videos are fetched ahead too under any media policy but "Nothing"; through Wuapi Cloud, as before, only under "Everything".
+* A status whose text has line breaks is described on one line in the list; its lines spilled over the rows under it.
 
 ## [0.12.0]
 

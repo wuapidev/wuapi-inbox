@@ -665,7 +665,9 @@ pub fn with_shortcodes(text: &str) -> String {
 /// What a story is called in a line: "Photo", "Video", "Voice message",
 /// or its words.
 pub fn describe(body: &StoryBody) -> String {
-    match SlideKind::of(body) {
+    // One line, whatever was written: a caption's line breaks would make
+    // the row taller than its place in the list.
+    let line = match SlideKind::of(body) {
         SlideKind::Text => body
             .words()
             .unwrap_or(i18n::t("status.kind.status"))
@@ -681,7 +683,8 @@ pub fn describe(body: &StoryBody) -> String {
                 i18n::tr("status.kind.video_caption", &[("caption", &c)])
             }),
         SlideKind::Voice => i18n::t("status.kind.voice").to_owned(),
-    }
+    };
+    line.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
 /// How long ago, in the words the Status list uses: "Just now", "12 min
@@ -720,6 +723,18 @@ pub fn expiring_soon(expires_at: Timestamp, now: Timestamp) -> bool {
 mod tests {
     use super::*;
     use client_provider::{Media, StoryStyle};
+
+    #[test]
+    fn a_story_is_described_on_one_line() {
+        let body = StoryBody::Text {
+            text: "Tu dpto 100% financiado\n Mira la publicación\n\nY accede".into(),
+            style: StoryStyle::default(),
+        };
+        assert_eq!(
+            describe(&body),
+            "Tu dpto 100% financiado Mira la publicación Y accede"
+        );
+    }
 
     fn text() -> StoryBody {
         StoryBody::Text {

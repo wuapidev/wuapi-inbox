@@ -1181,6 +1181,15 @@ impl MediaShelf {
         self.fetches_everything() && self.fetched_unasked(media)
     }
 
+    /// Whether a story's video is fetched before it is opened: under
+    /// "Everything", and with the numbers of this computer (`direct`),
+    /// where nothing goes through a paid proxy, under any policy but
+    /// "Nothing", as the phone fetches the statuses it lists. Never one
+    /// over the automatic limit.
+    pub fn fetches_story_unasked(&self, media: &Media, direct: bool) -> bool {
+        self.fetches_file_unasked(media) || (direct && self.fetched_unasked(media))
+    }
+
     /// Whether a GIF is fetched without a click. Same rule as a picture:
     /// not under "Nothing", not when it is known to be over the automatic
     /// limit, and not after the person stopped it. A video that is not a

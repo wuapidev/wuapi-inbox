@@ -34,8 +34,8 @@ use gpui_kit::{
 use std::collections::HashMap;
 use std::time::Duration;
 
-/// How many authors' first story is fetched ahead.
-const PREFETCH_AUTHORS: usize = 12;
+/// How many stories not seen yet are fetched ahead.
+const PREFETCH_STORIES: usize = 40;
 
 /// What the list pane lists.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -388,12 +388,13 @@ impl Shell {
         self.story_feed_changed(cx);
     }
 
-    /// While Status is on screen, fetches ahead the first story not seen of each author who has
-    /// one, when it is a picture, a sticker or a GIF and the media policy
-    /// fetches those by itself ("Nothing" fetches nothing). A video that
-    /// is not a GIF only under "Everything" (the numbers of this computer
-    /// by default), and never one over the automatic limit. Never more
-    /// than a dozen authors, and never anything that counts as seeing.
+    /// While Status is on screen, fetches ahead the stories not seen yet,
+    /// newest authors first, so that each one shows at once when it is
+    /// opened: pictures and stickers when the policy fetches pictures,
+    /// videos as [`MediaShelf::fetches_story_unasked`] says. At most
+    /// [`PREFETCH_STORIES`], and never anything that counts as seeing.
+    ///
+    /// [`MediaShelf::fetches_story_unasked`]: super::media::MediaShelf::fetches_story_unasked
     fn prefetch_stories(&self, account: &AccountId, cx: &Context<Self>) {
         // Only for somebody who is looking at Status: the dot and the
         // rings need the list of stories, never their pictures.
@@ -403,10 +404,19 @@ impl Shell {
         let chosen = crate::settings::get(cx).media;
         self.media
             .set_policy(chosen.resolved(self.session.is_direct()));
-        for author in self.status.feed.recent.iter().take(PREFETCH_AUTHORS) {
-            let Some(item) = author.stories.iter().find(|item| !item.viewed) else {
-                continue;
-            };
+        let unseen = self
+            .status
+            .feed
+            .recent
+            .iter()
+            .flat_map(|author| author.stories.iter().filter(|item| !item.viewed))
+            .take(PREFETCH_STORIES);
+        // Fetched straight from WhatsApp, not through Wuapi Cloud.
+        let direct = match self.home_of(account) {
+            Some(home) => home == super::shell::Home::Local,
+            None => self.session.is_direct(),
+        };
+        for item in unseen {
             let client_provider::StoryBody::Media(media) = &item.story.body else {
                 continue;
             };
@@ -416,7 +426,7 @@ impl Shell {
                 }
                 client_provider::MediaKind::Video
                     if self.media.fetches_gif_unasked(media)
-                        || self.media.fetches_file_unasked(media) =>
+                        || self.media.fetches_story_unasked(media, direct) =>
                 {
                     if let Some(source) = media.source.as_ref() {
                         if self.media.file_state(source.as_str())
