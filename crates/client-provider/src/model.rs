@@ -754,6 +754,10 @@ pub enum OutgoingContent {
         /// How many answers a voter may pick; 0 means any number.
         max_choices: u32,
     },
+    /// A new calendar event: what it is, when and where. Only offered when
+    /// [`Capabilities::events`](crate::Capabilities) is set. `cancelled`
+    /// is never set on a new one.
+    Event(crate::CalendarEvent),
 }
 
 /// One message to pass on to one chat

@@ -113,6 +113,10 @@ pub struct Capabilities {
     /// account's vote in a poll. When `false` a poll shows its tally and
     /// cannot be voted on.
     pub poll_votes: bool,
+    /// Calendar events can be created
+    /// ([`OutgoingContent::Event`](crate::OutgoingContent)).
+    #[serde(default)]
+    pub events: bool,
     /// Incoming media can be downloaded.
     pub media_download: bool,
     /// [`Provider::fetch_avatar`](crate::Provider::fetch_avatar) returns
@@ -259,6 +263,7 @@ impl Capabilities {
             forwards: false,
             polls: false,
             poll_votes: false,
+            events: false,
             media_download: false,
             avatars: false,
             media_upload: false,
@@ -330,6 +335,7 @@ impl Capabilities {
             forwards: true,
             polls: true,
             poll_votes: true,
+            events: true,
             media_download: true,
             avatars: true,
             media_upload: true,
@@ -403,6 +409,7 @@ impl Capabilities {
             forwards: self.forwards || other.forwards,
             polls: self.polls || other.polls,
             poll_votes: self.poll_votes || other.poll_votes,
+            events: self.events || other.events,
             media_download: self.media_download || other.media_download,
             avatars: self.avatars || other.avatars,
             media_upload: self.media_upload || other.media_upload,

@@ -432,6 +432,7 @@ impl Store {
                     voters: 0,
                     chosen: Some(Vec::new()),
                 }),
+                OutgoingContent::Event(event) => MessageContent::Event(event.clone()),
                 // The bubble of a forward is the message it passes on
                 // ([`Store::enqueue_forward`]), not something this can say.
                 OutgoingContent::Forward { .. } => MessageContent::Unsupported {

@@ -302,6 +302,7 @@ impl Provider for WuapiProvider {
             // `POST /v1/messages` with `type: poll`, and
             // `POST /v1/messages/{messageId}/vote`.
             polls: true,
+            events: false,
             poll_votes: true,
             media_download: true,
             // Contacts for sure; groups through the same path (see
@@ -570,6 +571,8 @@ impl Provider for WuapiProvider {
                     .await?;
                 self.receipt(&sent, "poll")
             }
+            // The API has no way to send an event yet (`events` is off).
+            OutgoingContent::Event(_) => Err(ProviderError::Unsupported("sending an event")),
         }
     }
 
