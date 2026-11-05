@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+* A second photo sent while the first is still going up starts its own upload at once instead of waiting for the first to finish: up to three files go up together. They are still sent in the order they were queued, and a text typed after them still goes after them.
+
 ## [0.12.0]
 
 * A voice note goes on playing when another chat is opened, or none. While its chat is not the one on screen, a bar over the chats says who sent it and where, how far it is, and holds play and pause, the speed and × to stop it; a click on the name goes back to the message. The next voice note follows on by itself only in the chat it is in.

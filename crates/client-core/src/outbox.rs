@@ -1209,6 +1209,16 @@ pub async fn run_outbox_pass_with(
             continue;
         }
         if blocked.contains(&chat) {
+            // Only the sending waits its turn: the file of a later
+            // message goes up meanwhile, so that a second photo does not
+            // wait for the first to be uploaded before its own upload
+            // starts. (Within a pass, without `start`, they stay one
+            // after the other.)
+            if entry.needs_upload() && entry.next_attempt_at <= now {
+                if let Some(start) = &hooks.start {
+                    start(entry.clone());
+                }
+            }
             continue;
         }
         if entry.next_attempt_at > now {

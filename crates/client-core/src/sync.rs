@@ -290,7 +290,7 @@ impl SyncEngine {
                 picture_hints: Mutex::new(HashMap::new()),
                 contact_sync: Mutex::new(HashMap::new()),
                 uploads: Mutex::new(HashMap::new()),
-                upload_slots: tokio::sync::Semaphore::new(2),
+                upload_slots: tokio::sync::Semaphore::new(UPLOADS_AT_ONCE),
                 upload_ready: Mutex::new(None),
                 upload_checking: Mutex::new(false),
                 uncounted: Mutex::new(HashSet::new()),
@@ -2588,6 +2588,10 @@ pub enum MediaState {
     /// nothing to ask again for.
     Expired(String),
 }
+
+/// How many files go up at once. Each waits its turn to be sent, in the
+/// order they were queued; their uploads need not.
+const UPLOADS_AT_ONCE: usize = 3;
 
 /// How long a "files cannot be sent" answer is good for.
 const UPLOADS_RECHECK: Duration = Duration::from_secs(10 * 60);

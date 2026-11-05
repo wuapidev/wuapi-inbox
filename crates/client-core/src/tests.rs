@@ -3595,6 +3595,40 @@ async fn a_file_is_copied_uploaded_and_sent_with_what_the_upload_answered() {
     );
 }
 
+#[tokio::test]
+async fn the_next_files_of_a_chat_go_up_while_the_first_is_still_uploading() {
+    let mock = MockProvider::quiet();
+    let engine = engine_for(&mock);
+    let (account, chat) = first_chat(&engine).await;
+    let store = engine.store().clone();
+    let ids: Vec<_> = (0..3)
+        .map(|_| engine.send_media(&account, &chat, document(4096)).unwrap())
+        .collect();
+    // An upload that is started and does not finish within the pass.
+    let started = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let seen = started.clone();
+    let hooks = crate::outbox::UploadHooks {
+        progress: None,
+        start: Some(std::sync::Arc::new(move |entry: crate::OutboxEntry| {
+            seen.lock().unwrap().push(entry.message.client_id.clone());
+        })),
+    };
+    let pass = crate::outbox::run_outbox_pass_with(
+        &store,
+        &mock,
+        &crate::outbox::OutboxConfig::default(),
+        Timestamp::now(),
+        &hooks,
+    )
+    .await
+    .unwrap();
+    // All three uploads start at once, in order; none is sent before the
+    // first, which is still going up.
+    assert_eq!(*started.lock().unwrap(), ids);
+    assert_eq!(pass.sent, 0);
+    assert_eq!(mock.send_calls(), 0);
+}
+
 #[tokio::test(start_paused = true)]
 async fn an_upload_that_fails_for_now_is_repeated_under_the_same_key_and_never_doubles() {
     let mock = MockProvider::quiet();
