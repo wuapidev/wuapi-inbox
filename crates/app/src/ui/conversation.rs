@@ -587,7 +587,12 @@ impl Shell {
                             "attach",
                         )
                         .rounded_full()
-                        .on_click(cx.listener(|this, _, _, cx| this.pick_attachments(cx)))
+                        .on_click(cx.listener(
+                            |this, event: &gpui_kit::ClickEvent, window, cx| {
+                                this.menu_at = event.position();
+                                this.toggle_overlay(Overlay::AttachMenu, window, cx)
+                            },
+                        ))
                     } else {
                         unavailable_button(
                             "attach",

@@ -5,9 +5,9 @@ use crate::archive::{StoredChat, StoredContact, StoredMessage};
 use crate::ids::{self, is_group, phone_of, STATUS_CHAT};
 use crate::mapping::{self, Effect, MediaPointer, PollVotes};
 use client_provider::{
-    AccountId, Chat, ChatId, ChatKind, ChatUnknown, ClientMessageId, Contact, ContactId,
-    DeliveryStatus, Direction, FilePreview, MediaKind, Message, MessageContent, MessageId, Story,
-    StoryBody, StoryFont, StoryStyle, SystemEvent, Timestamp,
+    AccountId, CalendarEvent, Chat, ChatId, ChatKind, ChatUnknown, ClientMessageId, Contact,
+    ContactId, DeliveryStatus, Direction, FilePreview, MediaKind, Message, MessageContent,
+    MessageId, Story, StoryBody, StoryFont, StoryStyle, SystemEvent, Timestamp,
 };
 use sha2::{Digest, Sha256};
 use whatsapp_rust::buffa::{Message as _, MessageField};
@@ -479,6 +479,63 @@ pub fn poll_message(
         message.poll_creation_message = MessageField::some(poll);
     }
     message
+}
+
+/// A new calendar event, as WhatsApp's own clients send one. Like a poll
+/// it carries a secret of its own, made from `client_id` so that a send
+/// repeated after a drop is the same message: the answers to it ("going",
+/// "not going") are encrypted under that secret.
+pub fn event_message(
+    event: &CalendarEvent,
+    context: Option<wa::ContextInfo>,
+    client_id: &ClientMessageId,
+) -> wa::Message {
+    let mut hasher = Sha256::new();
+    hasher.update(b"wuapi-inbox event secret\0");
+    hasher.update(client_id.as_str().as_bytes());
+    let secret = hasher.finalize().to_vec();
+    let seconds = |at: Option<Timestamp>| at.map(|at| at.as_millis() / 1000);
+    let text = |text: &Option<String>| {
+        text.as_deref()
+            .map(str::trim)
+            .filter(|text| !text.is_empty())
+            .map(str::to_owned)
+    };
+    let location = event.place.as_ref().and_then(|place| {
+        let name = text(&place.name);
+        let address = text(&place.address);
+        let point = place.point;
+        (name.is_some() || address.is_some() || point.is_some()).then(|| {
+            wa::message::LocationMessage {
+                name,
+                address,
+                degrees_latitude: point.map(|point| point.latitude()),
+                degrees_longitude: point.map(|point| point.longitude()),
+                ..Default::default()
+            }
+        })
+    });
+    let join_link = text(&event.join_url);
+    wa::Message {
+        event_message: MessageField::some(wa::message::EventMessage {
+            context_info: context.map(MessageField::some).unwrap_or_default(),
+            is_canceled: Some(false),
+            name: Some(event.title.trim().to_owned()),
+            description: text(&event.description),
+            location: location.map(MessageField::some).unwrap_or_default(),
+            is_schedule_call: Some(event.call.is_some() && join_link.is_some()),
+            join_link,
+            start_time: seconds(event.starts_at),
+            end_time: seconds(event.ends_at),
+            extra_guests_allowed: Some(false),
+            ..Default::default()
+        }),
+        message_context_info: MessageField::some(wa::MessageContextInfo {
+            message_secret: Some(secret),
+            ..Default::default()
+        }),
+        ..Default::default()
+    }
 }
 
 /// The secret a poll's votes are encrypted under.

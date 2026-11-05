@@ -250,7 +250,7 @@ impl Shell {
 
     /// A picture straight from the clipboard. Its small picture is made
     /// off this thread too: a large screenshot takes a moment to decode.
-    fn attach_pasted(&mut self, file: Attachment, cx: &mut Context<Self>) {
+    pub(in crate::ui) fn attach_pasted(&mut self, file: Attachment, cx: &mut Context<Self>) {
         let limit = self.engine.upload_limit();
         self.read_for_sheet(1, cx, move || {
             (vec![stage(Read::Ready(file), limit)], Vec::new())
@@ -311,7 +311,11 @@ impl Shell {
         if self.open.is_none()
             || matches!(
                 self.overlay,
-                Overlay::NewPoll | Overlay::NewGroup | Overlay::OwnProfile
+                Overlay::NewPoll
+                    | Overlay::NewEvent
+                    | Overlay::Camera
+                    | Overlay::NewGroup
+                    | Overlay::OwnProfile
             )
         {
             return None;

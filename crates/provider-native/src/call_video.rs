@@ -212,6 +212,21 @@ impl Input {
     }
 }
 
+/// What `ffmpeg` is told to read a camera: the one chosen, or the first
+/// there is. For a picture taken outside a call ([`crate::camera`]).
+pub(crate) fn camera_args(chosen: Option<String>) -> Result<Vec<String>, String> {
+    Input::Camera(chosen).args()
+}
+
+/// What `ffmpeg` complains about, as for a call's camera.
+pub(crate) fn complaints(child: &mut Child, what: &'static str) -> Arc<Mutex<Option<String>>> {
+    hear_complaints(child, what, None)
+}
+
+pub(crate) fn end(child: &mut Child) {
+    stop(child)
+}
+
 /// How the camera is encoded: what WhatsApp's own clients send, smaller.
 /// Every key picture carries its parameters again, and every access unit
 /// starts with a delimiter, which is what they are cut apart by.

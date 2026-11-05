@@ -50,6 +50,7 @@ fn group_for_attaching(cx: &mut TestAppContext, files: Vec<PathBuf>) -> Harness 
 
 fn open_sheet(harness: &Harness, cx: &mut TestAppContext, count: usize) {
     click(harness.window, "attach", cx);
+    click(harness.window, "attach-menu-files", cx);
     until(harness, cx, sheet_open);
     cx.update(|cx| {
         let draft = harness.shell.read(cx).attach.as_ref().unwrap();

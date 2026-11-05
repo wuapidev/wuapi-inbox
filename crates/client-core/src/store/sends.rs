@@ -95,6 +95,7 @@ fn kind_of(content: &OutgoingContent) -> &'static str {
         OutgoingContent::Text { .. } => "text",
         OutgoingContent::Media { .. } => "media",
         OutgoingContent::Poll { .. } => "poll",
+        OutgoingContent::Event(_) => "event",
         OutgoingContent::Reaction { .. } => "reaction",
         OutgoingContent::Forward { .. } => "forward",
     }

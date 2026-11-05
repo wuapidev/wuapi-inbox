@@ -194,6 +194,25 @@ impl Shell {
                 true,
             ),
             Overlay::NewPoll => (self.render_poll_form(palette, cx)?.into_any_element(), true),
+            Overlay::NewEvent => (
+                self.render_event_form(palette, cx)?.into_any_element(),
+                true,
+            ),
+            Overlay::Camera => (self.render_camera(palette, cx)?.into_any_element(), true),
+            Overlay::AttachMenu => {
+                // Over the "+" it opened from, kept inside the window.
+                let left = (self.menu_at.x - px(12.))
+                    .min(self.viewport.width - MENU_WIDTH() - px(8.))
+                    .max(px(8.));
+                let bottom = (self.viewport.height - self.menu_at.y + px(22.)).max(px(8.));
+                (
+                    self.render_menu(palette, cx)
+                        .left(left)
+                        .bottom(bottom)
+                        .into_any_element(),
+                    false,
+                )
+            }
             Overlay::DeleteChat => (
                 self.render_delete_chat(palette, cx)?.into_any_element(),
                 true,

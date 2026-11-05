@@ -341,6 +341,9 @@ pub struct ShellOptions {
     pub out: Option<super::media_out::MediaOut>,
     /// Whether the cloud is offered on the screen without a number.
     pub cloud: CloudOffer,
+    /// How the camera is opened: the machine's, unless a test brings its
+    /// own.
+    pub cameras: Option<super::camera_ui::Cameras>,
 }
 
 /// What a file dialog is opened for.
@@ -428,6 +431,13 @@ pub(super) enum Overlay {
     Task,
     /// "New poll": a question and its options, for the open chat.
     NewPoll,
+    /// "New event": a name, when and where, for the open chat.
+    NewEvent,
+    /// What the "+" of the composer offers: files, the camera, a poll,
+    /// an event.
+    AttachMenu,
+    /// The camera, to take a picture to send.
+    Camera,
     /// The form that creates a group.
     NewGroup,
     /// A number's own WhatsApp profile: picture, name, About.
@@ -476,6 +486,11 @@ pub(super) enum MenuAction {
     Change(ChatChange),
     CloseChat,
     NewPoll,
+    NewEvent,
+    /// The system's file dialog, for files to send.
+    AttachFiles,
+    /// The camera, for a picture to send.
+    TakePhoto,
     /// The incoming webhooks of the menu's chat.
     IncomingWebhooks,
     /// Copies the number of the menu's chat, a person's.
@@ -897,6 +912,12 @@ pub struct Shell {
     pub(super) tiles: super::tiles::TileState,
     /// The poll being written, while "New poll" is open.
     pub(super) poll_form: Option<super::poll_form::PollForm>,
+    pub(super) event_form: Option<super::event_form::EventForm>,
+    /// The camera while it is open, to take a picture with.
+    pub(super) camera: Option<super::camera_ui::CameraView>,
+    /// How the camera is opened: the machine's, unless a test brings its
+    /// own.
+    pub(super) cameras: super::camera_ui::Cameras,
     /// The image the viewer is showing.
     pub(super) viewing: Option<Media>,
     /// The PDF being read, and its pages.
@@ -1320,6 +1341,12 @@ impl Shell {
             viewport: window.viewport_size(),
             tiles: Default::default(),
             poll_form: None,
+            event_form: None,
+            camera: None,
+            cameras: options
+                .cameras
+                .clone()
+                .unwrap_or_else(super::camera_ui::system_cameras),
             viewing: None,
             reader: Default::default(),
             opening: None,
@@ -2189,7 +2216,11 @@ impl Shell {
                     self.engine.want_contacts(account, CONTACTS_FRESH);
                 }
             }
-            Overlay::ListMenu | Overlay::ChatMenu | Overlay::RowMenu | Overlay::MessageMenu => {
+            Overlay::ListMenu
+            | Overlay::ChatMenu
+            | Overlay::RowMenu
+            | Overlay::MessageMenu
+            | Overlay::AttachMenu => {
                 // Start on the first entry that does something.
                 self.menu_cursor = self
                     .menu_items(cx)
@@ -2205,6 +2236,8 @@ impl Shell {
             }
             Overlay::AddNumber => self.begin_link(window, cx),
             Overlay::NewPoll => self.begin_poll(window, cx),
+            Overlay::NewEvent => self.begin_event(window, cx),
+            Overlay::Camera => self.begin_camera(window, cx),
             Overlay::NewGroup => self.begin_new_group(window, cx),
             Overlay::RailMenu | Overlay::RailEdit | Overlay::AttachSheet => {
                 self.overlay_focus.focus(window, cx)
@@ -2305,6 +2338,15 @@ impl Shell {
         }
         if self.overlay == Overlay::Task {
             self.tasks.sheet = None;
+        }
+        if self.overlay == Overlay::Camera {
+            // The camera is let go with the sheet, however it is left.
+            if let Some(camera) = self.camera.take() {
+                camera.close(window);
+            }
+        }
+        if self.overlay == Overlay::NewEvent {
+            self.event_form = None;
         }
         if self.overlay == Overlay::DeleteChat {
             self.deleting_chat = None;
@@ -2571,7 +2613,11 @@ impl Shell {
         }
         if !matches!(
             self.overlay,
-            Overlay::ListMenu | Overlay::ChatMenu | Overlay::RowMenu | Overlay::MessageMenu
+            Overlay::ListMenu
+                | Overlay::ChatMenu
+                | Overlay::RowMenu
+                | Overlay::MessageMenu
+                | Overlay::AttachMenu
         ) {
             return;
         }
@@ -3047,6 +3093,43 @@ impl Shell {
                 entries
             }
             Overlay::MessageMenu => self.message_menu_items(),
+            Overlay::AttachMenu => {
+                let files = self.can_attach();
+                vec![
+                    item(
+                        "attach-menu-files",
+                        i18n::t("common.shell.attach_files"),
+                        I::Image,
+                        files.then_some(MenuAction::AttachFiles),
+                        super::attach::not_available(),
+                    ),
+                    item(
+                        "attach-menu-camera",
+                        i18n::t("common.shell.attach_camera"),
+                        I::Camera,
+                        (files && self.cameras.available()).then_some(MenuAction::TakePhoto),
+                        if files {
+                            i18n::t("common.shell.attach_camera_missing")
+                        } else {
+                            super::attach::not_available()
+                        },
+                    ),
+                    item(
+                        "attach-menu-poll",
+                        i18n::t("common.shell.attach_poll"),
+                        I::ChartNoAxesColumn,
+                        caps.polls.then_some(MenuAction::NewPoll),
+                        not_here(),
+                    ),
+                    item(
+                        "attach-menu-event",
+                        i18n::t("common.shell.attach_event"),
+                        I::CalendarPlus,
+                        caps.events.then_some(MenuAction::NewEvent),
+                        not_here(),
+                    ),
+                ]
+            }
             _ => Vec::new(),
         }
     }
@@ -3071,6 +3154,12 @@ impl Shell {
                 }
             }
             MenuAction::NewPoll => return self.open_overlay(Overlay::NewPoll, window, cx),
+            MenuAction::NewEvent => return self.open_overlay(Overlay::NewEvent, window, cx),
+            MenuAction::TakePhoto => return self.open_overlay(Overlay::Camera, window, cx),
+            MenuAction::AttachFiles => {
+                self.close_overlay(window, cx);
+                return self.pick_attachments(cx);
+            }
             MenuAction::IncomingWebhooks => {
                 return match self.menu_chat() {
                     Some(chat) => self.open_hooks(&chat, window, cx),
@@ -4096,6 +4185,9 @@ impl Render for Shell {
         self.media.tend_loops(cx.weak_entity(), cx);
         self.picker.release(window);
         self.call_deck.release(window);
+        if let Some(camera) = &self.camera {
+            camera.release(window);
+        }
         self.viewer.release(window);
         self.reader.release(window);
         self.read_ahead(window, cx);

@@ -4,6 +4,7 @@
 pub mod archive;
 pub mod call_audio;
 pub mod call_video;
+pub mod camera;
 pub mod convert;
 pub mod ids;
 mod ingest;
