@@ -294,6 +294,8 @@ pub enum Command {
     Attach,
     /// "New poll".
     NewPoll,
+    /// "New event".
+    NewEvent,
     /// Who the conversation is with.
     ChatInfo,
     /// Mutes or unmutes the chat.
@@ -1078,6 +1080,14 @@ pub const BINDINGS: &[Binding] = &[
         C::NewPoll,
         "New poll",
         "commands.keys.new_poll",
+        S::Compose,
+        W::Chat,
+        &[],
+    ),
+    bind(
+        C::NewEvent,
+        "New event",
+        "commands.keys.new_event",
         S::Compose,
         W::Chat,
         &[],

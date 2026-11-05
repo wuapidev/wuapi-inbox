@@ -525,6 +525,9 @@ impl Shell {
             C::NewPoll if self.open.is_some() && caps.polls => {
                 self.open_overlay(Overlay::NewPoll, window, cx)
             }
+            C::NewEvent if self.open.is_some() && caps.events => {
+                self.open_overlay(Overlay::NewEvent, window, cx)
+            }
             C::ChatInfo => match self.open_summary() {
                 Some(chat) => self.open_chat_info(&chat, window, cx),
                 None => return false,

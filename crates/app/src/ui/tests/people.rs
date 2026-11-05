@@ -396,6 +396,7 @@ fn the_caption_of_an_attached_file_is_a_composer_of_its_own(cx: &mut TestAppCont
         })
     });
     click(harness.window, "attach", cx);
+    click(harness.window, "attach-menu-files", cx);
     until(&harness, cx, sheet_open);
     let sheet = bounds(harness.window, "attach-sheet", cx);
     for part in ["attach-caption", "caption-emoji", "compose-about"] {

@@ -5125,6 +5125,7 @@ fn files_are_picked_previewed_and_sent_through_the_outbox(cx: &mut TestAppContex
 
     // The "+" opens the file dialog; what it answers is shown first.
     click(harness.window, "attach", cx);
+    click(harness.window, "attach-menu-files", cx);
     until(&harness, cx, sheet_open);
     assert!(shows(harness.window, "attach-sheet", cx));
     assert!(
@@ -5209,6 +5210,7 @@ fn the_sheet_removes_files_sends_as_documents_and_cancels(cx: &mut TestAppContex
     // Escape: two files are worth a question; the next Escape means it.
     // Nothing is sent.
     click(harness.window, "attach", cx);
+    click(harness.window, "attach-menu-files", cx);
     until(&harness, cx, sheet_open);
     press(harness.window, "escape", cx);
     assert!(shows(harness.window, "attach-discard-confirm", cx));
@@ -5219,6 +5221,7 @@ fn the_sheet_removes_files_sends_as_documents_and_cancels(cx: &mut TestAppContex
 
     // One file taken out; the picture sent as a document.
     click(harness.window, "attach", cx);
+    click(harness.window, "attach-menu-files", cx);
     until(&harness, cx, sheet_open);
     click(harness.window, "attach-remove-1", cx);
     assert!(!shows(harness.window, "attach-item-1", cx));
@@ -5253,6 +5256,7 @@ fn the_sheet_removes_files_sends_as_documents_and_cancels(cx: &mut TestAppContex
 
     // The last file out closes the sheet.
     click(harness.window, "attach", cx);
+    click(harness.window, "attach-menu-files", cx);
     until(&harness, cx, sheet_open);
     click(harness.window, "attach-remove-0", cx);
     click(harness.window, "attach-remove-0", cx);
@@ -5390,6 +5394,7 @@ fn a_file_too_large_is_flagged_and_holds_back_only_itself(cx: &mut TestAppContex
     // The provider takes at most 2000 bytes: the document is 3009.
     harness.mock.set_upload_limit(2000);
     click(harness.window, "attach", cx);
+    click(harness.window, "attach-menu-files", cx);
     until(&harness, cx, sheet_open);
     assert!(shows(harness.window, "attach-sheet", cx));
     cx.update(|cx| {
@@ -5473,6 +5478,7 @@ fn where_files_cannot_be_sent_the_button_says_so_and_a_paste_is_not_lost_in_sile
 
 mod animated;
 mod attach_files;
+mod attach_menu;
 mod calls;
 mod communities;
 mod connection;

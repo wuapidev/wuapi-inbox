@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+* The composer's "+" is a menu: photos, videos and files (the file dialog, as before), the camera, a poll and an event. Ctrl+O still opens the file dialog at once.
+* An event can be sent from the "+" or the palette ("New event"): a name, when it starts, when it ends if it is said, a description and a place. It starts at the next whole hour unless it is changed, and goes as WhatsApp's own events go, with the secret its answers are encrypted under, made from the message's key so that a send repeated after a drop is one event. With the numbers of this computer; Wuapi Cloud has no way to send an event yet. `Capabilities::events` and `OutgoingContent::Event`.
+* A photo can be taken with the camera from the "+": what it sees shows live, "Take photo" takes it and it opens in the sheet that sends files, to caption it like any picture. The camera is the one chosen for calls, through `ffmpeg`, on Linux and macOS; it is let go as soon as the photo is taken or the sheet closed.
+
 ## [0.12.0]
 
 * A voice note goes on playing when another chat is opened, or none. While its chat is not the one on screen, a bar over the chats says who sent it and where, how far it is, and holds play and pause, the speed and × to stop it; a click on the name goes back to the message. The next voice note follows on by itself only in the chat it is in.

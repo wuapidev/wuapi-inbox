@@ -1522,6 +1522,13 @@ impl Provider for MockProvider {
                     voters: 0,
                     chosen: Some(Vec::new()),
                 }),
+                OutgoingContent::Event(event) if event.title.trim().is_empty() => {
+                    return Err(ProviderError::Rejected {
+                        code: "invalid_request".into(),
+                        message: "An event needs a name.".into(),
+                    });
+                }
+                OutgoingContent::Event(event) => MessageContent::Event(event.clone()),
             };
             let reply_to = outgoing.reply_to.as_ref().map(|id| {
                 let quoted = state

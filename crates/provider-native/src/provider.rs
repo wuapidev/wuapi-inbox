@@ -818,6 +818,7 @@ impl Provider for NativeProvider {
             pins: true,
             forwards: true,
             polls: true,
+            events: true,
             poll_votes: true,
             media_download: true,
             avatars: true,
@@ -1106,6 +1107,15 @@ impl Provider for NativeProvider {
                     return Err(rejected("invalid", "A poll needs at least two answers."));
                 }
                 convert::poll_message(question, options, *max_choices, &message.client_id)
+            }
+            OutgoingContent::Event(event) => {
+                if event.title.trim().is_empty() {
+                    return Err(rejected("invalid", "An event needs a name."));
+                }
+                if event.starts_at.is_none() {
+                    return Err(rejected("invalid", "An event needs a start."));
+                }
+                convert::event_message(event, context, &message.client_id)
             }
             OutgoingContent::Forward { .. } => {
                 return Err(rejected("invalid", "A forward is not sent as a message."))

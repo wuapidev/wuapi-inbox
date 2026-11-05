@@ -346,6 +346,7 @@ impl Shell {
             C::NewGroup => numbered(caps.group_create),
             C::NewCommunity => numbered(caps.group_create && caps.community_manage),
             C::NewPoll => state(caps.polls),
+            C::NewEvent => state(caps.events),
             C::AddNumber => state(caps.link_accounts),
             C::CheckForUpdates | C::RestartToUpdate
                 if matches!(
@@ -1142,7 +1143,9 @@ pub(super) fn menu_command(id: &str) -> Option<Command> {
         "menu-archive" => C::ArchiveChat,
         "menu-info" => C::ChatInfo,
         "menu-search" => C::Find,
-        "menu-poll" => C::NewPoll,
+        "menu-poll" | "attach-menu-poll" => C::NewPoll,
+        "attach-menu-files" => C::Attach,
+        "attach-menu-event" => C::NewEvent,
         "menu-close" => C::CloseChat,
         "menu-delete" => C::DeleteChat,
         "menu-hooks" => C::IncomingWebhooks,

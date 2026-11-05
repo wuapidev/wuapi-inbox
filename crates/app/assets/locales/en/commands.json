@@ -142,6 +142,7 @@
   "commands.keys.mute_number": "Mute or unmute this number's notifications",
   "commands.keys.new_chat": "New chat",
   "commands.keys.new_community": "New community",
+  "commands.keys.new_event": "New event",
   "commands.keys.new_group": "New group",
   "commands.keys.new_poll": "New poll",
   "commands.keys.new_status": "New status",
