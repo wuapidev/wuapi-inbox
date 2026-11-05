@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+* Statuses are fetched ahead while Status is open: every one not seen yet (up to forty, newest authors first), not only the first of the first twelve authors, so each shows the moment it is opened. With the numbers of this computer, which fetch straight from WhatsApp, videos are fetched ahead too under any media policy but "Nothing"; through Wuapi Cloud, as before, only under "Everything".
+* A status whose text has line breaks is described on one line in the list; its lines spilled over the rows under it.
+
 ## [0.12.0]
 
 * A voice note goes on playing when another chat is opened, or none. While its chat is not the one on screen, a bar over the chats says who sent it and where, how far it is, and holds play and pause, the speed and × to stop it; a click on the name goes back to the message. The next voice note follows on by itself only in the chat it is in.
