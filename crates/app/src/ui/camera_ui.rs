@@ -222,7 +222,7 @@ impl Shell {
                 }
                 this.close_overlay(window, cx);
                 match bytes {
-                    Some(bytes) => this.attach_pasted(
+                    Some(bytes) => this.attach_captured(
                         Attachment {
                             name,
                             mime: "image/jpeg".into(),

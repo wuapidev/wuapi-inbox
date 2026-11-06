@@ -543,6 +543,60 @@ const MIGRATIONS: &[&str] = &[
     );
     CREATE INDEX tasks_by_chat ON tasks (account_id, chat_id) WHERE account_id IS NOT NULL;
     "#,
+    // v16: the library's files last in their row. SQLite keeps a row's
+    // columns in order and a big one spills over to other pages, so
+    // reading any column written after a sticker's file (the columns the
+    // migrations added to `library_items` were) means walking the file's
+    // pages, decrypted one by one: listing the library cost as much as
+    // reading every file in it. The table is made again with its small
+    // columns first, then the still, then the file, with the same rows
+    // (and the same row numbers), and the same indexes.
+    r#"
+    CREATE TABLE library_items_v16 (
+        id              TEXT PRIMARY KEY,
+        -- sticker | gif
+        kind            TEXT NOT NULL,
+        mime            TEXT NOT NULL,
+        animated        INTEGER NOT NULL DEFAULT 0,
+        width           INTEGER,
+        height          INTEGER,
+        size            INTEGER NOT NULL,
+        -- received | sent | imported | phone | online
+        source          TEXT NOT NULL,
+        name            TEXT,
+        pack            TEXT,
+        added_at        INTEGER NOT NULL,
+        last_used       INTEGER,
+        favorite        INTEGER NOT NULL DEFAULT 0,
+        position        INTEGER NOT NULL DEFAULT 0,
+        indexed         INTEGER NOT NULL DEFAULT 0,
+        sent_at         INTEGER,
+        heard_at        INTEGER,
+        origin_account  TEXT,
+        origin_url      TEXT,
+        origin_message  TEXT,
+        thumb_mime      TEXT,
+        -- A still of the first frame, PNG or JPEG; none for a video.
+        thumb           BLOB,
+        -- The file itself: always the last column.
+        bytes           BLOB NOT NULL
+    );
+    INSERT INTO library_items_v16
+        (rowid, id, kind, mime, animated, width, height, size, source, name, pack,
+         added_at, last_used, favorite, position, indexed, sent_at, heard_at,
+         origin_account, origin_url, origin_message, thumb_mime, thumb, bytes)
+    SELECT
+         rowid, id, kind, mime, animated, width, height, size, source, name, pack,
+         added_at, last_used, favorite, position, indexed, sent_at, heard_at,
+         origin_account, origin_url, origin_message, thumb_mime, thumb, bytes
+    FROM library_items;
+    DROP TABLE library_items;
+    ALTER TABLE library_items_v16 RENAME TO library_items;
+    CREATE INDEX library_by_kind ON library_items (kind, favorite, position);
+    CREATE INDEX library_by_use ON library_items (kind, last_used);
+    CREATE INDEX library_by_origin ON library_items (origin_url)
+        WHERE origin_url IS NOT NULL;
+    "#,
 ];
 
 /// The schema version this build expects.

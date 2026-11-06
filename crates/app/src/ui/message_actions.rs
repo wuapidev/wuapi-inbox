@@ -72,6 +72,9 @@ pub(super) struct Acting {
     /// What the forward sheet lists, as last read: headings, chats, and
     /// people with no chat yet.
     pub(super) forward_rows: Vec<super::forward_sheet::ForwardRow>,
+    /// The read of those rows under way. A newer one replaces it, and a
+    /// read that was replaced is never shown.
+    pub(super) _forward_read: Option<Task<()>>,
     /// The row of the forward sheet the keyboard is on, among those that
     /// can be picked.
     pub(super) forward_cursor: usize,
@@ -105,6 +108,7 @@ impl Acting {
             forward_to: Vec::new(),
             forward_skipped: Vec::new(),
             forward_rows: Vec::new(),
+            _forward_read: None,
             forward_cursor: 0,
             forward_names: Default::default(),
             forward_people: Default::default(),
@@ -123,6 +127,7 @@ impl Acting {
         self.selecting = None;
         self.reactors = None;
         self.forward_to.clear();
+        self._forward_read = None;
     }
 }
 

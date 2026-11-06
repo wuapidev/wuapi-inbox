@@ -143,6 +143,38 @@ fn open_gifs(harness: &Harness, cx: &mut TestAppContext) {
     assert_eq!(tab(harness, cx), Tab::Gifs);
 }
 
+/// The grid is read from the store off the window's thread: what is on
+/// show stays until the read answers, however many reads were asked for
+/// meanwhile, and the answer is the library as it is then.
+#[gpui_kit::test]
+fn the_picker_reads_its_grid_off_the_window_thread_and_shows_the_last_read(
+    cx: &mut TestAppContext,
+) {
+    let harness = open_chat_one(cx);
+    save_sticker(&harness, still(40), false);
+    open_stickers(&harness, cx);
+    wait_for(&harness, cx, "the first read", |cx| {
+        !tile_ids(&harness, cx).is_empty()
+    });
+    let before = tile_ids(&harness, cx);
+    assert_eq!(before.len(), 1);
+
+    save_sticker(&harness, still(48), false);
+    // Asked for again and again, as a sticker sent changes the library
+    // several times: nothing is read on this thread.
+    cx.update(|cx| {
+        harness.shell.update(cx, |shell, cx| {
+            for _ in 0..5 {
+                shell.picker_load(cx);
+            }
+        })
+    });
+    assert_eq!(tile_ids(&harness, cx), before, "what is on show stays");
+    wait_for(&harness, cx, "the newer read", |cx| {
+        tile_ids(&harness, cx).len() == 2
+    });
+}
+
 // ----- the tabs ------------------------------------------------------------------------
 
 #[gpui_kit::test]

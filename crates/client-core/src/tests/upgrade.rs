@@ -222,8 +222,197 @@ fn a_database_from_before_sends_were_measured_measures_the_next_one() {
 }
 
 #[test]
-fn the_schema_is_at_v15() {
-    assert_eq!(SCHEMA_VERSION, 15);
+fn the_schema_is_at_v16() {
+    assert_eq!(SCHEMA_VERSION, 16);
+}
+
+/// v16 made `library_items` again with the files last in the row, so that
+/// listing the library does not read them. A database a build at v15 left
+/// on disk, with a library in it (files, stills, favorites, stickers of
+/// the chats, one waiting for its file), opens, loses nothing, keeps its
+/// order and its indexes, has the files last, and takes new items.
+#[test]
+fn a_database_at_schema_v15_has_its_library_made_again_with_the_files_last() {
+    opens_at_the_current_schema(15);
+
+    let dir = tempfile::tempdir().unwrap();
+    let path = database_at(dir.path(), 15);
+    let indexes = |raw: &rusqlite::Connection| -> Vec<String> {
+        let mut statement = raw
+            .prepare(
+                "SELECT name FROM sqlite_master
+                 WHERE type = 'index' AND tbl_name = 'library_items'
+                   AND name NOT LIKE 'sqlite_autoindex%'
+                 ORDER BY name",
+            )
+            .unwrap();
+        statement
+            .query_map([], |row| row.get(0))
+            .unwrap()
+            .collect::<Result<_, _>>()
+            .unwrap()
+    };
+    let columns = |raw: &rusqlite::Connection| -> Vec<String> {
+        let mut statement = raw
+            .prepare("SELECT name FROM pragma_table_info('library_items')")
+            .unwrap();
+        statement
+            .query_map([], |row| row.get(0))
+            .unwrap()
+            .collect::<Result<_, _>>()
+            .unwrap()
+    };
+    let before = {
+        let raw = rusqlite::Connection::open(&path).unwrap();
+        raw.execute_batch(
+            "INSERT INTO library_items
+                (id, kind, mime, animated, width, height, size, source, name, pack,
+                 bytes, thumb, thumb_mime, added_at, last_used, favorite, position,
+                 indexed, sent_at, heard_at, origin_account, origin_url, origin_message)
+             VALUES
+                ('kept', 'sticker', 'image/webp', 1, 512, 256, 3, 'imported', 'Wave', 'pack',
+                 x'010203', x'0a0b', 'image/png', 7, 9, 1, 4,
+                 0, NULL, NULL, NULL, NULL, NULL),
+                ('seen', 'sticker', 'image/webp', 0, NULL, NULL, 2, 'received', NULL, NULL,
+                 x'0405', NULL, NULL, 8, NULL, 0, 0,
+                 1, 100, 200, 'acc', 'https://wa/seen', 'm1'),
+                ('waiting', 'sticker', 'image/webp', 0, NULL, NULL, 0, 'received', NULL, NULL,
+                 x'', NULL, NULL, 9, NULL, 0, 0,
+                 1, NULL, 300, 'acc', 'https://wa/waiting', NULL),
+                ('moving', 'gif', 'video/mp4', 1, 320, 240, 4, 'online', 'Dance', NULL,
+                 x'06070809', x'0c', 'image/jpeg', 10, 11, 0, 0,
+                 0, NULL, NULL, NULL, NULL, NULL);
+             INSERT INTO library_packs (id, name, created_at) VALUES ('pack', 'Pack', 1);
+             INSERT INTO library_remote (account_id, item_id, remote_id)
+             VALUES ('acc', 'kept', 'remote-kept');",
+        )
+        .unwrap();
+        let columns = columns(&raw);
+        assert!(
+            columns.iter().position(|name| name == "bytes").unwrap()
+                < columns
+                    .iter()
+                    .position(|name| name == "origin_message")
+                    .unwrap(),
+            "a build at v15 has the file in the middle of the row"
+        );
+        let rows: Vec<(i64, String)> = raw
+            .prepare("SELECT rowid, id FROM library_items ORDER BY rowid")
+            .unwrap()
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+            .unwrap()
+            .collect::<Result<_, _>>()
+            .unwrap();
+        (indexes(&raw), rows)
+    };
+    assert_eq!(
+        before.0,
+        ["library_by_kind", "library_by_origin", "library_by_use"]
+    );
+
+    let store = Store::open(&path, None).unwrap();
+    let raw = rusqlite::Connection::open(&path).unwrap();
+    let version: u32 = raw
+        .query_row("PRAGMA user_version", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(version, SCHEMA_VERSION);
+
+    // The indexes, the row numbers and the columns: the files are last,
+    // after their still.
+    assert_eq!(indexes(&raw), before.0);
+    let rows: Vec<(i64, String)> = raw
+        .prepare("SELECT rowid, id FROM library_items ORDER BY rowid")
+        .unwrap()
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+        .unwrap()
+        .collect::<Result<_, _>>()
+        .unwrap();
+    assert_eq!(rows, before.1);
+    let columns = columns(&raw);
+    assert_eq!(
+        &columns[columns.len() - 3..],
+        ["thumb_mime", "thumb", "bytes"]
+    );
+    assert_eq!(columns.len(), 23);
+
+    // What the library held, as it was.
+    let kept = store.library_item("kept").unwrap().unwrap();
+    assert_eq!(kept.kind, LibraryKind::Sticker);
+    assert_eq!(kept.size, Some((512, 256)));
+    assert_eq!(kept.name.as_deref(), Some("Wave"));
+    assert_eq!(kept.pack.as_deref(), Some("pack"));
+    assert!(kept.animated && kept.favorite && kept.has_thumb && !kept.indexed);
+    assert_eq!((kept.position, kept.bytes), (4, 3));
+    assert_eq!(kept.last_used, Some(Timestamp::from_millis(9)));
+    assert_eq!(
+        store.library_thumb("kept").unwrap(),
+        Some((vec![0x0a, 0x0b], "image/png".to_owned()))
+    );
+    assert_eq!(
+        store.library_file("kept").unwrap(),
+        Some((vec![1, 2, 3], "image/webp".to_owned()))
+    );
+    let seen = store.library_item("seen").unwrap().unwrap();
+    assert!(seen.indexed && !seen.has_thumb);
+    assert_eq!(seen.sent_at, Some(Timestamp::from_millis(100)));
+    assert_eq!(seen.heard_at, Some(Timestamp::from_millis(200)));
+    assert_eq!(
+        seen.origin,
+        Some((AccountId::new("acc"), "https://wa/seen".to_owned()))
+    );
+    assert_eq!(seen.origin_message, Some(MessageId::new("m1")));
+    let waiting = store.library_item("waiting").unwrap().unwrap();
+    assert!(waiting.pending());
+    let stickers: Vec<String> = store
+        .library_items(LibraryKind::Sticker)
+        .unwrap()
+        .into_iter()
+        .map(|item| item.id)
+        .collect();
+    assert_eq!(stickers, ["waiting", "seen", "kept"]);
+    let gifs = store.library_items(LibraryKind::Gif).unwrap();
+    assert_eq!(gifs.len(), 1);
+    assert_eq!(gifs[0].mime, "video/mp4");
+    assert_eq!(
+        store.library_favorites(LibraryKind::Sticker).unwrap()[0].id,
+        "kept"
+    );
+    assert_eq!(store.library_packs().unwrap().len(), 1);
+    assert_eq!(
+        store.library_remote(&AccountId::new("acc")).unwrap(),
+        [("kept".to_owned(), "remote-kept".to_owned())]
+    );
+
+    // And it takes new things: an item added, a still found by its
+    // origin, a favorite moved.
+    let (added, created) = store
+        .library_add(
+            NewLibraryItem {
+                kind: LibraryKind::Sticker,
+                mime: "image/webp".into(),
+                animated: false,
+                size: None,
+                source: LibrarySource::Imported,
+                name: Some("New".into()),
+                pack: None,
+                bytes: vec![9; 10],
+                thumb: Some((vec![1], "image/png".into())),
+            },
+            "fresh",
+            Timestamp::from_millis(50),
+            u64::MAX,
+        )
+        .unwrap();
+    assert!(created && added.has_thumb);
+    assert_eq!(store.library_file("fresh").unwrap().unwrap().0, vec![9; 10]);
+    store
+        .library_touch("fresh", Timestamp::from_millis(60))
+        .unwrap();
+    store.library_set_favorite("fresh", true).unwrap();
+    assert_eq!(
+        store.library_favorites(LibraryKind::Sticker).unwrap().len(),
+        2
+    );
 }
 
 /// v13 added two columns to a group (the community it is linked to, and

@@ -901,10 +901,18 @@ fn stickers_and_gifs_wait_while_files_are_being_attached(cx: &mut TestAppContext
     }
 
     // Even asked directly, a sticker is not sent from under the sheet.
-    cx.update_window(harness.window.into(), |_, window, cx| {
+    // The grid is read off the interface's thread: it is there once the
+    // read answers.
+    cx.update_window(harness.window.into(), |_, _, cx| {
         harness.shell.update(cx, |shell, cx| {
             shell.picker.tab = Tab::Stickers;
             shell.picker_load(cx);
+        })
+    })
+    .unwrap();
+    cx.run_until_parked();
+    cx.update_window(harness.window.into(), |_, window, cx| {
+        harness.shell.update(cx, |shell, cx| {
             assert!(!shell.picker.grid().tiles.is_empty());
             shell.picker_send(0, false, window, cx);
             shell.picker.tab = Tab::Emoji;
@@ -1246,4 +1254,53 @@ fn a_file_sent_shows_in_the_chat_at_once_and_waits_there_until_it_is_a_message(
         own_media(shell) == 2 && shell.preparing.is_empty()
     });
     assert!(!shows(harness.window, "preparing", cx));
+}
+
+/// A picture that needs converting (a bitmap, as a screenshot comes on
+/// Windows) is converted off the window's thread: pasting only opens the
+/// sheet with it on its way, which is then a PNG. One that cannot be read
+/// does not leave the sheet reading: it closes, and says so.
+#[gpui_kit::test]
+fn a_pasted_picture_is_converted_while_the_sheet_says_it_is_reading(cx: &mut TestAppContext) {
+    use gpui_kit::{ClipboardEntry, ClipboardItem, Image, ImageFormat};
+    let dir = tempfile::tempdir().unwrap();
+    let (harness, _, _) = open_for_attaching(cx, dir.path());
+    let paste = |image: Image, cx: &mut TestAppContext| {
+        cx.update(|cx| {
+            cx.write_to_clipboard(ClipboardItem {
+                entries: vec![ClipboardEntry::Image(image)],
+            })
+        });
+        press(harness.window, "ctrl-v", cx);
+    };
+
+    let mut bmp = Vec::new();
+    image::DynamicImage::ImageRgba8(image::RgbaImage::from_pixel(
+        1200,
+        800,
+        image::Rgba([200, 30, 60, 255]),
+    ))
+    .write_to(&mut std::io::Cursor::new(&mut bmp), image::ImageFormat::Bmp)
+    .unwrap();
+    focus_composer(&harness, cx);
+    paste(Image::from_bytes(ImageFormat::Bmp, bmp), cx);
+    assert!(shows(harness.window, "attach-reading", cx));
+    until(&harness, cx, sheet_open);
+    cx.update(|cx| {
+        let draft = harness.shell.read(cx).attach.as_ref().unwrap();
+        assert_eq!(draft.items.len(), 1);
+        assert_eq!(draft.items[0].file.name, "pasted-image.png");
+        assert!(draft.items[0].file.bytes.starts_with(b"\x89PNG"));
+    });
+    press(harness.window, "escape", cx);
+
+    focus_composer(&harness, cx);
+    paste(Image::from_bytes(ImageFormat::Tiff, b"junk".to_vec()), cx);
+    assert!(shows(harness.window, "attach-reading", cx));
+    until(&harness, cx, |shell| shell.attach.is_none());
+    cx.update(|cx| {
+        let shell = harness.shell.read(cx);
+        assert_eq!(shell.overlay, Overlay::None);
+        assert!(shell.problem.is_some(), "it says the picture was not read");
+    });
 }

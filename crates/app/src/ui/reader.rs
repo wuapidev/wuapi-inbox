@@ -213,7 +213,7 @@ impl Shell {
         if Self::reads_here(&media) {
             self.begin_reading(media, window, cx);
         } else if media.kind == client_provider::MediaKind::Video {
-            self.watch_video(media, window, cx);
+            self.open_video(media, window, cx);
         } else {
             self.open_file(media, cx);
         }

@@ -290,6 +290,40 @@ impl Shell {
         }));
     }
 
+    /// A picture pasted while the sheet is open: made into a file and
+    /// given its preview off this thread (a large screenshot takes
+    /// seconds to decode), then the status.
+    fn story_pasted(&mut self, picture: attach::PastedPicture, cx: &mut Context<Self>) {
+        let runtime = self.engine.runtime().clone();
+        self.status.draft.busy = true;
+        self.status.draft.note = None;
+        let work = runtime.spawn_blocking(move || {
+            picture.into_attachment().map(|attachment| {
+                let preview = preview_of(&attachment);
+                (attachment, preview)
+            })
+        });
+        // Awaited on the runtime, so the answer wakes this view properly.
+        let work = runtime.spawn(work);
+        self.status.draft.work = Some(cx.spawn(async move |this, cx| {
+            let result = work.await.and_then(|inner| inner);
+            this.update(cx, |this, cx| {
+                this.status.draft.busy = false;
+                match result {
+                    Ok(Some((attachment, preview))) => {
+                        this.story_file_read(attachment, preview, cx)
+                    }
+                    Ok(None) => {
+                        this.status.draft.note = Some(i18n::t("status.post.file_unreadable").into())
+                    }
+                    Err(_) => {}
+                }
+                cx.notify();
+            })
+            .ok();
+        }));
+    }
+
     fn story_file_read(
         &mut self,
         attachment: Attachment,
@@ -326,9 +360,8 @@ impl Shell {
                 self.story_paths(paths, cx);
                 true
             }
-            Pasted::Image(file) => {
-                let preview = preview_of(&file);
-                self.story_file_read(file, preview, cx);
+            Pasted::Image(picture) => {
+                self.story_pasted(picture, cx);
                 true
             }
         }
