@@ -248,9 +248,28 @@ impl Shell {
         });
     }
 
-    /// A picture straight from the clipboard. Its small picture is made
-    /// off this thread too: a large screenshot takes a moment to decode.
-    pub(in crate::ui) fn attach_pasted(&mut self, file: Attachment, cx: &mut Context<Self>) {
+    /// A picture straight from the clipboard. The sheet opens at once with
+    /// it on its way: it is made into a file and given its small picture
+    /// off this thread (a large screenshot takes seconds to decode and
+    /// encode). One that cannot be read closes the sheet again, and says so.
+    pub(in crate::ui) fn attach_pasted(
+        &mut self,
+        picture: attach::PastedPicture,
+        cx: &mut Context<Self>,
+    ) {
+        let limit = self.engine.upload_limit();
+        self.read_for_sheet(1, cx, move || match picture.into_attachment() {
+            Some(file) => (vec![stage(Read::Ready(file), limit)], Vec::new()),
+            None => (
+                Vec::new(),
+                vec![crate::i18n::t("chat.attach_sheet.unreadable").to_owned()],
+            ),
+        });
+    }
+
+    /// A file already made (a photo the camera took): its small picture is
+    /// made off this thread.
+    pub(in crate::ui) fn attach_captured(&mut self, file: Attachment, cx: &mut Context<Self>) {
         let limit = self.engine.upload_limit();
         self.read_for_sheet(1, cx, move || {
             (vec![stage(Read::Ready(file), limit)], Vec::new())

@@ -1262,3 +1262,69 @@ async fn the_view_hears_when_the_phones_favorites_stop_being_available() {
     );
     assert!(store.library_item(&item.id).unwrap().unwrap().favorite);
 }
+
+/// A timing, not a test: how long the library's listing takes over an
+/// encrypted file with a big sticker library, files and all. Run with
+/// `cargo test -p client-core library_listing_timing -- --ignored --nocapture`.
+#[test]
+#[ignore = "a timing, for looking at by hand"]
+fn library_listing_timing() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::open(dir.path().join("library.db"), Some(&test_key())).unwrap();
+    store
+        .write(|tx| {
+            let mut insert = tx.prepare(
+                "INSERT INTO library_items
+                    (id, kind, mime, animated, width, height, size, source, name, pack,
+                     bytes, thumb, thumb_mime, added_at, last_used, favorite, position,
+                     indexed, sent_at, heard_at, origin_account, origin_url)
+                 VALUES (?1, 'sticker', 'image/webp', 0, 512, 512, ?2, 'received', ?3, NULL,
+                         ?4, ?5, 'image/png', ?6, ?7, 0, 0, 1, ?7, ?7, 'acc', ?8)",
+            )?;
+            for number in 0..2_000i64 {
+                let mut bytes = vec![(number % 251) as u8; 60_000];
+                bytes[..8].copy_from_slice(&number.to_le_bytes());
+                insert.execute(rusqlite::params![
+                    format!("sticker-{number}"),
+                    bytes.len() as i64,
+                    format!("name {number}"),
+                    bytes,
+                    vec![7u8; 3_000],
+                    number,
+                    number * 10,
+                    format!("https://wa/{number}"),
+                ])?;
+            }
+            Ok(())
+        })
+        .unwrap();
+    let time = |what: &str, run: &mut dyn FnMut() -> usize| {
+        // The first read may be the cold one: the best of a few is the
+        // warm one.
+        let mut took = Vec::new();
+        let mut rows = 0;
+        for _ in 0..5 {
+            let started = std::time::Instant::now();
+            rows = run();
+            took.push(started.elapsed());
+        }
+        println!(
+            "{what}: {rows} rows, first {:?}, best {:?}",
+            took[0],
+            took.iter().min().unwrap()
+        );
+    };
+    let reader = &store;
+    time("library_items(Sticker)", &mut || {
+        reader.library_items(LibraryKind::Sticker).unwrap().len()
+    });
+    time("library_recent(Sticker)", &mut || {
+        reader
+            .library_recent(LibraryKind::Sticker, RECENT_LIMIT)
+            .unwrap()
+            .len()
+    });
+    time("library_heard", &mut || {
+        reader.library_heard(60).unwrap().len()
+    });
+}

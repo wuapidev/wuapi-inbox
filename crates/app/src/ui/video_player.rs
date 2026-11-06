@@ -2,10 +2,12 @@
 //!
 //! The decoder is the one stories use (`crate::video`): the file's bytes
 //! stay in the encrypted store and are streamed to it, never written out
-//! for another application. A video that is not here yet is fetched
-//! first, with the same button as everywhere. When it cannot be played
-//! here (no decoder in this build, a file it does not read), the player
-//! says so and offers the system's player.
+//! for another application. The player does not open over a video that is
+//! not here: a click on the bubble fetches it, the bubble shows how far it
+//! is (or the way to try again), and the player opens when the file is
+//! here (see [`Shell::open_video`]). When it cannot be played here (no
+//! decoder in this build, a file it does not read), the player says so and
+//! offers the system's player.
 
 use super::shell::{Overlay, Shell};
 use super::transfer::{transfer_button, Transfer};
@@ -16,7 +18,7 @@ use crate::icons::IconName;
 use crate::theme::px;
 use crate::theme::{metrics, Palette};
 use crate::video::Clip;
-use client_provider::Media;
+use client_provider::{AccountId, ChatId, Media};
 use gpui_kit::prelude::*;
 use gpui_kit::{div, Context, Div, RenderImage, SharedString, Task, Window};
 use std::sync::Arc;
@@ -27,10 +29,21 @@ const TICK: Duration = Duration::from_millis(33);
 /// How far the arrows move.
 const STEP: Duration = Duration::from_secs(5);
 
+/// A video the person asked to play that is on its way: it opens when it
+/// arrives, if the window is still where they asked.
+pub(super) struct VideoWait {
+    media: Media,
+    /// The chat the click was in.
+    account: AccountId,
+    chat: ChatId,
+}
+
 /// The video being played, if one is.
 #[derive(Default)]
 pub(super) struct VideoDeck {
     pub(super) media: Option<Media>,
+    /// The video waited for, when there is one.
+    pub(super) waiting: Option<VideoWait>,
     clip: Option<Arc<Clip>>,
     /// Why it cannot be played here.
     pub(super) failure: Option<SharedString>,
@@ -68,6 +81,105 @@ fn clock_of(at: Duration) -> String {
 }
 
 impl Shell {
+    /// A click on a video of a conversation. One that is here opens in the
+    /// player. One that is not is fetched (or, when it is already coming,
+    /// left to come: a click never starts it twice), and the bubble shows
+    /// how far it is; the player is not opened over an empty picture. The
+    /// click is remembered, so that the player opens by itself when the file
+    /// arrives (see [`video_arrived`](Self::video_arrived)). A file that is
+    /// gone for good does nothing: the bubble says so.
+    pub(super) fn open_video(&mut self, media: Media, window: &mut Window, cx: &mut Context<Self>) {
+        let (Some(account), Some(chat), Some(source)) = (
+            self.account.clone(),
+            self.open.as_ref().map(|open| open.chat.id.clone()),
+            media.source.clone(),
+        ) else {
+            return;
+        };
+        let url = source.as_str();
+        match self.media.file_state(url) {
+            super::media::FileState::Ready => return self.watch_video(media, window, cx),
+            super::media::FileState::Loading => {}
+            // Not asked for yet, stopped, or failed: this click is the ask.
+            super::media::FileState::NotFetched => self.media.retry_file(&account, url),
+            super::media::FileState::Unavailable(_) => {
+                if self.media.file_expired(url) {
+                    return;
+                }
+                self.media.retry_file(&account, url);
+            }
+        }
+        self.video.waiting = Some(VideoWait {
+            media,
+            account,
+            chat,
+        });
+        cx.notify();
+    }
+
+    /// The person stopped the download of `url` with the bubble's button:
+    /// the click that asked for it is withdrawn.
+    pub(super) fn video_stopped(&mut self, url: &str) {
+        let waited = self.video.waiting.as_ref().is_some_and(|wait| {
+            wait.media
+                .source
+                .as_ref()
+                .is_some_and(|source| source.as_str() == url)
+        });
+        if waited {
+            self.video.waiting = None;
+        }
+    }
+
+    /// A file was cached, or could not be: if it is the video the person
+    /// is waiting for, go on with it. It opens only where they clicked: the
+    /// same chat still open and nothing else on top of it. Otherwise it is
+    /// just ready, and the bubble offers to play it.
+    pub(super) fn video_arrived(&mut self, key: &str, cx: &mut Context<Self>) {
+        let Some(url) = self
+            .video
+            .waiting
+            .as_ref()
+            .and_then(|wait| wait.media.source.as_ref())
+            .map(|source| source.to_string())
+            .filter(|url| client_core::file_key(url) == key)
+        else {
+            return;
+        };
+        match self.media.file_state(&url) {
+            super::media::FileState::Ready => {}
+            // It did not come: the bubble shows why, with the way to try
+            // again, and the click is over.
+            super::media::FileState::Unavailable(_) => {
+                self.video.waiting = None;
+                return cx.notify();
+            }
+            _ => return,
+        }
+        let Some(wait) = self.video.waiting.take() else {
+            return;
+        };
+        let here = self
+            .open
+            .as_ref()
+            .is_some_and(|open| open.chat.account_id == wait.account && open.chat.id == wait.chat);
+        if !here || self.overlay != Overlay::None {
+            return cx.notify();
+        }
+        // Opening a sheet needs the window, which a change in the store
+        // does not carry: right after this.
+        let (window, this) = (self.status.window, cx.entity());
+        cx.defer(move |cx| {
+            let _ = window.update(cx, |_, window, cx| {
+                this.update(cx, |shell, cx| {
+                    if shell.overlay == Overlay::None {
+                        shell.watch_video(wait.media, window, cx);
+                    }
+                })
+            });
+        });
+    }
+
     /// Opens the player on a video, fetching it first if need be.
     pub(super) fn watch_video(
         &mut self,

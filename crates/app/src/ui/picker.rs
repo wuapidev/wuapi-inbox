@@ -366,34 +366,42 @@ struct Shelf {
     /// Online previews, by URL.
     online: RefCell<HashMap<String, Option<Arc<Image>>>>,
     asked: RefCell<HashSet<String>>,
+    /// The items whose thumbnail is being read off the interface's
+    /// thread.
+    fetching: RefCell<HashSet<String>>,
 }
 
 impl Shelf {
-    fn thumb(&self, item: &LibraryItem) -> Option<Arc<Image>> {
-        if !item.has_thumb {
-            return None;
+    /// The thumbnail of an item if it is kept: `Some(None)` is an item
+    /// that was read and has none to draw.
+    fn kept(&self, id: &str) -> Option<Option<Arc<Image>>> {
+        self.thumbs.borrow().get(id).cloned()
+    }
+
+    /// Notes that the thumbnail of `id` is about to be read. `false`
+    /// when it already is: one read per item, however often it is drawn.
+    fn begin(&self, id: &str) -> bool {
+        self.fetching.borrow_mut().insert(id.to_owned())
+    }
+
+    /// Keeps what was read for `id`, unless the shelf was let go of since.
+    fn keep(&self, id: String, image: Option<Arc<Image>>) -> bool {
+        if !self.fetching.borrow_mut().remove(&id) {
+            return false;
         }
         let mut thumbs = self.thumbs.borrow_mut();
-        if let Some(known) = thumbs.get(&item.id) {
-            return known.clone();
-        }
-        if thumbs.len() > SHELF_LIMIT {
+        if thumbs.len() >= SHELF_LIMIT {
             thumbs.clear();
         }
-        let image = self
-            .store
-            .library_thumb(&item.id)
-            .ok()
-            .flatten()
-            .and_then(|(bytes, mime)| super::media::image_of(bytes, Some(&mime)));
-        thumbs.insert(item.id.clone(), image.clone());
-        image
+        thumbs.insert(id, image);
+        true
     }
 
     fn clear(&self) {
         self.thumbs.borrow_mut().clear();
         self.online.borrow_mut().clear();
         self.asked.borrow_mut().clear();
+        self.fetching.borrow_mut().clear();
     }
 }
 
@@ -437,6 +445,15 @@ pub(super) struct PickerUi {
     /// click or a repeated Enter on one of them is the same request, not
     /// another message. It outlives the picker: the work does too.
     sending: HashSet<String>,
+    /// Whether the grid on show is being read from the store, and whether
+    /// something asked for it again meanwhile: the reads do not pile up,
+    /// one more follows the one under way.
+    reading: bool,
+    stale: bool,
+    /// The sticker the keyboard goes to when the grid is next read: one
+    /// that was just moved among the favorites.
+    follow: Option<String>,
+    _read: Option<Task<()>>,
     _tasks: Vec<Task<()>>,
     _online: Option<Task<()>>,
     _notice: Option<Task<()>>,
@@ -460,6 +477,7 @@ impl PickerUi {
                 thumbs: RefCell::default(),
                 online: RefCell::default(),
                 asked: RefCell::default(),
+                fetching: RefCell::default(),
             },
             hover: None,
             moving: Rc::default(),
@@ -475,6 +493,10 @@ impl PickerUi {
             services: Services::new(secrets),
             notice: None,
             sending: HashSet::new(),
+            reading: false,
+            stale: false,
+            follow: None,
+            _read: None,
             _tasks: Vec::new(),
             _online: None,
             _notice: None,
@@ -539,6 +561,10 @@ impl PickerUi {
         self.decoding = None;
         self.notice = None;
         self._tasks.clear();
+        self._read = None;
+        self.reading = false;
+        self.stale = false;
+        self.follow = None;
         self._online = None;
         self.stop_moving();
         self.shelf.clear();
@@ -578,6 +604,217 @@ impl PickerUi {
         let grid = self.grid();
         grid.tiles.get(grid.cursor)
     }
+}
+
+// ----- what the grids are built from -------------------------------------------------------
+
+/// What the grid of one tab was read from the store.
+enum Read {
+    Stickers(StickerData),
+    Gifs(Vec<LibraryItem>),
+}
+
+/// What the first line of the Favorites section can say about the phone's
+/// favorites, known to the interface and not to the store.
+#[derive(Clone, Copy)]
+struct Favorites {
+    /// The provider has none: the ones starred here are all there is.
+    local_only: bool,
+    /// The provider has them, not yet for the number on screen.
+    phone_missing: bool,
+}
+
+/// The sticker library as the sections of the grid need it. Read in one
+/// go, off the interface's thread.
+#[derive(Default)]
+struct StickerData {
+    items: Vec<LibraryItem>,
+    packs: Vec<client_core::LibraryPack>,
+    recent: Vec<LibraryItem>,
+    favorites: Vec<LibraryItem>,
+    /// Those heard in chats, without what other sections show.
+    heard: Vec<LibraryItem>,
+}
+
+impl StickerData {
+    /// Reads what a search of `query` (or, with none, the whole grid)
+    /// needs.
+    fn read(store: &Store, query: &str) -> Self {
+        let items = store
+            .library_items(LibraryKind::Sticker)
+            .unwrap_or_default();
+        let packs = store.library_packs().unwrap_or_default();
+        if !query.is_empty() {
+            return Self {
+                items,
+                packs,
+                ..Self::default()
+            };
+        }
+        let recent = store
+            .library_recent(LibraryKind::Sticker, client_core::RECENT_LIMIT)
+            .unwrap_or_default();
+        let favorites = store
+            .library_favorites(LibraryKind::Sticker)
+            .unwrap_or_default();
+        let shown: HashSet<&str> = recent
+            .iter()
+            .chain(&favorites)
+            .map(|item| item.id.as_str())
+            .collect();
+        let heard: Vec<LibraryItem> = store
+            .library_heard(client_core::HEARD_LIMIT + shown.len())
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|item| !shown.contains(item.id.as_str()))
+            .take(client_core::HEARD_LIMIT)
+            .collect();
+        Self {
+            items,
+            packs,
+            recent,
+            favorites,
+            heard,
+        }
+    }
+}
+
+/// The grid of the Stickers tab: the matches of a search, or the
+/// sections of the library.
+fn sticker_grid(data: StickerData, query: &str, favorites: Favorites) -> Grid {
+    let StickerData {
+        items,
+        packs,
+        recent,
+        favorites: starred,
+        heard,
+    } = data;
+    let mut grid = Grid::new(STICKER_COLUMNS);
+    let tile = |item: LibraryItem| Tile {
+        kind: TileKind::Sticker(item),
+    };
+    let query = query.to_lowercase();
+    if !query.is_empty() {
+        let pack_name = |id: &Option<String>| {
+            packs
+                .iter()
+                .find(|pack| Some(&pack.id) == id.as_ref())
+                .map(|pack| pack.name.to_lowercase())
+        };
+        let found: Vec<Tile> = items
+            .into_iter()
+            .filter(|item| {
+                item.name
+                    .as_deref()
+                    .is_some_and(|name| name.to_lowercase().contains(&query))
+                    || pack_name(&item.pack).is_some_and(|name| name.contains(&query))
+            })
+            .map(tile)
+            .collect();
+        grid.section(crate::i18n::t("chat.picker.found"), IconName::Search);
+        if found.is_empty() {
+            grid.note(texts::no_sticker_found());
+        }
+        grid.fill(found);
+        return grid;
+    }
+
+    // What the sections hold, and what an empty one says. Sections with
+    // something in them come first, in this order; an empty one is its
+    // heading and one line, after them.
+    let mut sections: Vec<(String, IconName, Vec<LibraryItem>, Option<&str>)> = Vec::new();
+    sections.push((
+        crate::i18n::t("chat.picker.recent").into(),
+        IconName::Clock3,
+        recent,
+        None,
+    ));
+    // Where the phone's favorites cannot be had, the first line says
+    // so: a provider without them, or one that has not turned them
+    // on for the number on screen yet. The ones starred here work
+    // either way.
+    let favorites_note = if favorites.local_only {
+        Some(texts::favorites_local())
+    } else if favorites.phone_missing {
+        Some(texts::favorites_not_yet())
+    } else if starred.is_empty() {
+        Some(texts::favorites_synced())
+    } else {
+        None
+    };
+    sections.push((
+        crate::i18n::t("chat.picker.favorites").into(),
+        IconName::Star,
+        starred,
+        favorites_note,
+    ));
+    for pack in &packs {
+        let inside: Vec<LibraryItem> = items
+            .iter()
+            .filter(|item| item.pack.as_deref() == Some(pack.id.as_str()))
+            .cloned()
+            .collect();
+        sections.push((pack.name.clone(), IconName::Sticker, inside, None));
+    }
+    let heard_note = heard.is_empty().then_some(texts::from_chats_empty());
+    sections.push((
+        crate::i18n::t("chat.picker.from_chats").into(),
+        IconName::MessageCircle,
+        heard,
+        heard_note,
+    ));
+    let loose: Vec<LibraryItem> = items
+        .into_iter()
+        .filter(|item| {
+            !item.indexed
+                && item
+                    .pack
+                    .as_ref()
+                    .is_none_or(|id| !packs.iter().any(|pack| &pack.id == id))
+        })
+        .collect();
+    sections.push((
+        crate::i18n::t("chat.picker.all_stickers").into(),
+        IconName::Sticker,
+        loose,
+        None,
+    ));
+
+    let (full, empty): (Vec<_>, Vec<_>) = sections
+        .into_iter()
+        .partition(|(_, _, tiles, _)| !tiles.is_empty());
+    for (title, glyph, tiles, note) in full.into_iter().chain(empty) {
+        if tiles.is_empty() && note.is_none() {
+            continue;
+        }
+        grid.section(&title, glyph);
+        if let Some(note) = note {
+            grid.note(note);
+        }
+        grid.fill(tiles.into_iter().map(tile).collect());
+    }
+    grid
+}
+
+/// The grid of the saved GIFs.
+fn saved_gifs_grid(found: Vec<LibraryItem>, query: &str) -> Grid {
+    let mut grid = Grid::new(GIF_COLUMNS);
+    if found.is_empty() {
+        grid.note(if query.is_empty() {
+            texts::no_saved_gifs()
+        } else {
+            texts::no_gif_found()
+        });
+    }
+    grid.fill(
+        found
+            .into_iter()
+            .map(|item| Tile {
+                kind: TileKind::Gif(GifEntry::Saved(item)),
+            })
+            .collect(),
+    );
+    grid
 }
 
 // ----- the actions -----------------------------------------------------------------------
@@ -716,28 +953,104 @@ impl Shell {
     }
 
     /// The picker opened (or the library changed under it): the grid of
-    /// the tab on show is read from the store again.
+    /// the tab on show is read from the store again. The read is made off
+    /// the interface's thread (the store may be busy with the sync): the
+    /// grid on show stays as it was until it answers.
     pub(super) fn picker_load(&mut self, cx: &mut Context<Self>) {
-        let query = self.emoji_search_text(cx);
         match self.picker.tab {
             Tab::Emoji => {}
             Tab::Stickers => {
                 self.engine_want_favorites();
-                let cursor = self.picker.stickers.cursor;
-                self.picker.stickers = self.build_stickers(&query);
-                self.picker.stickers.cursor =
-                    cursor.min(self.picker.stickers.tiles.len().saturating_sub(1));
+                self.picker_read(cx);
             }
+            Tab::Gifs if self.picker.source == Source::Saved => self.picker_read(cx),
             Tab::Gifs => {
+                let query = self.emoji_search_text(cx);
                 let cursor = self.picker.gifs.cursor;
-                self.picker.gifs = self.build_gifs(&query, cx);
+                self.picker.gifs = self.online_gifs(cx);
                 self.picker.gifs.cursor =
                     cursor.min(self.picker.gifs.tiles.len().saturating_sub(1));
-                if self.picker.source == Source::Online {
-                    self.online_search(&query, cx);
-                }
+                self.online_search(&query, cx);
+                self.picker.sync_lists();
+                self.picker_activate(cx);
             }
         }
+    }
+
+    /// Reads what the grid of the tab on show is made of, off the
+    /// interface's thread, and builds it when the read answers. A read
+    /// asked for while one is under way is not started beside it: it
+    /// follows it, once, however many were asked for (a sticker sent
+    /// changes the library several times).
+    fn picker_read(&mut self, cx: &mut Context<Self>) {
+        if self.picker.reading {
+            self.picker.stale = true;
+            return;
+        }
+        self.picker.reading = true;
+        self.picker.stale = false;
+        let (tab, query) = (self.picker.tab, self.emoji_search_text(cx));
+        let store = self.store.clone();
+        // What the interface says about the favorites is not the store's.
+        let favorites = Favorites {
+            local_only: !self.caps_here().sticker_favorites,
+            phone_missing: self.account.as_ref().is_some_and(|account| {
+                self.engine
+                    .feature_unavailable(account, client_provider::Feature::StickerFavorites)
+            }),
+        };
+        self.picker._read = Some(cx.spawn(async move |this, cx| {
+            let asked = query.clone();
+            let read = cx
+                .background_spawn(async move {
+                    match tab {
+                        Tab::Stickers => Read::Stickers(StickerData::read(&store, &asked)),
+                        _ => Read::Gifs(SavedGifs::new(store).find(&asked)),
+                    }
+                })
+                .await;
+            this.update(cx, |this, cx| {
+                this.picker.reading = false;
+                // Whatever changed meanwhile (the tab, the source, the
+                // text) was asked for again: what answers it is shown.
+                let current = this.picker.tab == tab
+                    && this.emoji_search_text(cx) == query
+                    && (tab == Tab::Stickers || this.picker.source == Source::Saved);
+                if current {
+                    this.picker_read_done(read, &query, favorites, cx);
+                }
+                if std::mem::take(&mut this.picker.stale) {
+                    this.picker_load(cx);
+                } else if let Some(id) = this.picker.follow.take() {
+                    if current {
+                        this.picker_follow_now(&id, cx);
+                    }
+                }
+                cx.notify();
+            })
+            .ok();
+        }));
+    }
+
+    /// What was read is the grid on show: built, with the cursor where it
+    /// was as far as the grid goes.
+    fn picker_read_done(
+        &mut self,
+        read: Read,
+        query: &str,
+        favorites: Favorites,
+        cx: &mut Context<Self>,
+    ) {
+        let grid = match read {
+            Read::Stickers(_) => &mut self.picker.stickers,
+            Read::Gifs(_) => &mut self.picker.gifs,
+        };
+        let cursor = grid.cursor;
+        *grid = match read {
+            Read::Stickers(data) => sticker_grid(data, query, favorites),
+            Read::Gifs(found) => saved_gifs_grid(found, query),
+        };
+        grid.cursor = cursor.min(grid.tiles.len().saturating_sub(1));
         self.picker.sync_lists();
         self.picker_activate(cx);
     }
@@ -771,190 +1084,36 @@ impl Shell {
         cx.notify();
     }
 
-    fn build_stickers(&self, query: &str) -> Grid {
-        let store = &self.store;
-        let mut grid = Grid::new(STICKER_COLUMNS);
-        let items = store
-            .library_items(LibraryKind::Sticker)
-            .unwrap_or_default();
-        let packs = store.library_packs().unwrap_or_default();
-        let tile = |item: LibraryItem| Tile {
-            kind: TileKind::Sticker(item),
-        };
-        let query = query.to_lowercase();
-        if !query.is_empty() {
-            let pack_name = |id: &Option<String>| {
-                packs
-                    .iter()
-                    .find(|pack| Some(&pack.id) == id.as_ref())
-                    .map(|pack| pack.name.to_lowercase())
-            };
-            let found: Vec<Tile> = items
-                .into_iter()
-                .filter(|item| {
-                    item.name
-                        .as_deref()
-                        .is_some_and(|name| name.to_lowercase().contains(&query))
-                        || pack_name(&item.pack).is_some_and(|name| name.contains(&query))
-                })
-                .map(tile)
-                .collect();
-            grid.section(crate::i18n::t("chat.picker.found"), IconName::Search);
-            if found.is_empty() {
-                grid.note(texts::no_sticker_found());
-            }
-            grid.fill(found);
-            return grid;
-        }
-
-        // What the sections hold, and what an empty one says. Sections with
-        // something in them come first, in this order; an empty one is its
-        // heading and one line, after them.
-        let recent = store
-            .library_recent(LibraryKind::Sticker, client_core::RECENT_LIMIT)
-            .unwrap_or_default();
-        let favorites = store
-            .library_favorites(LibraryKind::Sticker)
-            .unwrap_or_default();
-        let shown: HashSet<&str> = recent
-            .iter()
-            .chain(&favorites)
-            .map(|item| item.id.as_str())
-            .collect();
-        let heard: Vec<LibraryItem> = store
-            .library_heard(client_core::HEARD_LIMIT + shown.len())
-            .unwrap_or_default()
-            .into_iter()
-            .filter(|item| !shown.contains(item.id.as_str()))
-            .take(client_core::HEARD_LIMIT)
-            .collect();
-        let mut sections: Vec<(String, IconName, Vec<LibraryItem>, Option<&str>)> = Vec::new();
-        sections.push((
-            crate::i18n::t("chat.picker.recent").into(),
-            IconName::Clock3,
-            recent.clone(),
-            None,
-        ));
-        // Where the phone's favorites cannot be had, the first line says
-        // so: a provider without them, or one that has not turned them
-        // on for the number on screen yet. The ones starred here work
-        // either way.
-        let phone_missing = self.account.as_ref().is_some_and(|account| {
-            self.engine
-                .feature_unavailable(account, client_provider::Feature::StickerFavorites)
-        });
-        let favorites_note = if !self.caps_here().sticker_favorites {
-            Some(texts::favorites_local())
-        } else if phone_missing {
-            Some(texts::favorites_not_yet())
-        } else if favorites.is_empty() {
-            Some(texts::favorites_synced())
-        } else {
-            None
-        };
-        sections.push((
-            crate::i18n::t("chat.picker.favorites").into(),
-            IconName::Star,
-            favorites,
-            favorites_note,
-        ));
-        for pack in &packs {
-            let inside: Vec<LibraryItem> = items
-                .iter()
-                .filter(|item| item.pack.as_deref() == Some(pack.id.as_str()))
-                .cloned()
-                .collect();
-            sections.push((pack.name.clone(), IconName::Sticker, inside, None));
-        }
-        let heard_note = heard.is_empty().then_some(texts::from_chats_empty());
-        sections.push((
-            crate::i18n::t("chat.picker.from_chats").into(),
-            IconName::MessageCircle,
-            heard,
-            heard_note,
-        ));
-        let loose: Vec<LibraryItem> = items
-            .into_iter()
-            .filter(|item| {
-                !item.indexed
-                    && item
-                        .pack
-                        .as_ref()
-                        .is_none_or(|id| !packs.iter().any(|pack| &pack.id == id))
-            })
-            .collect();
-        sections.push((
-            crate::i18n::t("chat.picker.all_stickers").into(),
-            IconName::Sticker,
-            loose,
-            None,
-        ));
-
-        let (full, empty): (Vec<_>, Vec<_>) = sections
-            .into_iter()
-            .partition(|(_, _, tiles, _)| !tiles.is_empty());
-        for (title, glyph, tiles, note) in full.into_iter().chain(empty) {
-            if tiles.is_empty() && note.is_none() {
-                continue;
-            }
-            grid.section(&title, glyph);
-            if let Some(note) = note {
-                grid.note(note);
-            }
-            grid.fill(tiles.into_iter().map(tile).collect());
-        }
-        grid
-    }
-
-    fn build_gifs(&self, query: &str, cx: &gpui_kit::App) -> Grid {
+    /// The grid of the online search: the hits as they stand, or what
+    /// stands in their place.
+    fn online_gifs(&self, cx: &gpui_kit::App) -> Grid {
         let mut grid = Grid::new(GIF_COLUMNS);
-        match self.picker.source {
-            Source::Saved => {
-                let saved = SavedGifs::new(self.store.clone());
-                let found = saved.find(query);
-                if found.is_empty() {
-                    grid.note(if query.is_empty() {
-                        texts::no_saved_gifs()
-                    } else {
-                        texts::no_gif_found()
-                    });
-                }
+        match self.online_readiness(cx) {
+            Readiness::Ready => {
                 grid.fill(
-                    found
-                        .into_iter()
-                        .map(|item| Tile {
-                            kind: TileKind::Gif(GifEntry::Saved(item)),
+                    self.picker
+                        .online
+                        .hits
+                        .iter()
+                        .cloned()
+                        .map(|hit| Tile {
+                            kind: TileKind::Gif(GifEntry::Online(hit)),
                         })
                         .collect(),
                 );
-            }
-            Source::Online => match self.online_readiness(cx) {
-                Readiness::Ready => {
-                    grid.fill(
-                        self.picker
-                            .online
-                            .hits
-                            .iter()
-                            .cloned()
-                            .map(|hit| Tile {
-                                kind: TileKind::Gif(GifEntry::Online(hit)),
-                            })
-                            .collect(),
-                    );
-                    match &self.picker.online.status {
-                        Status::Loading if self.picker.online.hits.is_empty() => {
-                            grid.note(crate::i18n::t("chat.picker.searching"))
-                        }
-                        Status::Failed(why) => grid.note(why.clone()),
-                        Status::Idle if self.picker.online.hits.is_empty() => {
-                            grid.note(crate::i18n::t("chat.picker.nothing_found"))
-                        }
-                        _ => {}
+                match &self.picker.online.status {
+                    Status::Loading if self.picker.online.hits.is_empty() => {
+                        grid.note(crate::i18n::t("chat.picker.searching"))
                     }
+                    Status::Failed(why) => grid.note(why.clone()),
+                    Status::Idle if self.picker.online.hits.is_empty() => {
+                        grid.note(crate::i18n::t("chat.picker.nothing_found"))
+                    }
+                    _ => {}
                 }
-                Readiness::Off => grid.note(texts::online_off()),
-                Readiness::NoKey => grid.note(texts::online_no_key()),
-            },
+            }
+            Readiness::Off => grid.note(texts::online_off()),
+            Readiness::NoKey => grid.note(texts::online_no_key()),
         }
         grid
     }
@@ -1030,8 +1189,7 @@ impl Shell {
                     }
                 }
                 let cursor = this.picker.gifs.cursor;
-                let text = this.emoji_search_text(cx);
-                this.picker.gifs = this.build_gifs(&text, cx);
+                this.picker.gifs = this.online_gifs(cx);
                 this.picker.gifs.cursor =
                     cursor.min(this.picker.gifs.tiles.len().saturating_sub(1));
                 this.picker.sync_lists();
@@ -1560,8 +1718,15 @@ impl Shell {
     }
 
     /// After the favorites were rearranged: the keyboard goes with the
-    /// sticker, to its place in the Favorites section.
-    fn picker_follow(&mut self, id: &str, cx: &mut Context<Self>) {
+    /// sticker, to its place in the Favorites section, once the grid has
+    /// been read again.
+    fn picker_follow(&mut self, id: &str) {
+        self.picker.follow = Some(id.to_owned());
+    }
+
+    /// The keyboard goes to the sticker in the Favorites section of the
+    /// grid on show.
+    fn picker_follow_now(&mut self, id: &str, cx: &mut Context<Self>) {
         let grid = self.picker.grid();
         let from = grid
             .sections
@@ -1726,7 +1891,7 @@ impl Shell {
                         Action::Later
                     };
                     self.picker_do(action, cursor, window, cx);
-                    self.picker_follow(&id, cx);
+                    self.picker_follow(&id);
                 }
             }
             "left" | "right" if plain && searching && self.emoji.zone == Zone::Search => {
@@ -1857,7 +2022,7 @@ impl Shell {
         }
         let still: Option<Arc<Image>> = match &tile.kind {
             TileKind::Sticker(item) | TileKind::Gif(GifEntry::Saved(item)) => {
-                self.picker.shelf.thumb(item)
+                self.tile_thumb(item, cx)
             }
             TileKind::Gif(GifEntry::Online(hit)) => hit
                 .still_url
@@ -1937,6 +2102,43 @@ impl Shell {
                     .into_any_element()
             }
         }
+    }
+
+    /// The small still of a library item: the one kept, or none (the
+    /// tile shows its place) while it is read from the encrypted store
+    /// off the interface's thread, once, and drawn when it arrives.
+    fn tile_thumb(&self, item: &LibraryItem, cx: &mut Context<Self>) -> Option<Arc<Image>> {
+        if !item.has_thumb {
+            return None;
+        }
+        if let Some(kept) = self.picker.shelf.kept(&item.id) {
+            return kept;
+        }
+        if !self.picker.shelf.begin(&item.id) {
+            return None;
+        }
+        let store = self.picker.shelf.store.clone();
+        let id = item.id.clone();
+        cx.spawn(async move |this, cx| {
+            let wanted = id.clone();
+            let image = cx
+                .background_spawn(async move {
+                    store
+                        .library_thumb(&wanted)
+                        .ok()
+                        .flatten()
+                        .and_then(|(bytes, mime)| super::media::image_of(bytes, Some(&mime)))
+                })
+                .await;
+            this.update(cx, |this, cx| {
+                if this.picker.shelf.keep(id, image) {
+                    cx.notify();
+                }
+            })
+            .ok();
+        })
+        .detach();
+        None
     }
 
     /// An online preview, fetched once, behind the user's key's service
