@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 
+## [0.14.0]
+
+* Forwarding no longer freezes the window: the sheet opens at once and its chats are read in the background as you type, and pressing send closes it at once while the copies are queued behind it.
+* The stickers no longer freeze the window when they open or when one is sent: the grid and its pictures are read in the background, and the several changes a send makes are one reload. The stickers are kept with their files last in the database (a migration, once, at the first start), so listing them reads a few kilobytes instead of every file: about ten times faster.
+* A pasted picture no longer holds the window while it is converted: it is made into a file, and its preview drawn, while the sheet says "Reading…". One that cannot be read closes the sheet and says so.
+* A video that is not here yet no longer opens an empty player: a click downloads it with its progress on the bubble, a second click does not start it again, and it opens by itself when it arrives if its chat is still on screen and nothing else is open. One that fails shows the button to try again.
+
 ## [0.13.0]
 
 * The composer's "+" is a menu: photos, videos and files (the file dialog, as before), the camera, a poll and an event. Ctrl+O still opens the file dialog at once.
