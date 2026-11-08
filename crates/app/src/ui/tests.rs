@@ -6511,6 +6511,266 @@ fn a_gif_downloads_by_itself_like_a_sticker_and_a_video_waits(cx: &mut TestAppCo
     );
 }
 
+/// Like [`push_described_media`], into a chat that is not the open one:
+/// what arrives while the person is somewhere else. Returns the chat.
+fn push_media_elsewhere(
+    harness: &Harness,
+    cx: &mut TestAppContext,
+    id: &str,
+    kind: client_provider::MediaKind,
+    url: &str,
+    describe: impl FnOnce(&mut client_provider::Media),
+) -> client_provider::ChatId {
+    use client_provider::{
+        ContactId, Media, MediaRef, Message, MessageId, ProviderEvent, Timestamp,
+    };
+    let (account, other) = cx.update(|cx| {
+        let shell = harness.shell.read(cx);
+        let open = shell.open.as_ref().unwrap().chat.id.to_string();
+        let other = chat_rows(shell)
+            .into_iter()
+            .map(|(id, ..)| id)
+            .find(|id| *id != open)
+            .unwrap();
+        (
+            shell.account.clone().unwrap(),
+            client_provider::ChatId::new(other),
+        )
+    });
+    let mut media = Media::new(kind);
+    media.source = Some(MediaRef::new(url));
+    describe(&mut media);
+    harness
+        .engine
+        .apply_event(ProviderEvent::MessageUpserted(Message {
+            id: MessageId::new(id),
+            client_id: None,
+            account_id: account,
+            chat_id: other.clone(),
+            sender: ContactId::new("them"),
+            sender_name: None,
+            direction: Direction::Incoming,
+            timestamp: Timestamp::from_millis(Timestamp::now().as_millis() + 60_000),
+            content: MessageContent::Media(media),
+            reply_to: None,
+            status: DeliveryStatus::Delivered,
+            edited: false,
+            deleted: false,
+            extras: Default::default(),
+        }))
+        .unwrap();
+    cx.run_until_parked();
+    other
+}
+
+/// Lets what the shell asked of the engine run, for a while.
+fn let_downloads_run(harness: &Harness, cx: &mut TestAppContext) {
+    for _ in 0..40 {
+        harness.settle(cx);
+        std::thread::sleep(Duration::from_millis(3));
+    }
+}
+
+#[gpui_kit::test]
+fn what_arrives_in_a_chat_that_is_not_open_is_fetched_before_it_is_opened(cx: &mut TestAppContext) {
+    use client_provider::MediaKind;
+    let harness = open_chat_with_policy(cx, crate::settings::MediaChoice::Images);
+    let open = cx.update(|cx| {
+        harness
+            .shell
+            .read(cx)
+            .open
+            .as_ref()
+            .unwrap()
+            .chat
+            .id
+            .clone()
+    });
+
+    let picture = "https://media.example/elsewhere.png";
+    harness.mock.set_media(picture, png(64, 64), "image/png");
+    let chat = push_media_elsewhere(&harness, cx, "e-img", MediaKind::Image, picture, |media| {
+        media.mime_type = Some("image/png".into());
+        media.size_bytes = Some(64);
+    });
+    let gif = "https://media.example/elsewhere.mp4";
+    harness
+        .mock
+        .set_media(gif, b"gif-mp4".to_vec(), "video/mp4");
+    push_media_elsewhere(&harness, cx, "e-gif", MediaKind::Video, gif, |media| {
+        media.mime_type = Some("video/mp4".into());
+        media.gif = true;
+        media.size_bytes = Some(7);
+    });
+    let video = "https://media.example/elsewhere-clip.mp4";
+    harness.mock.set_media(video, b"clip".to_vec(), "video/mp4");
+    push_media_elsewhere(&harness, cx, "e-vid", MediaKind::Video, video, |media| {
+        media.mime_type = Some("video/mp4".into());
+        media.size_bytes = Some(4);
+    });
+    let note = "https://media.example/elsewhere.ogg";
+    harness.mock.set_media(note, b"OggS".to_vec(), "audio/ogg");
+    push_media_elsewhere(&harness, cx, "e-voice", MediaKind::Voice, note, |media| {
+        media.mime_type = Some("audio/ogg".into());
+        media.size_bytes = Some(4);
+    });
+
+    let store = harness.engine.store();
+    let mut here = (false, false);
+    for _ in 0..200 {
+        harness.settle(cx);
+        here = (
+            store
+                .has_media(&client_core::thumbnail_key(picture))
+                .unwrap(),
+            store.has_media(&client_core::file_key(gif)).unwrap(),
+        );
+        if here == (true, true) {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(3));
+    }
+    assert!(here.0, "a picture is fetched before its chat is opened");
+    assert!(here.1, "so is a gif, under the rule of a picture");
+    let_downloads_run(&harness, cx);
+    assert!(
+        !store.has_media(&client_core::file_key(video)).unwrap(),
+        "a video waits for a click, opened or not"
+    );
+    assert!(
+        !store.has_media(&client_core::file_key(note)).unwrap(),
+        "a voice note is fetched only under everything"
+    );
+    cx.update(|cx| {
+        let shell = harness.shell.read(cx);
+        assert_eq!(shell.open.as_ref().unwrap().chat.id, open);
+        assert_ne!(open, chat, "the chat was never opened");
+    });
+}
+
+#[gpui_kit::test]
+fn nothing_is_fetched_ahead_when_the_policy_says_never(cx: &mut TestAppContext) {
+    use client_provider::MediaKind;
+    let harness = open_chat_with_policy(cx, crate::settings::MediaChoice::Never);
+    let calls = harness.mock.media_calls();
+    let picture = "https://media.example/never.png";
+    harness.mock.set_media(picture, png(64, 64), "image/png");
+    push_media_elsewhere(&harness, cx, "n-img", MediaKind::Image, picture, |media| {
+        media.mime_type = Some("image/png".into());
+    });
+    let gif = "https://media.example/never.mp4";
+    harness
+        .mock
+        .set_media(gif, b"gif-mp4".to_vec(), "video/mp4");
+    push_media_elsewhere(&harness, cx, "n-gif", MediaKind::Video, gif, |media| {
+        media.mime_type = Some("video/mp4".into());
+        media.gif = true;
+    });
+    let_downloads_run(&harness, cx);
+    assert_eq!(harness.mock.media_calls(), calls);
+    let store = harness.engine.store();
+    assert!(!store
+        .has_media(&client_core::thumbnail_key(picture))
+        .unwrap());
+    assert!(!store.has_media(&client_core::file_key(gif)).unwrap());
+}
+
+#[gpui_kit::test]
+fn everything_fetches_a_voice_note_and_a_video_of_a_chat_that_is_not_open(cx: &mut TestAppContext) {
+    use client_provider::MediaKind;
+    let harness = open_chat_with_policy(cx, crate::settings::MediaChoice::Everything);
+    let note = "https://media.example/ahead.ogg";
+    harness.mock.set_media(note, b"OggS".to_vec(), "audio/ogg");
+    push_media_elsewhere(&harness, cx, "a-voice", MediaKind::Voice, note, |media| {
+        media.mime_type = Some("audio/ogg".into());
+        media.size_bytes = Some(4);
+    });
+    let video = "https://media.example/ahead.mp4";
+    harness.mock.set_media(video, b"clip".to_vec(), "video/mp4");
+    push_media_elsewhere(&harness, cx, "a-vid", MediaKind::Video, video, |media| {
+        media.mime_type = Some("video/mp4".into());
+        media.size_bytes = Some(4);
+    });
+    let store = harness.engine.store();
+    let mut both = false;
+    for _ in 0..200 {
+        harness.settle(cx);
+        both = store.has_media(&client_core::file_key(note)).unwrap()
+            && store.has_media(&client_core::file_key(video)).unwrap();
+        if both {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(3));
+    }
+    assert!(both, "files are fetched ahead under everything");
+}
+
+#[gpui_kit::test]
+fn a_backfill_of_pictures_does_not_flood_the_downloads(cx: &mut TestAppContext) {
+    use client_provider::{ContactId, Media, MediaKind, MediaRef, Message, MessageId, Timestamp};
+    let harness = open_chat_with_policy(cx, crate::settings::MediaChoice::Images);
+    let (account, other) = cx.update(|cx| {
+        let shell = harness.shell.read(cx);
+        let open = shell.open.as_ref().unwrap().chat.id.to_string();
+        let other = chat_rows(shell)
+            .into_iter()
+            .map(|(id, ..)| id)
+            .find(|id| *id != open)
+            .unwrap();
+        (
+            shell.account.clone().unwrap(),
+            client_provider::ChatId::new(other),
+        )
+    });
+    // A long history arriving at once, in a chat nobody has open: only the
+    // newest few pictures are fetched ahead.
+    let history: Vec<Message> = (0..40)
+        .map(|n| {
+            let url = format!("https://media.example/backfill-{n}.png");
+            harness.mock.set_media(&url, png(8, 8), "image/png");
+            let mut media = Media::new(MediaKind::Image);
+            media.source = Some(MediaRef::new(&url));
+            media.mime_type = Some("image/png".into());
+            Message {
+                id: MessageId::new(format!("b-{n}")),
+                client_id: None,
+                account_id: account.clone(),
+                chat_id: other.clone(),
+                sender: ContactId::new("them"),
+                sender_name: None,
+                direction: Direction::Incoming,
+                timestamp: Timestamp::from_millis(Timestamp::now().as_millis() + n),
+                content: MessageContent::Media(media),
+                reply_to: None,
+                status: DeliveryStatus::Delivered,
+                edited: false,
+                deleted: false,
+                extras: Default::default(),
+            }
+        })
+        .collect();
+    harness.engine.store().upsert_messages(&history).unwrap();
+    for _ in 0..100 {
+        harness.settle(cx);
+        std::thread::sleep(Duration::from_millis(3));
+    }
+    let store = harness.engine.store();
+    let fetched = |n: usize| {
+        store
+            .has_media(&client_core::thumbnail_key(&format!(
+                "https://media.example/backfill-{n}.png"
+            )))
+            .unwrap()
+    };
+    assert!(fetched(39), "the newest picture is fetched");
+    assert!(!fetched(0), "the oldest waits until its chat is opened");
+    assert!(
+        harness.mock.media_calls() <= super::shell::PREFETCH_PER_CHAT,
+        "only the newest of a chat: {}",
+        harness.mock.media_calls()
+    );
+}
+
 #[gpui_kit::test]
 fn stopping_an_automatic_gif_does_not_start_it_again(cx: &mut TestAppContext) {
     use client_provider::MediaKind;

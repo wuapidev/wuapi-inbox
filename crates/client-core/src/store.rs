@@ -8,8 +8,8 @@
 use crate::migrations;
 use client_provider::{
     Account, AccountId, Chat, ChatChange, ChatId, ChatKind, ClientMessageId, ConnectionState,
-    Contact, ContactId, Cursor, DeliveryStatus, Direction, MediaRef, Message, MessageContent,
-    MessageId, Timestamp,
+    Contact, ContactId, Cursor, DeliveryStatus, Direction, Media, MediaRef, Message,
+    MessageContent, MessageId, Timestamp,
 };
 use rusqlite::{params, Connection, OptionalExtension, Row, Transaction};
 use std::collections::HashMap;
@@ -939,6 +939,36 @@ impl Store {
                 messages.push(message);
             }
             Ok((messages, total as usize))
+        })
+    }
+
+    /// The files of a chat's newest `limit` messages that carry one,
+    /// newest first: what is worth fetching before the chat is opened.
+    /// Deleted and view-once messages are left out. Only the attachments
+    /// are read, not the messages around them.
+    pub fn recent_media(
+        &self,
+        account: &AccountId,
+        chat: &ChatId,
+        limit: usize,
+    ) -> StoreResult<Vec<Media>> {
+        self.read(|conn| {
+            let mut stmt = conn.prepare_cached(
+                "SELECT m.content FROM messages m
+                 WHERE m.account_id = ?1 AND m.chat_id = ?2 AND m.deleted = 0
+                   AND json_extract(m.content, '$.type') = 'media'
+                   AND COALESCE(json_extract(m.extras, '$.view_once'), 0) = 0
+                 ORDER BY m.ts DESC, m.pk DESC LIMIT ?3",
+            )?;
+            let mut rows = stmt.query(params![account.as_str(), chat.as_str(), limit as i64])?;
+            let mut found = Vec::new();
+            while let Some(row) = rows.next()? {
+                let content: String = row.get(0)?;
+                if let MessageContent::Media(media) = serde_json::from_str(&content)? {
+                    found.push(media);
+                }
+            }
+            Ok(found)
         })
     }
 

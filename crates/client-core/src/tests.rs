@@ -2497,6 +2497,127 @@ async fn downloads_nobody_waits_for_are_dropped() {
     assert_eq!(mock.media_calls(), calls);
 }
 
+#[tokio::test]
+async fn a_download_fetched_ahead_survives_leaving_the_chat() {
+    let mock = MockProvider::quiet();
+    let (engine, account, _) = engine_with_chats(&mock).await;
+    mock.set_media_latency(Duration::from_millis(40));
+    // Pictures of chats nobody has opened, and then the ones a bubble
+    // asked for: closing the chat forgets only the latter.
+    let ahead: Vec<String> = (0..8)
+        .map(|n| format!("https://media.example/ahead-{n}"))
+        .collect();
+    let shown: Vec<String> = (0..10)
+        .map(|n| format!("https://media.example/shown-{n}"))
+        .collect();
+    for url in ahead.iter().chain(&shown) {
+        mock.set_media(url, png(8, 8), "image/png");
+    }
+    for url in &ahead {
+        engine.want_thumbnail_background(&account, url);
+    }
+    for url in &shown {
+        engine.want_thumbnail(&account, url);
+    }
+    engine.cancel_media();
+    for url in &ahead {
+        settled(&engine, &thumbnail_key(url)).await;
+    }
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    let shown_fetched = shown
+        .iter()
+        .filter(|url| {
+            engine
+                .store()
+                .media_size(&thumbnail_key(url))
+                .unwrap()
+                .is_some()
+        })
+        .count();
+    assert!(
+        shown_fetched <= 3,
+        "only what was in flight of the rest: {shown_fetched}"
+    );
+}
+
+#[tokio::test]
+async fn what_a_bubble_needs_goes_before_what_was_fetched_ahead() {
+    let mock = MockProvider::quiet();
+    let (engine, account, _) = engine_with_chats(&mock).await;
+    mock.set_media_latency(Duration::from_millis(40));
+    let ahead: Vec<String> = (0..12)
+        .map(|n| format!("https://media.example/ahead-{n}"))
+        .collect();
+    for url in &ahead {
+        mock.set_media(url, png(8, 8), "image/png");
+        engine.want_thumbnail_background(&account, url);
+    }
+    let shown = "https://media.example/shown";
+    mock.set_media(shown, png(8, 8), "image/png");
+    engine.want_thumbnail(&account, shown);
+    settled(&engine, &thumbnail_key(shown)).await;
+    let behind = ahead
+        .iter()
+        .filter(|url| {
+            engine
+                .store()
+                .media_size(&thumbnail_key(url))
+                .unwrap()
+                .is_none()
+        })
+        .count();
+    assert!(behind >= 6, "the bubble waited for the line: {behind}");
+}
+
+#[tokio::test]
+async fn a_bubble_asking_for_what_waits_ahead_moves_it_to_the_front() {
+    let mock = MockProvider::quiet();
+    let (engine, account, _) = engine_with_chats(&mock).await;
+    mock.set_media_latency(Duration::from_millis(40));
+    let ahead: Vec<String> = (0..12)
+        .map(|n| format!("https://media.example/ahead-{n}"))
+        .collect();
+    for url in &ahead {
+        mock.set_media(url, png(8, 8), "image/png");
+        engine.want_thumbnail_background(&account, url);
+    }
+    // The last of the line is shown now: it is fetched next, and closing
+    // the chat no longer forgets it, because a bubble waits for it.
+    let last = &ahead[11];
+    engine.want_thumbnail(&account, last);
+    settled(&engine, &thumbnail_key(last)).await;
+    let behind = ahead
+        .iter()
+        .filter(|url| {
+            engine
+                .store()
+                .media_size(&thumbnail_key(url))
+                .unwrap()
+                .is_none()
+        })
+        .count();
+    assert!(behind >= 5, "it kept its place in the line: {behind}");
+}
+
+#[tokio::test]
+async fn a_file_fetched_ahead_is_small_and_deduplicated() {
+    let mock = MockProvider::quiet();
+    let (engine, account, _) = engine_with_chats(&mock).await;
+    let video = "https://media.example/long-video";
+    mock.set_media(video, vec![0; AUTO_MEDIA_LIMIT as usize + 1], "video/mp4");
+    engine.want_file_background(&account, video);
+    let state = settled(&engine, &file_key(video)).await;
+    assert!(matches!(state, MediaState::Unavailable(_)), "{state:?}");
+
+    let small = "https://media.example/clip";
+    mock.set_media(small, b"OggS".to_vec(), "audio/ogg");
+    engine.want_file_background(&account, small);
+    engine.want_file_background(&account, small);
+    settled(&engine, &file_key(small)).await;
+    assert!(engine.store().has_media(&file_key(small)).unwrap());
+    assert_eq!(mock.media_calls(), 2, "asked once per file");
+}
+
 #[test]
 fn the_media_cache_stays_within_its_budget() {
     let store = Store::open_in_memory().unwrap();
@@ -2543,6 +2664,53 @@ fn voice_note(id: &str, source: &str) -> Message {
         ..Media::new(MediaKind::Voice)
     });
     message
+}
+
+#[test]
+fn the_newest_media_of_a_chat_is_read_without_the_rest() {
+    let store = Store::open_in_memory().unwrap();
+    let mut view_once = voice_note("once", "https://media.example/once");
+    view_once.extras.view_once = true;
+    let mut deleted = voice_note("gone", "https://media.example/gone");
+    deleted.deleted = true;
+    let mut oldest = voice_note("a", "https://media.example/a");
+    oldest.timestamp = Timestamp::from_millis(2);
+    let mut middle = voice_note("b", "https://media.example/b");
+    middle.timestamp = Timestamp::from_millis(3);
+    let mut newest = voice_note("c", "https://media.example/c");
+    newest.timestamp = Timestamp::from_millis(4);
+    view_once.timestamp = Timestamp::from_millis(5);
+    deleted.timestamp = Timestamp::from_millis(6);
+    let mut elsewhere = voice_note("d", "https://media.example/d");
+    elsewhere.chat_id = ChatId::new("other");
+    elsewhere.timestamp = Timestamp::from_millis(7);
+    store
+        .upsert_messages(&[
+            text("t", "chat", 8, "no file", Direction::Incoming),
+            oldest,
+            middle,
+            newest,
+            view_once,
+            deleted,
+            elsewhere,
+        ])
+        .unwrap();
+    let urls = |limit: usize| -> Vec<String> {
+        store
+            .recent_media(&account(), &ChatId::new("chat"), limit)
+            .unwrap()
+            .iter()
+            .filter_map(|media| media.source.as_ref().map(|source| source.to_string()))
+            .collect()
+    };
+    // Newest first, and not text, not what was deleted, not what is
+    // seen once, not another chat's.
+    assert_eq!(
+        urls(2),
+        ["https://media.example/c", "https://media.example/b"]
+    );
+    assert_eq!(urls(10).len(), 3);
+    assert!(urls(0).is_empty());
 }
 
 fn cached(fill: u8) -> CachedMedia {

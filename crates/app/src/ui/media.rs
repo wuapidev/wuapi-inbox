@@ -843,12 +843,7 @@ impl MediaShelf {
         // A sticker that is not a picture: WhatsApp's vector stickers
         // (Lottie, `application/was`). Nothing here draws them, and
         // downloading one would only be refused as "not an image".
-        if media.kind == MediaKind::Sticker
-            && media
-                .mime_type
-                .as_deref()
-                .is_some_and(|mime| !mime.trim().to_ascii_lowercase().starts_with("image/"))
-        {
+        if is_vector_sticker(media) {
             return MediaVisual::Unsupported(crate::i18n::t("chat.media.animated_sticker").into());
         }
         let url = source.as_str();
@@ -1198,6 +1193,50 @@ impl MediaShelf {
         media.gif && self.fetched_unasked(media)
     }
 
+    /// Whether the whole file of a video, a GIF, audio, a voice note or a
+    /// document is fetched without a click: what the bubbles of those
+    /// kinds ask, and what [`prefetch_background`](Self::prefetch_background)
+    /// asks for a chat that is not open.
+    pub fn fetches_whole_file_unasked(&self, media: &Media) -> bool {
+        self.fetches_file_unasked(media) || self.fetches_gif_unasked(media)
+    }
+
+    /// Fetches what a message of a chat that is not open will need, by
+    /// the rules its bubble applies once drawn: the thumbnail of a
+    /// picture or a sticker, the whole file of anything else, each only
+    /// as the policy says. Behind everything the open chat asks for.
+    /// Returns whether something was asked of the engine.
+    pub fn prefetch_background(&self, account: &AccountId, media: &Media) -> bool {
+        let Some(source) = &media.source else {
+            return false;
+        };
+        let url = source.as_str();
+        match media.kind {
+            MediaKind::Image | MediaKind::Sticker => {
+                if is_vector_sticker(media) || !self.fetched_unasked(media) {
+                    return false;
+                }
+                let key = thumbnail_key(url);
+                if self.engine.media_state(&key) != MediaState::Idle
+                    || self.store.has_media(&key).unwrap_or(true)
+                {
+                    return false;
+                }
+                self.engine.want_thumbnail_background(account, url);
+                true
+            }
+            _ => {
+                if !self.fetches_whole_file_unasked(media)
+                    || self.file_state(url) != FileState::NotFetched
+                {
+                    return false;
+                }
+                self.engine.want_file_background(account, url);
+                true
+            }
+        }
+    }
+
     /// The person stopped a file the policy had started. Drawing the row
     /// again does not start it over; a click does.
     pub fn decline_file(&self, url: &str) {
@@ -1247,6 +1286,17 @@ impl MediaShelf {
         std::fs::write(&path, cached.bytes).map_err(|error| error.to_string())?;
         Ok(path)
     }
+}
+
+/// A sticker that is not a picture: WhatsApp's vector stickers (Lottie,
+/// `application/was`). Nothing here draws them, and downloading one would
+/// only be refused as "not an image".
+fn is_vector_sticker(media: &Media) -> bool {
+    media.kind == MediaKind::Sticker
+        && media
+            .mime_type
+            .as_deref()
+            .is_some_and(|mime| !mime.trim().to_ascii_lowercase().starts_with("image/"))
 }
 
 /// Where the whole file of an attachment stands.

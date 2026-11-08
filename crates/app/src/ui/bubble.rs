@@ -1489,9 +1489,7 @@ fn gif_block(media: &Media, message: &Message, side: &Side, context: &RowContext
         FileState::Ready => Some(context.shelf.gif_clip(&url)?),
         _ => None,
     };
-    if state == FileState::NotFetched
-        && (context.shelf.fetches_file_unasked(media) || context.shelf.fetches_gif_unasked(media))
-    {
+    if state == FileState::NotFetched && (context.shelf.fetches_whole_file_unasked(media)) {
         context.shelf.prefetch(&message.account_id, &url);
     }
     let size = context.shelf.image_box(media);
@@ -1673,10 +1671,7 @@ fn tile_glyph(
             return icon(IconName::Ban, px(24.), side.meta).into_any_element()
         }
         // Being fetched ahead: "Everything", or a GIF with the pictures.
-        FileState::NotFetched
-            if context.shelf.fetches_file_unasked(media)
-                || context.shelf.fetches_gif_unasked(media) =>
-        {
+        FileState::NotFetched if context.shelf.fetches_whole_file_unasked(media) => {
             Transfer::Loading { fraction: None }
         }
         FileState::NotFetched => Transfer::Download {
@@ -1738,9 +1733,7 @@ fn file_action(media: &Media, message: &Message, side: &Side, context: &RowConte
             .child(mono(crate::i18n::t("chat.bubble.file_unavailable")));
     };
     let state = context.shelf.file_state(source.as_str());
-    if state == FileState::NotFetched
-        && (context.shelf.fetches_file_unasked(media) || context.shelf.fetches_gif_unasked(media))
-    {
+    if state == FileState::NotFetched && (context.shelf.fetches_whole_file_unasked(media)) {
         // "Everything", or a GIF under the same rule as a picture.
         context.shelf.prefetch(&message.account_id, source.as_str());
     }
