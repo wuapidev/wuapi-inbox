@@ -1101,6 +1101,64 @@ fn a_message_is_forwarded_to_two_chats(cx: &mut TestAppContext) {
     );
 }
 
+/// The sheet's chats are read off the window's thread: it opens at once,
+/// a typed word is one read a moment after the typing stops, and sending
+/// closes it before anything is written.
+#[gpui_kit::test]
+fn the_forward_sheet_opens_before_its_chats_are_read_and_sends_after_it_closes(
+    cx: &mut TestAppContext,
+) {
+    let harness = open_chat_one(cx);
+    put(&harness, cx, "f1", false, "forward me", 1);
+    focus_composer(&harness, cx);
+    press(harness.window, "up", cx);
+
+    let rows = |cx: &mut TestAppContext| cx.update(|cx| harness.shell.read(cx).forward_rows(cx));
+    cx.update_window(harness.window.into(), |_, window, cx| {
+        harness.shell.update(cx, |shell, cx| {
+            assert!(shell.begin_forward(window, cx));
+        })
+    })
+    .unwrap();
+    // Open, and nothing read on this thread yet.
+    assert_eq!(overlay(&harness, cx), Overlay::Forward);
+    assert!(rows(cx).is_empty());
+    cx.run_until_parked();
+    let all = rows(cx);
+    assert!(all.len() > 5);
+
+    // A word typed: the list waits for the typing to stop, then is one read
+    // (an older read is never shown over it).
+    let last = all.last().unwrap().clone();
+    let (first, rest) = last.1.split_at(1);
+    type_text(harness.window, first, cx);
+    type_text(harness.window, rest, cx);
+    assert_eq!(rows(cx), all, "still what it had");
+    cx.executor()
+        .advance_clock(crate::motion::SEARCH_DEBOUNCE + Duration::from_millis(10));
+    cx.run_until_parked();
+    let narrowed = rows(cx);
+    assert!(narrowed.len() < all.len());
+    assert!(narrowed.contains(&last));
+
+    // Sent: the sheet is closed at once; the queueing is written after.
+    click(harness.window, "forward-chat-0", cx);
+    assert!(harness.engine.store().outbox_pending().unwrap().is_empty());
+    cx.update_window(harness.window.into(), |_, window, cx| {
+        harness
+            .shell
+            .update(cx, |shell, cx| shell.send_forward(window, cx))
+    })
+    .unwrap();
+    assert_eq!(overlay(&harness, cx), Overlay::None);
+    assert!(
+        harness.engine.store().outbox_pending().unwrap().is_empty(),
+        "nothing written on the window's thread"
+    );
+    cx.run_until_parked();
+    assert_eq!(harness.engine.store().outbox_pending().unwrap().len(), 1);
+}
+
 #[gpui_kit::test]
 fn the_forward_sheet_is_the_palette_with_boxes_and_reaches_people_with_no_chat(
     cx: &mut TestAppContext,
@@ -1132,6 +1190,10 @@ fn the_forward_sheet_is_the_palette_with_boxes_and_reaches_people_with_no_chat(
 
     // Somebody of the address book with no chat yet, found by name.
     type_text(harness.window, "Zoe", cx);
+    // Read a moment after the typing stops, off the window's thread.
+    cx.executor()
+        .advance_clock(crate::motion::SEARCH_DEBOUNCE + Duration::from_millis(10));
+    cx.run_until_parked();
     let rows = cx.update(|cx| harness.shell.read(cx).forward_rows(cx));
     let at = rows
         .iter()

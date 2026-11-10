@@ -1710,7 +1710,15 @@ fn tile_glyph(
                 // The file only: opening it is the line below.
                 shelf.retry_file(&account, &url);
             }
-            view.update(cx, |_, cx| cx.notify()).ok();
+            view.update(cx, |shell, cx| {
+                // A video that was waited for is not opened by the file
+                // that comes after it was stopped.
+                if stop {
+                    shell.video_stopped(&url);
+                }
+                cx.notify()
+            })
+            .ok();
         },
     )
     .into_any_element()
@@ -1817,9 +1825,10 @@ fn video_block(media: &Media, message: &Message, side: &Side, context: &RowConte
     let poster = context.shelf.video_poster(&message.account_id, media);
     let size = context.shelf.image_box(media);
     let palette = &context.palette;
-    // While it comes, the button shows how far it is and stops it; else
-    // the play button, which fetches it too.
-    let middle = if state == FileState::Loading {
+    // While it comes, the button shows how far it is and stops it; when it
+    // did not come, the way to try again; else the play button, which
+    // fetches it too, and opens it once it is here.
+    let middle = if matches!(state, FileState::Loading | FileState::Unavailable(_)) {
         tile_glyph(IconName::Video, media, message, side, context)
     } else {
         div()
@@ -1841,6 +1850,11 @@ fn video_block(media: &Media, message: &Message, side: &Side, context: &RowConte
         if let Some(bytes) = media.size_bytes {
             label = format!("{label} · {}", file_size(bytes));
         }
+    }
+    // How much of it has come, when the size says.
+    if let (FileState::Loading, Some(fraction)) = (&state, context.shelf.file_fraction(&url, media))
+    {
+        label = format!("{:.0}% · {label}", fraction * 100.);
     }
     let (view, opened) = (context.view.clone(), media.clone());
     let (save_view, saved) = (context.view.clone(), media.clone());

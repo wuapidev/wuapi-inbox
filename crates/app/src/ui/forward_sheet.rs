@@ -11,14 +11,16 @@ use super::widgets::{avatar_or, mono, text_button, AvatarKind};
 use crate::format::list_time;
 use crate::icons::{icon, IconName};
 use crate::keys::{self, Command};
+use crate::motion;
 use crate::theme::px;
 use crate::theme::{metrics, Palette};
 use client_core::ChatSummary;
-use client_provider::{ChatId, ChatKind, Contact, Message, Timestamp};
+use client_provider::{AccountId, ChatId, ChatKind, Contact, Message, Timestamp};
 use gpui_kit::prelude::*;
 use gpui_kit::{
     div, AnyElement, Context, Div, FontWeight, KeyDownEvent, SharedString, Stateful, Window,
 };
+use std::collections::HashMap;
 
 /// How many chats the sheet lists with nothing typed.
 const BROWSE: usize = 60;
@@ -51,91 +53,187 @@ impl ForwardRow {
     }
 }
 
-impl Shell {
-    /// Reads what the forward sheet lists: with nothing typed, the chats
-    /// opened last and then every chat in the list's order; otherwise
-    /// the chats and the people that match, best first. Read when the
-    /// sheet opens and when the text changes, not while it is drawn.
-    pub(super) fn refresh_forward_rows(&mut self, cx: &mut Context<Self>) {
-        let typed = self.acting.forward_input.read(cx).value().trim().to_owned();
-        let mut rows = Vec::new();
-        if let Some(account) = &self.account {
-            let store = self.engine.store();
-            let section = |rows: &mut Vec<ForwardRow>, title, found: Vec<ForwardRow>| {
-                if !found.is_empty() {
-                    rows.push(ForwardRow::Section(title));
-                    rows.extend(found);
+/// Queues every message for every chat picked, in that order, and says
+/// what was refused: the kind of message and the reason, each once, after
+/// the ones already in `refused`, and whether a chat was made for somebody
+/// who had none. Writes to the store: call it off the interface's thread.
+fn queue_forwards(
+    engine: &client_core::SyncEngine,
+    account: &AccountId,
+    subjects: &[Message],
+    picked: Vec<ChatId>,
+    people: &HashMap<ChatId, Contact>,
+    mut refused: Vec<(&'static str, &'static str)>,
+) -> (Vec<(&'static str, &'static str)>, bool) {
+    let mut to = Vec::new();
+    let mut made = false;
+    for chat in picked {
+        match people.get(&chat) {
+            Some(contact) => match engine.chat_with_contact(contact) {
+                Ok(chat) => {
+                    made = true;
+                    to.push(chat);
                 }
+                Err(error) => {
+                    tracing::error!(%error, "could not make the chat to forward to");
+                    for message in subjects {
+                        let why = crate::i18n::t("chat.message_actions.forward_save_failed");
+                        if !refused.contains(&(message_kind(message), why)) {
+                            refused.push((message_kind(message), why));
+                        }
+                    }
+                }
+            },
+            None => to.push(chat),
+        }
+    }
+    for message in subjects {
+        for chat in &to {
+            let queued = match copy_raw_text(message) {
+                // A text keeps its mentions as they were typed.
+                Some(text) => engine
+                    .forward_text(account, chat, text)
+                    .map(drop)
+                    .map_err(client_core::ForwardError::from),
+                None => engine.forward_message(account, message, chat).map(drop),
             };
-            if typed.is_empty() {
-                let chats = store.chats(account, None).unwrap_or_default();
-                let recent: Vec<ForwardRow> = self
-                    .palette
-                    .recent_chats
-                    .iter()
-                    .filter_map(|id| chats.iter().find(|chat| &chat.id == id))
-                    .map(|chat| ForwardRow::Chat(chat.clone()))
-                    .collect();
-                let rest: Vec<ForwardRow> = chats
-                    .iter()
-                    .filter(|chat| !self.palette.recent_chats.contains(&chat.id))
-                    .take(BROWSE.saturating_sub(recent.len()))
-                    .map(|chat| ForwardRow::Chat(chat.clone()))
-                    .collect();
-                section(
-                    &mut rows,
-                    crate::i18n::t("commands.palette.section_recent"),
-                    recent,
-                );
-                section(
-                    &mut rows,
-                    crate::i18n::t("commands.palette.section_chats"),
-                    rest,
-                );
-            } else {
-                let chats = store.chats(account, Some(&typed)).unwrap_or_default();
-                // Somebody with a chat is listed as that chat already.
-                let people: Vec<Contact> = store
-                    .contacts(account, Some(&typed), PEOPLE * 4)
-                    .unwrap_or_default()
-                    .into_iter()
-                    .filter(|contact| {
-                        !chats
-                            .iter()
-                            .any(|chat| chat.id.as_str() == contact.id.as_str())
-                            && store
-                                .chat(account, &ChatId::new(contact.id.as_str()))
-                                .ok()
-                                .flatten()
-                                .is_none()
-                    })
-                    .collect();
-                let chats = rank(&typed, chats, |chat| chat.title.clone());
-                let people = rank(&typed, people, |contact| contact.display_name());
-                section(
-                    &mut rows,
-                    crate::i18n::t("commands.palette.section_chats"),
-                    chats
-                        .into_iter()
-                        .take(CHATS)
-                        .map(ForwardRow::Chat)
-                        .collect(),
-                );
-                section(
-                    &mut rows,
-                    crate::i18n::t("commands.palette.section_people"),
-                    people
-                        .into_iter()
-                        .take(PEOPLE)
-                        .map(ForwardRow::Person)
-                        .collect(),
-                );
+            if let Err(error) = queued {
+                tracing::error!(%error, "could not queue the forward");
+                let why = match error {
+                    client_core::ForwardError::Refused(refusal) => refusal.reason(),
+                    client_core::ForwardError::Store(_) => {
+                        crate::i18n::t("chat.message_actions.forward_save_failed")
+                    }
+                };
+                if !refused.contains(&(message_kind(message), why)) {
+                    refused.push((message_kind(message), why));
+                }
             }
         }
-        self.acting.forward_rows = rows;
-        self.acting.forward_cursor = 0;
-        self.acting.forward_scroll.scroll_to_item(0);
-        cx.notify();
+    }
+    (refused, made)
+}
+
+/// What the forward sheet lists: with nothing typed, the chats opened
+/// last (`recent`) and then every chat in the list's order; otherwise the
+/// chats and the people that match, best first. Reads the store: call it
+/// off the interface's thread.
+fn read_forward_rows(
+    store: &client_core::Store,
+    account: &AccountId,
+    typed: &str,
+    recent: &[ChatId],
+) -> Vec<ForwardRow> {
+    let mut rows = Vec::new();
+    let section = |rows: &mut Vec<ForwardRow>, title, found: Vec<ForwardRow>| {
+        if !found.is_empty() {
+            rows.push(ForwardRow::Section(title));
+            rows.extend(found);
+        }
+    };
+    if typed.is_empty() {
+        let chats = store.chats(account, None).unwrap_or_default();
+        let opened: Vec<ForwardRow> = recent
+            .iter()
+            .filter_map(|id| chats.iter().find(|chat| &chat.id == id))
+            .map(|chat| ForwardRow::Chat(chat.clone()))
+            .collect();
+        let rest: Vec<ForwardRow> = chats
+            .iter()
+            .filter(|chat| !recent.contains(&chat.id))
+            .take(BROWSE.saturating_sub(opened.len()))
+            .map(|chat| ForwardRow::Chat(chat.clone()))
+            .collect();
+        section(
+            &mut rows,
+            crate::i18n::t("commands.palette.section_recent"),
+            opened,
+        );
+        section(
+            &mut rows,
+            crate::i18n::t("commands.palette.section_chats"),
+            rest,
+        );
+    } else {
+        let chats = store.chats(account, Some(typed)).unwrap_or_default();
+        // Somebody with a chat is listed as that chat already.
+        let people: Vec<Contact> = store
+            .contacts(account, Some(typed), PEOPLE * 4)
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|contact| {
+                !chats
+                    .iter()
+                    .any(|chat| chat.id.as_str() == contact.id.as_str())
+                    && store
+                        .chat(account, &ChatId::new(contact.id.as_str()))
+                        .ok()
+                        .flatten()
+                        .is_none()
+            })
+            .collect();
+        let chats = rank(typed, chats, |chat| chat.title.clone());
+        let people = rank(typed, people, |contact| contact.display_name());
+        section(
+            &mut rows,
+            crate::i18n::t("commands.palette.section_chats"),
+            chats
+                .into_iter()
+                .take(CHATS)
+                .map(ForwardRow::Chat)
+                .collect(),
+        );
+        section(
+            &mut rows,
+            crate::i18n::t("commands.palette.section_people"),
+            people
+                .into_iter()
+                .take(PEOPLE)
+                .map(ForwardRow::Person)
+                .collect(),
+        );
+    }
+    rows
+}
+
+impl Shell {
+    /// Reads what the forward sheet lists (see [`read_forward_rows`]) when
+    /// the sheet opens and when the text changes, off the interface's
+    /// thread: the store may be busy with the sync, and the sheet shows
+    /// what it has until the read answers. Typing waits a moment
+    /// ([`motion::SEARCH_DEBOUNCE`]), so that a word is one read, not one
+    /// per letter; a newer read replaces the one before it, and a read
+    /// that was replaced is never shown.
+    pub(super) fn refresh_forward_rows(&mut self, typed_now: bool, cx: &mut Context<Self>) {
+        let Some(account) = self.account.clone() else {
+            self.acting._forward_read = None;
+            self.acting.forward_rows.clear();
+            self.acting.forward_cursor = 0;
+            cx.notify();
+            return;
+        };
+        let typed = self.acting.forward_input.read(cx).value().trim().to_owned();
+        let store = self.engine.store().clone();
+        let recent = self.palette.recent_chats.clone();
+        self.acting._forward_read = Some(cx.spawn(async move |this, cx| {
+            if typed_now {
+                cx.background_executor()
+                    .timer(motion::SEARCH_DEBOUNCE)
+                    .await;
+            }
+            let rows = cx
+                .background_spawn(
+                    async move { read_forward_rows(&store, &account, &typed, &recent) },
+                )
+                .await;
+            this.update(cx, |this, cx| {
+                this.acting.forward_rows = rows;
+                this.acting.forward_cursor = 0;
+                this.acting.forward_scroll.scroll_to_item(0);
+                cx.notify();
+            })
+            .ok();
+        }));
     }
 
     /// What the forward sheet lists that can be picked, in order: the
@@ -175,12 +273,15 @@ impl Shell {
         self.acting.forward_names.clear();
         self.acting.forward_people.clear();
         self.acting.forward_cursor = 0;
+        // The sheet opens at once and empty: the chats are read off this
+        // thread and listed when the read answers.
+        self.acting.forward_rows.clear();
         self.open_overlay(Overlay::Forward, window, cx);
         self.acting.forward_input.update(cx, |field, cx| {
             field.set_value("", window, cx);
             field.focus(window, cx);
         });
-        self.refresh_forward_rows(cx);
+        self.refresh_forward_rows(false, cx);
         true
     }
 
@@ -224,9 +325,12 @@ impl Shell {
     /// Sends what the sheet is about to every chat picked, in the order
     /// the messages were written: each copy is a message of its own,
     /// marked as forwarded, queued through the outbox (so a dropped
-    /// connection never loses or doubles it) and shown in its chat at
-    /// once. Somebody with no chat yet gets one. What cannot be queued is
-    /// said, with its reason, and does not stop the others.
+    /// connection never loses or doubles it) and shown in its chat as
+    /// soon as it is. Somebody with no chat yet gets one. The sheet
+    /// closes at once; the queueing is written to the store in one task
+    /// off the interface's thread (`queue_forwards`), and what could not
+    /// be queued is said, with its reason, when that is done. It does not
+    /// stop the others.
     pub(super) fn send_forward(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.acting.forward_to.is_empty() {
             return;
@@ -238,86 +342,25 @@ impl Shell {
         let people = std::mem::take(&mut self.acting.forward_people);
         let mut subjects = std::mem::take(&mut self.acting.subjects);
         subjects.sort_by_key(|message| message.timestamp);
-        let mut refused: Vec<(&'static str, &'static str)> =
+        let refused: Vec<(&'static str, &'static str)> =
             std::mem::take(&mut self.acting.forward_skipped);
+        let engine = self.engine.clone();
         self.acting.selecting = None;
         self.acting.forward_names.clear();
         self.close_overlay(window, cx);
-        // Making chats and queueing the copies write to the store: off this
-        // thread, in one go. What went wrong is said once it is done, in
-        // words made here (the language is this thread's).
-        let engine = self.engine.clone();
-        let done = self.writes.ask(move || {
-            let mut to = Vec::new();
-            let (mut made, mut unmade) = (false, false);
-            for chat in picked {
-                match people.get(&chat) {
-                    Some(contact) => match engine.chat_with_contact(contact) {
-                        Ok(chat) => {
-                            made = true;
-                            to.push(chat);
-                        }
-                        Err(error) => {
-                            tracing::error!(%error, "could not make the chat to forward to");
-                            unmade = true;
-                        }
-                    },
-                    None => to.push(chat),
-                }
-            }
-            let mut failed = Vec::new();
-            for message in &subjects {
-                for chat in &to {
-                    let queued = match copy_raw_text(message) {
-                        // A text keeps its mentions as they were typed.
-                        Some(text) => engine
-                            .forward_text(&account, chat, text)
-                            .map(drop)
-                            .map_err(client_core::ForwardError::from),
-                        None => engine.forward_message(&account, message, chat).map(drop),
-                    };
-                    if let Err(error) = queued {
-                        tracing::error!(%error, "could not queue the forward");
-                        failed.push((message.clone(), error));
-                    }
-                }
-            }
-            (subjects, made, unmade, failed)
-        });
         cx.spawn(async move |this, cx| {
-            let Some((subjects, made, unmade, failed)) = done.await else {
-                return;
-            };
+            let (refused, made) = cx
+                .background_spawn(async move {
+                    queue_forwards(&engine, &account, &subjects, picked, &people, refused)
+                })
+                .await;
             this.update(cx, |this, cx| {
-                let mut refuse = |message: &Message, why: &'static str| {
-                    if !refused.contains(&(message_kind(message), why)) {
-                        refused.push((message_kind(message), why));
-                    }
-                };
-                if unmade {
-                    for message in &subjects {
-                        refuse(
-                            message,
-                            crate::i18n::t("chat.message_actions.forward_save_failed"),
-                        );
-                    }
-                }
-                for (message, error) in &failed {
-                    let why = match error {
-                        client_core::ForwardError::Refused(refusal) => refusal.reason(),
-                        client_core::ForwardError::Store(_) => {
-                            crate::i18n::t("chat.message_actions.forward_save_failed")
-                        }
-                    };
-                    refuse(message, why);
-                }
                 if made {
                     this.reload_chats(cx);
                 }
                 if !refused.is_empty() {
                     this.show_problem(not_forwarded(&refused), cx);
                 }
-                cx.notify();
             })
             .ok();
         })

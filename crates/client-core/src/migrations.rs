@@ -543,21 +543,71 @@ const MIGRATIONS: &[&str] = &[
     );
     CREATE INDEX tasks_by_chat ON tasks (account_id, chat_id) WHERE account_id IS NOT NULL;
     "#,
-    // v16: what is known about a file, apart from the file. In both
-    // `media_cache` and `library_items` the small columns came after the
-    // blob, so reading one (a size, a time, a star) walked every page of
-    // the file before it, and updating one (`last_used`, a star) wrote the
-    // whole file again. Summing the cache's sizes read the entire cache,
-    // inside every write of a download, with the writer held.
+    // v16: the library's files last in their row. SQLite keeps a row's
+    // columns in order and a big one spills over to other pages, so
+    // reading any column written after a sticker's file (the columns the
+    // migrations added to `library_items` were) means walking the file's
+    // pages, decrypted one by one: listing the library cost as much as
+    // reading every file in it. The table is made again with its small
+    // columns first, then the still, then the file, with the same rows
+    // (and the same row numbers), and the same indexes.
+    r#"
+    CREATE TABLE library_items_v16 (
+        id              TEXT PRIMARY KEY,
+        -- sticker | gif
+        kind            TEXT NOT NULL,
+        mime            TEXT NOT NULL,
+        animated        INTEGER NOT NULL DEFAULT 0,
+        width           INTEGER,
+        height          INTEGER,
+        size            INTEGER NOT NULL,
+        -- received | sent | imported | phone | online
+        source          TEXT NOT NULL,
+        name            TEXT,
+        pack            TEXT,
+        added_at        INTEGER NOT NULL,
+        last_used       INTEGER,
+        favorite        INTEGER NOT NULL DEFAULT 0,
+        position        INTEGER NOT NULL DEFAULT 0,
+        indexed         INTEGER NOT NULL DEFAULT 0,
+        sent_at         INTEGER,
+        heard_at        INTEGER,
+        origin_account  TEXT,
+        origin_url      TEXT,
+        origin_message  TEXT,
+        thumb_mime      TEXT,
+        -- A still of the first frame, PNG or JPEG; none for a video.
+        thumb           BLOB,
+        -- The file itself: always the last column.
+        bytes           BLOB NOT NULL
+    );
+    INSERT INTO library_items_v16
+        (rowid, id, kind, mime, animated, width, height, size, source, name, pack,
+         added_at, last_used, favorite, position, indexed, sent_at, heard_at,
+         origin_account, origin_url, origin_message, thumb_mime, thumb, bytes)
+    SELECT
+         rowid, id, kind, mime, animated, width, height, size, source, name, pack,
+         added_at, last_used, favorite, position, indexed, sent_at, heard_at,
+         origin_account, origin_url, origin_message, thumb_mime, thumb, bytes
+    FROM library_items;
+    DROP TABLE library_items;
+    ALTER TABLE library_items_v16 RENAME TO library_items;
+    CREATE INDEX library_by_kind ON library_items (kind, favorite, position);
+    CREATE INDEX library_by_use ON library_items (kind, last_used);
+    CREATE INDEX library_by_origin ON library_items (origin_url)
+        WHERE origin_url IS NOT NULL;
+    "#,
+    // v17: what is known about a cached file, apart from the file. In
+    // `media_cache` the small columns came after the blob, so reading one
+    // (a size, a time) walked every page of the file, and updating
+    // `last_used` wrote the whole file again. Summing the cache's sizes,
+    // inside every write of a download, read the entire cache with the
+    // writer held.
     //
-    // `media_meta` holds the cache's small columns, one row per entry,
-    // kept by triggers so that every writer of `media_cache` stays as it
-    // was. Its own `size` and `last_used` are no longer read: the cache's
-    // rows are not copied (the cache can be gigabytes), only read once.
-    //
-    // The library is small (its budget is tens of megabytes) and is
-    // rebuilt: `library_items` loses its blobs to `library_files`.
-    // `thumb_mime` stays and says whether there is a still.
+    // `media_meta` holds those columns, one row per entry, kept by
+    // triggers so that every writer of `media_cache` stays as it was. The
+    // cache's rows are not copied (it can be gigabytes), only read once;
+    // their own `size` and `last_used` are no longer read.
     r#"
     CREATE TABLE media_meta (
         key        TEXT PRIMARY KEY,
@@ -591,52 +641,6 @@ const MIGRATIONS: &[&str] = &[
     END;
     CREATE TRIGGER media_meta_gone AFTER DELETE ON media_cache BEGIN
         DELETE FROM media_meta WHERE key = old.key;
-    END;
-
-    CREATE TABLE library_files (
-        id    TEXT PRIMARY KEY,
-        thumb BLOB,
-        bytes BLOB NOT NULL
-    );
-    INSERT INTO library_files (id, thumb, bytes)
-        SELECT id, thumb, bytes FROM library_items;
-    CREATE TABLE library_meta (
-        id             TEXT PRIMARY KEY,
-        kind           TEXT NOT NULL,
-        mime           TEXT NOT NULL,
-        animated       INTEGER NOT NULL DEFAULT 0,
-        width          INTEGER,
-        height         INTEGER,
-        size           INTEGER NOT NULL,
-        source         TEXT NOT NULL,
-        name           TEXT,
-        pack           TEXT,
-        thumb_mime     TEXT,
-        added_at       INTEGER NOT NULL,
-        last_used      INTEGER,
-        favorite       INTEGER NOT NULL DEFAULT 0,
-        position       INTEGER NOT NULL DEFAULT 0,
-        indexed        INTEGER NOT NULL DEFAULT 0,
-        sent_at        INTEGER,
-        heard_at       INTEGER,
-        origin_account TEXT,
-        origin_url     TEXT,
-        origin_message TEXT
-    );
-    INSERT INTO library_meta
-        SELECT id, kind, mime, animated, width, height, size, source, name, pack,
-               CASE WHEN thumb IS NULL THEN NULL ELSE COALESCE(thumb_mime, 'image/png') END,
-               added_at, last_used, favorite, position, indexed, sent_at, heard_at,
-               origin_account, origin_url, origin_message
-        FROM library_items;
-    DROP TABLE library_items;
-    ALTER TABLE library_meta RENAME TO library_items;
-    CREATE INDEX library_by_kind ON library_items (kind, favorite, position);
-    CREATE INDEX library_by_use ON library_items (kind, last_used);
-    CREATE INDEX library_by_origin ON library_items (origin_url)
-        WHERE origin_url IS NOT NULL;
-    CREATE TRIGGER library_files_gone AFTER DELETE ON library_items BEGIN
-        DELETE FROM library_files WHERE id = old.id;
     END;
     "#,
 ];

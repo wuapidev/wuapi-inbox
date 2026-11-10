@@ -1167,7 +1167,7 @@ impl Shell {
                 // keyboard or not.
                 |this, _, event: &InputEvent, _, cx| {
                     if let InputEvent::Change = event {
-                        this.refresh_forward_rows(cx)
+                        this.refresh_forward_rows(true, cx)
                     }
                 },
             ),
@@ -3856,6 +3856,7 @@ impl Shell {
             }
         }
         self.out_arrived(key, cx);
+        self.video_arrived(key, cx);
         // The original of the picture in the viewer: decoded, it replaces
         // the thumbnail.
         if self.overlay == Overlay::Viewer {

@@ -56,10 +56,29 @@ impl Attachment {
 pub enum Pasted {
     /// Files copied in a file manager.
     Files(Vec<PathBuf>),
-    /// A picture (a screenshot, "copy image").
-    Image(Attachment),
+    /// A picture (a screenshot, "copy image"), as the clipboard holds it:
+    /// made into a file with [`PastedPicture::into_attachment`], off the UI
+    /// thread.
+    Image(PastedPicture),
     /// Text, or nothing this application attaches: the field pastes it.
     Text,
+}
+
+/// A picture from the clipboard, not yet made into a file.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PastedPicture {
+    format: ImageFormat,
+    bytes: Vec<u8>,
+}
+
+impl PastedPicture {
+    /// The file sent for it: as it came when WhatsApp shows that format,
+    /// else decoded and made a PNG. `None` when it cannot be decoded.
+    /// Blocking and CPU-bound for a large screenshot: call it off the UI
+    /// thread.
+    pub fn into_attachment(self) -> Option<Attachment> {
+        picture_attachment(self.format, self.bytes)
+    }
 }
 
 /// What to do with a paste. The rule, in order:
@@ -91,11 +110,13 @@ pub fn classify_paste(item: &ClipboardItem, is_file: impl Fn(&Path) -> bool) -> 
         return Pasted::Files(files);
     }
     match image {
-        Some(picture) if text.trim().is_empty() => {
-            match picture_attachment(picture.format, picture.bytes.clone()) {
-                Some(attachment) => Pasted::Image(attachment),
-                None => Pasted::Text,
-            }
+        // Only looked at here: decoding and converting it can take
+        // seconds for a large screenshot, and this runs on the UI thread.
+        Some(picture) if text.trim().is_empty() && !picture.bytes.is_empty() => {
+            Pasted::Image(PastedPicture {
+                format: picture.format,
+                bytes: picture.bytes.clone(),
+            })
         }
         _ => Pasted::Text,
     }
@@ -168,9 +189,14 @@ fn picture_attachment(format: ImageFormat, bytes: Vec<u8>) -> Option<Attachment>
         _ => {
             let decoded = image::load_from_memory(&bytes).ok()?;
             let mut png = Vec::new();
-            decoded
-                .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
-                .ok()?;
+            // Fast compression: a Retina screenshot at the default level
+            // takes seconds to encode, for a file that is uploaded once.
+            let encoder = image::codecs::png::PngEncoder::new_with_quality(
+                std::io::Cursor::new(&mut png),
+                image::codecs::png::CompressionType::Fast,
+                image::codecs::png::FilterType::Adaptive,
+            );
+            decoded.write_with_encoder(encoder).ok()?;
             return Some(Attachment {
                 name: "pasted-image.png".to_owned(),
                 mime: "image/png".to_owned(),
@@ -348,9 +374,10 @@ mod tests {
         let nothing_exists = |_: &Path| false;
         // A screenshot: only a picture.
         let pasted = classify_paste(&item(vec![picture(ImageFormat::Png, PNG)]), nothing_exists);
-        let Pasted::Image(attachment) = pasted else {
+        let Pasted::Image(pasted) = pasted else {
             panic!("a picture");
         };
+        let attachment = pasted.into_attachment().expect("a picture");
         assert_eq!(attachment.mime, "image/png");
         assert_eq!(attachment.name, "pasted-image.png");
         assert_eq!(attachment.bytes.as_slice(), PNG);
@@ -390,14 +417,23 @@ mod tests {
             .write_to(&mut std::io::Cursor::new(&mut bmp), image::ImageFormat::Bmp)
             .unwrap();
         let pasted = classify_paste(&item(vec![picture(ImageFormat::Bmp, &bmp)]), |_| false);
-        let Pasted::Image(attachment) = pasted else {
+        let Pasted::Image(pasted) = pasted else {
             panic!("a picture");
         };
+        let attachment = pasted.into_attachment().expect("a picture");
         assert_eq!(attachment.mime, "image/png");
         assert!(attachment.bytes.starts_with(b"\x89PNG"));
-        // What cannot be decoded is not attached.
+        // What cannot be decoded is not attached: classifying does not
+        // decode (that is left for off the UI thread), converting says so.
+        let Pasted::Image(junk) =
+            classify_paste(&item(vec![picture(ImageFormat::Tiff, b"junk")]), |_| false)
+        else {
+            panic!("a picture");
+        };
+        assert_eq!(junk.into_attachment(), None);
+        // An empty picture is nothing to attach.
         assert_eq!(
-            classify_paste(&item(vec![picture(ImageFormat::Tiff, b"junk")]), |_| false),
+            classify_paste(&item(vec![picture(ImageFormat::Png, b"")]), |_| false),
             Pasted::Text
         );
     }

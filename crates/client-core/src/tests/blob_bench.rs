@@ -104,7 +104,7 @@ fn bench_metadata_reads_beside_blobs() {
 
 #[test]
 #[ignore]
-fn bench_v16_migration() {
+fn bench_v17_migration() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("m.db");
     let key = StoreKey::from_bytes([7; 32]);
@@ -119,7 +119,7 @@ fn bench_v16_migration() {
             key.to_hex()
         ))
         .unwrap();
-        crate::migrations::migrate_to(&mut raw, 15).unwrap();
+        crate::migrations::migrate_to(&mut raw, 16).unwrap();
         let tx = raw.transaction().unwrap();
         for i in 0..rows {
             tx.execute("INSERT INTO media_cache (key, bytes, mime, width, height, size, last_used) VALUES (?1, ?2, 'image/jpeg', 1, 1, 819200, ?3)",
@@ -134,7 +134,7 @@ fn bench_v16_migration() {
     let at = Instant::now();
     let store = Store::open(&path, Some(&key)).unwrap();
     eprintln!(
-        "v15 -> v16 with {rows} x 800KB cache + 100 stickers: {:.0} ms",
+        "v16 -> v17 with {rows} x 800KB cache + 100 stickers: {:.0} ms",
         at.elapsed().as_secs_f64() * 1000.
     );
     assert_eq!(store.media_total().unwrap(), rows as u64 * 819200);
