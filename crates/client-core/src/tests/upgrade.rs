@@ -222,8 +222,90 @@ fn a_database_from_before_sends_were_measured_measures_the_next_one() {
 }
 
 #[test]
-fn the_schema_is_at_v15() {
-    assert_eq!(SCHEMA_VERSION, 15);
+fn the_schema_is_at_v16() {
+    assert_eq!(SCHEMA_VERSION, 16);
+}
+
+/// v16 took the small columns of the media cache and the library away
+/// from their files. A database a build at v15 left on disk opens with
+/// every file, size, time, star and still where it was, and what the
+/// cache and the library do from then on keeps both halves together.
+#[test]
+fn a_database_at_schema_v15_keeps_its_files_apart_from_what_is_known_of_them() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("v15.db");
+    {
+        let mut raw = rusqlite::Connection::open(&path).unwrap();
+        crate::migrations::migrate_to(&mut raw, 15).unwrap();
+        raw.execute_batch(
+            "INSERT INTO media_cache (key, bytes, mime, width, height, size, last_used)
+                 VALUES ('thumb:a', x'0102', 'image/jpeg', 4, 3, 2, 10),
+                        ('file:b', x'030405', NULL, NULL, NULL, 3, 20);
+             INSERT INTO library_items (id, kind, mime, size, source, bytes, thumb, thumb_mime,
+                                        added_at, favorite, position)
+                 VALUES ('starred', 'sticker', 'image/webp', 3, 'imported', x'0a0b0c',
+                         x'0d', 'image/png', 7, 1, 0),
+                        ('plain', 'gif', 'video/mp4', 2, 'imported', x'0e0f', NULL, NULL,
+                         8, 0, 0);",
+        )
+        .unwrap();
+    }
+    let store = Store::open(&path, None).unwrap();
+    let now = Timestamp::from_millis(99);
+
+    // The cache: files, sizes and the total as they were.
+    let cached = store.media("thumb:a", now).unwrap().unwrap();
+    assert_eq!(cached.bytes, vec![1, 2]);
+    assert_eq!(cached.mime.as_deref(), Some("image/jpeg"));
+    assert_eq!(store.media_size("thumb:a").unwrap(), Some((4, 3)));
+    assert!(store.has_media("file:b").unwrap());
+    assert_eq!(store.media_total().unwrap(), 5);
+    // `thumb:a` was just read: `file:b` is now the one used longest ago,
+    // and the one that goes when a new file needs the room.
+    let fresh = CachedMedia {
+        bytes: vec![9; 4],
+        mime: None,
+        size: None,
+    };
+    assert_eq!(store.put_media("file:c", &fresh, now, 6).unwrap(), 1);
+    assert!(!store.has_media("file:b").unwrap());
+    assert!(store.has_media("thumb:a").unwrap());
+    assert_eq!(store.media_total().unwrap(), 6);
+    // Written again, a file's size follows.
+    let bigger = CachedMedia {
+        bytes: vec![9; 5],
+        mime: None,
+        size: None,
+    };
+    store.put_media("file:c", &bigger, now, u64::MAX).unwrap();
+    assert_eq!(store.media_total().unwrap(), 7);
+
+    // The library: rows, files and stills.
+    let starred = store.library_item("starred").unwrap().unwrap();
+    assert!(starred.favorite);
+    assert!(starred.has_thumb);
+    assert_eq!(
+        store.library_file("starred").unwrap(),
+        Some((vec![10, 11, 12], "image/webp".to_owned()))
+    );
+    assert_eq!(
+        store.library_thumb("starred").unwrap(),
+        Some((vec![13], "image/png".to_owned()))
+    );
+    let plain = store.library_item("plain").unwrap().unwrap();
+    assert!(!plain.has_thumb);
+    assert_eq!(store.library_thumb("plain").unwrap(), None);
+    // An item that goes takes its file with it.
+    assert!(store.library_remove("plain").unwrap());
+    let files: i64 = rusqlite::Connection::open(&path)
+        .unwrap()
+        .query_row(
+            "SELECT COUNT(*) FROM library_files WHERE id = 'plain'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(files, 0);
 }
 
 /// v13 added two columns to a group (the community it is linked to, and

@@ -177,7 +177,7 @@ pub struct LibraryStats {
 }
 
 const COLUMNS: &str = "id, kind, mime, animated, width, height, size, source, name, pack,
-                       added_at, last_used, favorite, position, thumb IS NOT NULL,
+                       added_at, last_used, favorite, position, thumb_mime IS NOT NULL,
                        indexed, sent_at, heard_at, origin_account, origin_url,
                        origin_message";
 
@@ -210,6 +210,20 @@ fn item(row: &Row<'_>) -> rusqlite::Result<LibraryItem> {
     })
 }
 
+/// Writes an item's file and its still, beside its row.
+fn put_files(
+    tx: &rusqlite::Transaction<'_>,
+    id: &str,
+    bytes: &[u8],
+    thumb: Option<&(Vec<u8>, String)>,
+) -> StoreResult<()> {
+    tx.execute(
+        "INSERT OR REPLACE INTO library_files (id, thumb, bytes) VALUES (?1, ?2, ?3)",
+        params![id, thumb.map(|(bytes, _)| bytes), bytes],
+    )?;
+    Ok(())
+}
+
 impl Store {
     /// Puts a file in the library. The same bytes are one item: adding
     /// them again keeps what the item has (its favorite, its place) and
@@ -232,26 +246,36 @@ impl Store {
                 )
                 .optional()?;
             if known.is_some() {
+                let had_thumb: bool = tx.query_row(
+                    "SELECT thumb_mime IS NOT NULL FROM library_items WHERE id = ?1",
+                    params![id],
+                    |row| row.get(0),
+                )?;
                 tx.execute(
                     "UPDATE library_items SET
                         name = COALESCE(name, ?2), pack = COALESCE(pack, ?3),
-                        thumb = COALESCE(thumb, ?4), thumb_mime = COALESCE(thumb_mime, ?5)
+                        thumb_mime = COALESCE(thumb_mime, ?4)
                      WHERE id = ?1",
                     params![
                         id,
                         new.name,
                         new.pack,
-                        new.thumb.as_ref().map(|(bytes, _)| bytes),
                         new.thumb.as_ref().map(|(_, mime)| mime),
                     ],
                 )?;
+                if let Some((thumb, _)) = new.thumb.as_ref().filter(|_| !had_thumb) {
+                    tx.execute(
+                        "UPDATE library_files SET thumb = ?2 WHERE id = ?1",
+                        params![id, thumb],
+                    )?;
+                }
                 return Ok(false);
             }
             tx.execute(
                 "INSERT INTO library_items
                     (id, kind, mime, animated, width, height, size, source, name, pack,
-                     bytes, thumb, thumb_mime, added_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
+                     thumb_mime, added_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
                 params![
                     id,
                     new.kind.as_str(),
@@ -263,12 +287,11 @@ impl Store {
                     new.source.as_str(),
                     new.name,
                     new.pack,
-                    new.bytes,
-                    new.thumb.as_ref().map(|(bytes, _)| bytes),
                     new.thumb.as_ref().map(|(_, mime)| mime),
                     now.as_millis(),
                 ],
             )?;
+            put_files(tx, id, &new.bytes, new.thumb.as_ref())?;
             Ok(true)
         })?;
         self.library_evict(budget, Some(id))?;
@@ -381,7 +404,8 @@ impl Store {
         self.read(|conn| {
             Ok(conn
                 .query_row(
-                    "SELECT bytes, mime FROM library_items WHERE id = ?1",
+                    "SELECT f.bytes, i.mime FROM library_items i
+                     JOIN library_files f ON f.id = i.id WHERE i.id = ?1",
                     params![id],
                     |row| Ok((row.get(0)?, row.get(1)?)),
                 )
@@ -394,8 +418,9 @@ impl Store {
         self.read(|conn| {
             Ok(conn
                 .query_row(
-                    "SELECT thumb, thumb_mime FROM library_items
-                     WHERE id = ?1 AND thumb IS NOT NULL",
+                    "SELECT f.thumb, i.thumb_mime FROM library_items i
+                     JOIN library_files f ON f.id = i.id
+                     WHERE i.id = ?1 AND f.thumb IS NOT NULL AND i.thumb_mime IS NOT NULL",
                     params![id],
                     |row| Ok((row.get(0)?, row.get(1)?)),
                 )
@@ -943,9 +968,9 @@ impl Store {
             };
             tx.execute(
                 "INSERT INTO library_items
-                    (id, kind, mime, animated, width, height, size, source, bytes, thumb,
+                    (id, kind, mime, animated, width, height, size, source,
                      thumb_mime, added_at, indexed, origin_account, origin_url, origin_message)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, 1, ?13, ?14, ?15)",
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, 1, ?11, ?12, ?13)",
                 params![
                     id,
                     kind.as_str(),
@@ -955,8 +980,6 @@ impl Store {
                     size.map(|(_, height)| height),
                     bytes.len() as i64,
                     source.as_str(),
-                    bytes,
-                    thumb.as_ref().map(|(bytes, _)| bytes),
                     thumb.as_ref().map(|(_, mime)| mime),
                     now.as_millis(),
                     seen.account.as_str(),
@@ -964,6 +987,7 @@ impl Store {
                     seen.message.as_str(),
                 ],
             )?;
+            put_files(tx, &id, &bytes, thumb.as_ref())?;
             see(tx, &id, seen.outgoing, seen.at)?;
             Ok(true)
         })?;
@@ -1055,7 +1079,7 @@ impl Store {
             }
             tx.execute(
                 "UPDATE library_items SET id = ?2, mime = ?3, animated = ?4, width = ?5,
-                    height = ?6, size = ?7, bytes = ?8, thumb = ?9, thumb_mime = ?10
+                    height = ?6, size = ?7, thumb_mime = ?8
                  WHERE id = ?1",
                 params![
                     pending,
@@ -1065,11 +1089,11 @@ impl Store {
                     new.size.map(|(width, _)| width),
                     new.size.map(|(_, height)| height),
                     new.bytes.len() as i64,
-                    new.bytes,
-                    new.thumb.as_ref().map(|(bytes, _)| bytes),
                     new.thumb.as_ref().map(|(_, mime)| mime),
                 ],
             )?;
+            tx.execute("DELETE FROM library_files WHERE id = ?1", params![pending])?;
+            put_files(tx, id, &new.bytes, new.thumb.as_ref())?;
             Ok(())
         })
     }
