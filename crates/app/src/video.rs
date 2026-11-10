@@ -404,6 +404,17 @@ fn pack_rows(buf: &[u8], width: usize, height: usize, stride: usize) -> Vec<u8> 
     out
 }
 
+/// The frame turned clockwise by `degrees`, as mpv would have shown it;
+/// anything but a quarter turn is left as it is.
+fn turned(image: image::RgbaImage, degrees: i64) -> image::RgbaImage {
+    match degrees.rem_euclid(360) {
+        90 => image::imageops::rotate90(&image),
+        180 => image::imageops::rotate180(&image),
+        270 => image::imageops::rotate270(&image),
+        _ => image,
+    }
+}
+
 fn stride_for(width: i32) -> usize {
     let raw = width.max(1) as usize * 4;
     raw.div_ceil(64) * 64
@@ -632,7 +643,7 @@ mod native {
         }
         let mut applied_pause = false;
         let mut applied_mute = false;
-        let mut size: Option<(i32, i32)> = None;
+        let mut size: Option<Frame> = None;
         let mut last_frame = std::time::Instant::now()
             .checked_sub(Duration::from_millis(40))
             .unwrap_or_else(std::time::Instant::now);
@@ -736,6 +747,11 @@ mod native {
             ("input-vo-keyboard", "no"),
             ("ytdl", "no"),
             ("sw-fast", "yes"),
+            // A phone's upright video is stored on its side, with a note to
+            // turn it. Before 0.42 libmpv's software renderer aborted the
+            // whole process on such a file (mpv 7a94ec5), so the frame is
+            // turned here instead (`turned`).
+            ("video-rotate", "no"),
             ("loop-file", if looping { "inf" } else { "no" }),
             // A sound card that does not open when playback starts (none
             // at all, one just unplugged, one held by another program)
@@ -747,7 +763,8 @@ mod native {
             if name == "ao" && audio.is_empty() {
                 continue;
             }
-            let required = name == "vo" || name == "idle" || name == "config";
+            let required =
+                name == "vo" || name == "idle" || name == "config" || name == "video-rotate";
             if let Err(error) = set_string(api, ctx, false, name, value) {
                 if required || name == "ao" {
                     unsafe { (api.destroy)(ctx) };
@@ -849,16 +866,30 @@ mod native {
         render: *mut std::ffi::c_void,
         ctx: *mut std::ffi::c_void,
         shared: &Mutex<Shared>,
-        size: &mut Option<(i32, i32)>,
+        size: &mut Option<Frame>,
     ) {
         if size.is_none() {
             let width = property(api, ctx, "video-params/w").and_then(|text| text.parse().ok());
             let height = property(api, ctx, "video-params/h").and_then(|text| text.parse().ok());
             if let (Some(width), Some(height)) = (width, height) {
-                *size = Some(fitted_even(width, height));
+                let (width, height) = fitted_even(width, height);
+                // Read from the file, as mpv is told to leave it alone.
+                let turn = property(api, ctx, "current-tracks/video/demux-rotation")
+                    .and_then(|text| text.parse().ok())
+                    .unwrap_or(0);
+                *size = Some(Frame {
+                    width,
+                    height,
+                    turn,
+                });
             }
         }
-        let Some((width, height)) = *size else {
+        let Some(Frame {
+            width,
+            height,
+            turn,
+        }) = *size
+        else {
             return;
         };
         let stride = stride_for(width);
@@ -914,6 +945,8 @@ mod native {
         let Some(image) = image::RgbaImage::from_raw(width as u32, height as u32, packed) else {
             return;
         };
+        let image = turned(image, turn);
+        let (width, height) = image.dimensions();
         let image = Arc::new(gpui_kit::RenderImage::new(vec![image::Frame::new(image)]));
         let mut shared = lock(shared);
         if let Some(previous) = shared.image.replace(image) {
@@ -923,8 +956,17 @@ mod native {
                 shared.stale.drain(0..extra);
             }
         }
-        shared.width = width as u32;
-        shared.height = height as u32;
+        shared.width = width;
+        shared.height = height;
+    }
+
+    /// The size frames are drawn at, and the quarter turns the file asks
+    /// of them.
+    #[derive(Clone, Copy)]
+    struct Frame {
+        width: i32,
+        height: i32,
+        turn: i64,
     }
 
     struct Source {
@@ -1090,6 +1132,26 @@ mod tests {
         assert!(refused.contains("unsafe"));
         assert!(!root.join(library_name()).exists());
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn a_frame_is_turned_the_quarter_turns_its_file_asks() {
+        // Two pixels side by side: red on the left, blue on the right.
+        let red = image::Rgba([255, 0, 0, 255]);
+        let blue = image::Rgba([0, 0, 255, 255]);
+        let pair = || image::RgbaImage::from_fn(2, 1, |x, _| if x == 0 { red } else { blue });
+
+        let upright = turned(pair(), 90);
+        assert_eq!(upright.dimensions(), (1, 2));
+        // A clockwise quarter turn puts the left one on top.
+        assert_eq!(*upright.get_pixel(0, 0), red);
+        let upside = turned(pair(), 180);
+        assert_eq!(*upside.get_pixel(0, 0), blue);
+        let back = turned(pair(), -90);
+        assert_eq!(back.dimensions(), (1, 2));
+        assert_eq!(*back.get_pixel(0, 0), blue);
+        assert_eq!(turned(pair(), 0), pair());
+        assert_eq!(turned(pair(), 45), pair());
     }
 
     /// The real decoder on a real file: run by name, with
