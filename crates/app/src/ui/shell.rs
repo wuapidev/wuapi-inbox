@@ -231,6 +231,15 @@ pub struct AudioView {
 /// Messages loaded when a chat is opened, and added per step when the user
 /// scrolls back.
 const MESSAGE_WINDOW: usize = 120;
+/// How many of the newest messages with a file of a chat that is not open
+/// are looked at for fetching ahead of the chat being opened.
+pub(super) const PREFETCH_PER_CHAT: usize = 10;
+/// How many downloads one batch of changes asks for ahead of a chat being
+/// opened: a history arriving all at once, for many chats, does not fill
+/// the queue the open chat's bubbles wait in.
+const PREFETCH_PER_BATCH: usize = 24;
+/// How many chats one batch of changes fetches for ahead.
+const PREFETCH_CHATS: usize = 12;
 /// The row of the conversation that, scrolled to, asks for older messages.
 const OLDER_AT: usize = 2;
 /// Message search results shown under the matching chats.
@@ -1476,6 +1485,9 @@ impl Shell {
     fn apply_changes(&mut self, changes: Vec<StoreChange>, cx: &mut Context<Self>) {
         let (mut accounts, mut chats, mut messages) = (false, false, false);
         let mut stories = false;
+        // Chats that are not open, where something arrived: their pictures
+        // are fetched before anyone opens them.
+        let mut closed: Vec<(AccountId, ChatId)> = Vec::new();
         for change in changes {
             match change {
                 StoreChange::Everything => {
@@ -1487,11 +1499,18 @@ impl Shell {
                 StoreChange::Stories { .. } => stories = true,
                 StoreChange::Accounts => accounts = true,
                 StoreChange::Chats { .. } => chats = true,
-                StoreChange::Messages { chat_id, .. } => {
-                    messages |= self
+                StoreChange::Messages {
+                    account_id,
+                    chat_id,
+                } => {
+                    let is_open = self
                         .open
                         .as_ref()
                         .is_some_and(|open| open.chat.id == chat_id);
+                    messages |= is_open;
+                    if !is_open && !closed.contains(&(account_id.clone(), chat_id.clone())) {
+                        closed.push((account_id, chat_id));
+                    }
                 }
                 // Presence is read from the engine while rendering, and so
                 // are the calls that ring or are on.
@@ -1537,7 +1556,60 @@ impl Shell {
         if stories || accounts {
             self.reload_status(cx);
         }
+        self.prefetch_closed_chats(closed, cx);
         cx.notify();
+    }
+
+    /// Fetches, ahead of the chats being opened, the media their newest
+    /// messages will ask for: the rules are the bubbles' own
+    /// ([`MediaShelf::prefetch_background`]), so nothing is fetched that
+    /// opening the chat would not fetch. The rows are read off the main
+    /// thread; what is asked of the engine goes behind what the open chat
+    /// needs, and is not forgotten when a chat is left.
+    ///
+    /// [`MediaShelf::prefetch_background`]: super::media::MediaShelf::prefetch_background
+    fn prefetch_closed_chats(&mut self, chats: Vec<(AccountId, ChatId)>, cx: &mut Context<Self>) {
+        if chats.is_empty() {
+            return;
+        }
+        let policy = settings::get(cx).media.resolved(self.session.is_direct());
+        self.media.set_policy(policy);
+        if policy == settings::MediaChoice::Never {
+            return;
+        }
+        let store = self.store.clone();
+        let chats: Vec<_> = chats.into_iter().take(PREFETCH_CHATS).collect();
+        cx.spawn(async move |this, cx| {
+            let found = cx
+                .background_spawn(async move {
+                    let mut found = Vec::new();
+                    for (account, chat) in chats {
+                        match store.recent_media(&account, &chat, PREFETCH_PER_CHAT) {
+                            Ok(media) => {
+                                found.extend(media.into_iter().map(|m| (account.clone(), m)))
+                            }
+                            Err(error) => {
+                                tracing::warn!(%error, "could not read media to fetch ahead")
+                            }
+                        }
+                    }
+                    found
+                })
+                .await;
+            this.update(cx, |this, _| {
+                let mut asked = 0;
+                for (account, media) in &found {
+                    if asked == PREFETCH_PER_BATCH {
+                        break;
+                    }
+                    if this.media.prefetch_background(account, media) {
+                        asked += 1;
+                    }
+                }
+            })
+            .ok();
+        })
+        .detach();
     }
 
     pub(super) fn reload_accounts(&mut self, cx: &mut Context<Self>) {

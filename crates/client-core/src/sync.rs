@@ -2742,6 +2742,9 @@ struct MediaJob {
     animation: bool,
     /// The user asked for this one: the larger limit applies.
     asked: bool,
+    /// Fetched ahead, for a chat that is not on screen: it waits behind
+    /// what a bubble needs, and closing a chat does not forget it.
+    background: bool,
 }
 
 enum MediaSlot {
@@ -2754,7 +2757,8 @@ enum MediaSlot {
 
 #[derive(Default)]
 struct MediaQueue {
-    /// Newest request first.
+    /// What a bubble needs, newest request first, and then what is
+    /// fetched ahead, oldest first.
     waiting: std::collections::VecDeque<MediaJob>,
     slots: HashMap<String, MediaSlot>,
     workers: usize,
@@ -2969,7 +2973,16 @@ impl SyncEngine {
     /// under [`thumbnail_key`]); what cannot be had is reported by
     /// [`media_state`](Self::media_state).
     pub fn want_thumbnail(&self, account: &AccountId, url: &str) {
-        self.want_media(account, url, MediaWant::Thumbnail, false);
+        self.want_media(account, url, MediaWant::Thumbnail, false, false);
+    }
+
+    /// [`want_thumbnail`](Self::want_thumbnail) for a picture of a chat
+    /// that is not on screen: it is fetched when a download is free,
+    /// after everything a bubble needs, and leaving a chat does not
+    /// forget it ([`cancel_media`](Self::cancel_media)). Asked for again
+    /// with [`want_thumbnail`](Self::want_thumbnail), it goes first.
+    pub fn want_thumbnail_background(&self, account: &AccountId, url: &str) {
+        self.want_media(account, url, MediaWant::Thumbnail, false, true);
     }
 
     /// [`want_thumbnail`](Self::want_thumbnail) because the user asked
@@ -2977,14 +2990,14 @@ impl SyncEngine {
     /// for ([`MANUAL_MEDIA_LIMIT`]), not only as large as one fetched
     /// unasked.
     pub fn want_thumbnail_asked(&self, account: &AccountId, url: &str) {
-        self.want_media(account, url, MediaWant::Thumbnail, true);
+        self.want_media(account, url, MediaWant::Thumbnail, true, false);
     }
 
     /// Fetches the whole file at `url` because the user asked for it (to
     /// look at an image full size, to open a document): any type, at most
     /// [`MANUAL_MEDIA_LIMIT`]. It arrives under [`file_key`].
     pub fn want_file(&self, account: &AccountId, url: &str) {
-        self.want_media(account, url, MediaWant::Whole, true);
+        self.want_media(account, url, MediaWant::Whole, true, false);
     }
 
     /// Fetches the whole file at `url` ahead of a click, because the
@@ -2993,7 +3006,14 @@ impl SyncEngine {
     /// somebody did. Asking for it later with
     /// [`want_file`](Self::want_file) puts it first in line.
     pub fn want_file_unasked(&self, account: &AccountId, url: &str) {
-        self.want_media(account, url, MediaWant::Whole, false);
+        self.want_media(account, url, MediaWant::Whole, false, false);
+    }
+
+    /// [`want_file_unasked`](Self::want_file_unasked) for a file of a
+    /// chat that is not on screen: behind everything a bubble needs, and
+    /// not forgotten when a chat is left.
+    pub fn want_file_background(&self, account: &AccountId, url: &str) {
+        self.want_media(account, url, MediaWant::Whole, false, true);
     }
 
     /// Asks whether the image at `url`, whose thumbnail is already
@@ -3002,10 +3022,17 @@ impl SyncEngine {
     /// empty entry is kept there. An image fetched from now on answers
     /// this with its thumbnail, in one download.
     pub fn want_animation(&self, account: &AccountId, url: &str) {
-        self.want_media(account, url, MediaWant::Animation, false);
+        self.want_media(account, url, MediaWant::Animation, false, false);
     }
 
-    fn want_media(&self, account: &AccountId, url: &str, want: MediaWant, asked: bool) {
+    fn want_media(
+        &self,
+        account: &AccountId,
+        url: &str,
+        want: MediaWant,
+        asked: bool,
+        background: bool,
+    ) {
         if self.is_stopped() {
             return;
         }
@@ -3019,11 +3046,19 @@ impl SyncEngine {
         match media.slots.get(&key) {
             Some(MediaSlot::RetryAt(at)) if Instant::now() >= *at => {}
             // Asked for while it waits in line behind what was fetched
-            // ahead: it goes first, under the user's limit.
-            Some(MediaSlot::Loading) if asked => {
-                if let Some(at) = media.waiting.iter().position(|job| job.key == key) {
+            // ahead: it goes first, under the user's limit. A bubble that
+            // needs what was fetched ahead for a chat that was not open
+            // takes it over: it goes first, and stays when the chat is
+            // left.
+            Some(MediaSlot::Loading) if !background => {
+                if let Some(at) = media
+                    .waiting
+                    .iter()
+                    .position(|job| job.key == key && (asked || job.background))
+                {
                     if let Some(mut job) = media.waiting.remove(at) {
-                        job.asked = true;
+                        job.asked |= asked;
+                        job.background = false;
                         media.waiting.push_front(job);
                     }
                 }
@@ -3033,14 +3068,20 @@ impl SyncEngine {
             None => {}
         }
         media.slots.insert(key.clone(), MediaSlot::Loading);
-        media.waiting.push_front(MediaJob {
+        let job = MediaJob {
             account: account.clone(),
             url: url.to_owned(),
             key,
             whole,
             animation: want == MediaWant::Animation,
             asked,
-        });
+            background,
+        };
+        if background {
+            media.waiting.push_back(job);
+        } else {
+            media.waiting.push_front(job);
+        }
         // Requests nobody is waiting for any more: rows that scrolled away.
         while media.waiting.len() > MEDIA_QUEUE {
             if let Some(dropped) = media.waiting.pop_back() {
@@ -3119,13 +3160,17 @@ impl SyncEngine {
     }
 
     /// Forgets the downloads that have not started: the chat they were for
-    /// was closed. Those in flight finish and are cached.
+    /// was closed. Those in flight finish and are cached. What was
+    /// fetched ahead, for chats that were not open, stays in line.
     pub fn cancel_media(&self) {
         let mut media = self.inner.media.lock().expect("media lock");
         let MediaQueue { waiting, slots, .. } = &mut *media;
-        for job in waiting.drain(..) {
-            slots.remove(&job.key);
-        }
+        waiting.retain(|job| {
+            if !job.background {
+                slots.remove(&job.key);
+            }
+            job.background
+        });
     }
 
     async fn run_media(self) {
