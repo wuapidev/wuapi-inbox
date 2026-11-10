@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+## [0.15.0]
+
+* The window no longer stops while the application is busy writing: starring or sending a sticker, editing, reacting, starring, pinning or deleting a message, voting, muting or archiving a chat, a task, a group or profile change, and moving from one status to the next are written in the background, in the order they were made, and the window goes on at once. Moving between statuses while their videos downloaded froze it for seconds.
+* Downloads no longer hold everything else up: what is known of each cached file (its size, when it was last used) is kept apart from the file (a migration, once, at the first start, of a few seconds with a large cache). Each file that arrived read the whole cache before; with hundreds of megabytes cached, that took more than a second per file, and sending a message, a star or a status waited behind it.
+* A status video whose download failed no longer leaves the viewer waiting for ever: it says it could not be played, and "Try again" downloads it again. "Play" on a video that failed before asks for it again instead of doing nothing.
+
 ## [0.14.0]
 
 * Forwarding no longer freezes the window: the sheet opens at once and its chats are read in the background as you type, and pressing send closes it at once while the copies are queued behind it.
