@@ -411,7 +411,10 @@ impl Shell {
                 )
                 .on_click(cx.listener(move |this, _, _, cx| {
                     cx.stop_propagation();
-                    this.engine.set_story_muted(&account, &who, !muted);
+                    let (engine, account, who) =
+                        (this.engine.clone(), account.clone(), who.clone());
+                    this.writes
+                        .run(move || engine.set_story_muted(&account, &who, !muted));
                     cx.notify();
                 })),
             );

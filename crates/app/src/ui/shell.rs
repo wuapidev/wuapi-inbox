@@ -1045,6 +1045,10 @@ pub struct Shell {
     /// have them yet: queueing waits for whatever the engine is writing.
     pub(super) local_sends: Vec<StoredMessage>,
     _sending: Task<()>,
+    /// The writes the window asks for, done off its thread: see
+    /// [`super::writes`].
+    pub(super) writes: super::writes::Writes,
+    _writes: Task<()>,
 }
 
 /// A message sent from the window, to be queued. Queuing writes to the
@@ -1313,8 +1317,9 @@ impl Shell {
             }
         });
 
+        let (writes, writes_task) = super::writes::Writes::start(cx);
         let mut this = Self {
-            media: Rc::new(MediaShelf::new(engine.clone())),
+            media: Rc::new(MediaShelf::new(engine.clone(), writes.clone())),
             senders: Rc::new(Senders::new(store.clone())),
             mentioning: Default::default(),
             keys: Default::default(),
@@ -1444,6 +1449,8 @@ impl Shell {
             outgoing,
             local_sends: Vec::new(),
             _sending: sending,
+            writes,
+            _writes: writes_task,
         };
         // Whatever is already in the store shows up in the first frame:
         // the chat list is read at once this time, and only once.
@@ -2128,12 +2135,17 @@ impl Shell {
         cx.notify();
     }
 
+    /// Mutes, pins, archives or marks a chat, off this thread (see
+    /// [`super::writes`]): the store's change redraws the list.
+    pub(super) fn change_chat(&self, account: &AccountId, chat: &ChatId, change: ChatChange) {
+        let (engine, account, chat) = (self.engine.clone(), account.clone(), chat.clone());
+        self.writes
+            .run(move || engine.update_chat(&account, &chat, change));
+    }
+
     /// Messages still waiting to be sent: what signing out would lose.
     pub(super) fn unsent(&self) -> usize {
-        self.store
-            .outbox_pending()
-            .map(|pending| pending.len())
-            .unwrap_or(0)
+        self.store.outbox_pending_count().unwrap_or(0)
     }
 
     /// Changes how much history is fetched in the background: saved, and
@@ -3184,7 +3196,7 @@ impl Shell {
             }
             MenuAction::Change(change) => {
                 if let Some(chat) = self.menu_chat() {
-                    self.engine.update_chat(&chat.account_id, &chat.id, change);
+                    self.change_chat(&chat.account_id, &chat.id, change);
                     // A chat that was just marked unread or put away is not
                     // one to keep looking at: looking would read it again.
                     let is_open = self
@@ -3272,23 +3284,33 @@ impl Shell {
     }
 
     /// Opens the conversation with a contact of the address book. Nothing
-    /// is asked of anyone: the contact is in the store.
+    /// is asked of anyone: the contact is in the store. Its chat may have
+    /// to be written first, which is done off this thread.
     pub(super) fn open_contact(
         &mut self,
         contact: Contact,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        match self.engine.chat_with_contact(&contact) {
-            Ok(chat) => {
-                self.close_overlay(window, cx);
-                self.filter = ChatFilter::All;
-                self.reload_chats(cx);
-                self.open_chat(chat, None, cx);
-            }
-            Err(error) => self.new_chat_error = Some(error.to_string().into()),
-        }
-        cx.notify();
+        let engine = self.engine.clone();
+        let made = self.writes.ask(move || engine.chat_with_contact(&contact));
+        cx.spawn_in(window, async move |this, cx| {
+            let Some(made) = made.await else { return };
+            this.update_in(cx, |this, window, cx| {
+                match made {
+                    Ok(chat) => {
+                        this.close_overlay(window, cx);
+                        this.filter = ChatFilter::All;
+                        this.reload_chats(cx);
+                        this.open_chat(chat, None, cx);
+                    }
+                    Err(error) => this.new_chat_error = Some(error.to_string().into()),
+                }
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
     }
 
     /// Opens the conversation with a typed number, once the provider has

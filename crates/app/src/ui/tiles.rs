@@ -149,14 +149,25 @@ impl Shell {
             .into_iter()
             .find(|contact| contact.phone.as_deref().map(digits).as_ref() == Some(&wanted));
         if let Some(contact) = known {
-            match self.engine.chat_with_contact(&contact) {
-                Ok(chat) => self.show_chat(chat, None, cx),
-                Err(error) => self.say(i18n::tr(
-                    "common.tiles.chat_not_opened",
-                    &[("error", &error)],
-                )),
-            }
-            return cx.notify();
+            // Making the chat writes to the store: off this thread.
+            let engine = self.engine.clone();
+            let made = self.writes.ask(move || engine.chat_with_contact(&contact));
+            cx.spawn(async move |this, cx| {
+                let Some(made) = made.await else { return };
+                this.update(cx, |this, cx| {
+                    match made {
+                        Ok(chat) => this.show_chat(chat, None, cx),
+                        Err(error) => this.say(i18n::tr(
+                            "common.tiles.chat_not_opened",
+                            &[("error", &error)],
+                        )),
+                    }
+                    cx.notify();
+                })
+                .ok();
+            })
+            .detach();
+            return;
         }
         if !self.caps_here().start_chat {
             return self.say(i18n::t("common.tiles.no_new_chat"));
@@ -208,8 +219,10 @@ impl Shell {
     ) {
         match poll.toggled(option) {
             Some(choices) => {
-                self.engine
-                    .vote_poll(&message.account_id, &message.chat_id, &message.id, choices)
+                let (engine, message) = (self.engine.clone(), message.clone());
+                self.writes.run(move || {
+                    engine.vote_poll(&message.account_id, &message.chat_id, &message.id, choices)
+                });
             }
             None => self.say(i18n::tr(
                 "common.tiles.poll_max",

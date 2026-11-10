@@ -45,7 +45,9 @@ impl Shell {
         story: MessageId,
         cx: &mut Context<Self>,
     ) {
-        self.engine.delete_story(&account, &story);
+        let engine = self.engine.clone();
+        self.writes
+            .run(move || engine.delete_story(&account, &story));
         cx.notify();
     }
 
@@ -61,9 +63,17 @@ impl Shell {
         let Some(account) = self.account.clone() else {
             return;
         };
-        if let Err(error) = self.engine.forward_story(&account, story, &chat) {
-            self.show_problem(error.to_string(), cx);
-        }
+        let (engine, story) = (self.engine.clone(), story.clone());
+        let answer = self
+            .writes
+            .ask(move || engine.forward_story(&account, &story, &chat));
+        cx.spawn(async move |this, cx| {
+            if let Some(Err(error)) = answer.await {
+                this.update(cx, |this, cx| this.show_problem(error.to_string(), cx))
+                    .ok();
+            }
+        })
+        .detach();
     }
 
     /// The pane of the account's own status.
@@ -412,7 +422,10 @@ impl Shell {
                             )
                             .on_click(cx.listener(
                                 move |this, _, _, cx| {
-                                    let _ = this.engine.retry_story_post(&again);
+                                    let (engine, again) = (this.engine.clone(), again.clone());
+                                    this.writes.run(move || {
+                                        let _ = engine.retry_story_post(&again);
+                                    });
                                     cx.notify();
                                 },
                             )),
@@ -427,7 +440,10 @@ impl Shell {
                             )
                             .on_click(cx.listener(
                                 move |this, _, _, cx| {
-                                    let _ = this.engine.discard_story_post(&client);
+                                    let (engine, client) = (this.engine.clone(), client.clone());
+                                    this.writes.run(move || {
+                                        let _ = engine.discard_story_post(&client);
+                                    });
                                     cx.notify();
                                 },
                             )),

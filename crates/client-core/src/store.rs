@@ -968,7 +968,7 @@ impl Store {
         if found.is_some() {
             if let Ok(conn) = self.writer.try_lock() {
                 conn.execute(
-                    "UPDATE media_cache SET last_used = ?2 WHERE key = ?1",
+                    "UPDATE media_meta SET last_used = ?2 WHERE key = ?1",
                     params![key, now.as_millis()],
                 )?;
             }
@@ -982,7 +982,7 @@ impl Store {
         self.read(|conn| {
             Ok(conn
                 .query_row(
-                    "SELECT 1 FROM media_cache WHERE key = ?1",
+                    "SELECT 1 FROM media_meta WHERE key = ?1",
                     params![key],
                     |_| Ok(()),
                 )
@@ -996,7 +996,7 @@ impl Store {
         self.read(|conn| {
             Ok(conn
                 .query_row(
-                    "SELECT width, height FROM media_cache WHERE key = ?1",
+                    "SELECT width, height FROM media_meta WHERE key = ?1",
                     params![key],
                     |row| Ok((row.get::<_, Option<u32>>(0)?, row.get::<_, Option<u32>>(1)?)),
                 )
@@ -1033,18 +1033,17 @@ impl Store {
                     now.as_millis(),
                 ],
             )?;
-            let mut total: i64 = tx.query_row(
-                "SELECT COALESCE(SUM(size), 0) FROM media_cache",
-                [],
-                |row| row.get(0),
-            )?;
+            let mut total: i64 =
+                tx.query_row("SELECT COALESCE(SUM(size), 0) FROM media_meta", [], |row| {
+                    row.get(0)
+                })?;
             // A budget larger than SQLite counts to is no budget.
             let budget = i64::try_from(budget).unwrap_or(i64::MAX);
             let mut evicted = 0;
             while total > budget {
                 let oldest: Option<(String, i64)> = tx
                     .query_row(
-                        "SELECT key, size FROM media_cache WHERE key <> ?1
+                        "SELECT key, size FROM media_meta WHERE key <> ?1
                          ORDER BY last_used, key LIMIT 1",
                         params![key],
                         |row| Ok((row.get(0)?, row.get(1)?)),
@@ -1066,11 +1065,10 @@ impl Store {
     /// How many bytes the media cache holds.
     pub fn media_total(&self) -> StoreResult<u64> {
         self.read(|conn| {
-            let total: i64 = conn.query_row(
-                "SELECT COALESCE(SUM(size), 0) FROM media_cache",
-                [],
-                |row| row.get(0),
-            )?;
+            let total: i64 =
+                conn.query_row("SELECT COALESCE(SUM(size), 0) FROM media_meta", [], |row| {
+                    row.get(0)
+                })?;
             Ok(total.max(0) as u64)
         })
     }
@@ -2757,7 +2755,7 @@ fn media_source(content: &MessageContent) -> Option<&str> {
 fn move_media_tx(tx: &Transaction<'_>, old: &str, new: &str) -> StoreResult<()> {
     let keys: Vec<String> = tx
         .prepare_cached(
-            "SELECT key FROM media_cache
+            "SELECT key FROM media_meta
              WHERE instr(key, ':') > 0 AND substr(key, instr(key, ':') + 1) = ?1",
         )?
         .query_map(params![old], |row| row.get(0))?

@@ -556,6 +556,19 @@ impl Store {
         Ok(())
     }
 
+    /// How many messages are still waiting. A read, for the window: it
+    /// does not wait for the writer.
+    pub fn outbox_pending_count(&self) -> StoreResult<usize> {
+        self.read(|conn| {
+            let count: i64 = conn.query_row(
+                "SELECT COUNT(*) FROM outbox WHERE state = 'queued'",
+                [],
+                |row| row.get(0),
+            )?;
+            Ok(count as usize)
+        })
+    }
+
     /// Every message still waiting, oldest first.
     pub fn outbox_pending(&self) -> StoreResult<Vec<OutboxEntry>> {
         self.write(|tx| {

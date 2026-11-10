@@ -75,13 +75,16 @@ impl Shell {
         true
     }
 
+    /// Queued off this thread: it is written to the store.
     fn pin(&self, message: &Message, pin: Option<PinFor>) {
-        if let Err(error) =
-            self.engine
-                .pin_message(&message.account_id, &message.chat_id, &message.id, pin)
-        {
-            tracing::error!(%error, "could not store the pin");
-        }
+        let (engine, message) = (self.engine.clone(), message.clone());
+        self.writes.run(move || {
+            if let Err(error) =
+                engine.pin_message(&message.account_id, &message.chat_id, &message.id, pin)
+            {
+                tracing::error!(%error, "could not store the pin");
+            }
+        });
     }
 
     /// A choice of the pin sheet was made.

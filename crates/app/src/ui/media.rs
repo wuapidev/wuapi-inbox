@@ -285,6 +285,8 @@ fn draw_cover(bytes: Vec<u8>, width: u32) -> Option<(Vec<u8>, (u32, u32), u32)> 
 pub struct MediaShelf {
     engine: SyncEngine,
     store: Arc<Store>,
+    /// The window's queue of writes (see [`super::writes`]).
+    writes: super::writes::Writes,
     /// `None`: looked up, and there is none (yet).
     avatars: RefCell<HashMap<ChatKey, Option<Arc<Image>>>>,
     thumbnails: RefCell<HashMap<String, Option<Arc<Image>>>>,
@@ -350,10 +352,11 @@ fn own_image(bytes: Vec<u8>) -> Arc<Image> {
 
 impl MediaShelf {
     /// A shelf over an engine's store.
-    pub fn new(engine: SyncEngine) -> Self {
+    pub fn new(engine: SyncEngine, writes: super::writes::Writes) -> Self {
         Self {
             store: engine.store().clone(),
             engine,
+            writes,
             avatars: RefCell::default(),
             thumbnails: RefCell::default(),
             boxes: RefCell::default(),
@@ -998,12 +1001,14 @@ impl MediaShelf {
             mime: None,
             size: None,
         };
-        if let Err(error) =
-            self.store
-                .put_media(&shape_key(url), &cached, Timestamp::now(), u64::MAX)
-        {
-            tracing::warn!(%error, "could not keep an audio's waveform");
-        }
+        // Written off this thread: the shape is already known here, and
+        // the store's writer may be busy with a download.
+        let (store, key) = (self.store.clone(), shape_key(url));
+        self.writes.run(move || {
+            if let Err(error) = store.put_media(&key, &cached, Timestamp::now(), u64::MAX) {
+                tracing::warn!(%error, "could not keep an audio's waveform");
+            }
+        });
         self.shapes.borrow_mut().insert(url.to_owned(), Some(shape));
     }
 
