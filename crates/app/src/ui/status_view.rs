@@ -664,8 +664,13 @@ impl Shell {
                     self.present_story_video(cx);
                 } else if let Some(account) = self.account.clone() {
                     // Ask for the file without marking it as something the
-                    // system player is about to open.
-                    self.engine.want_file(&account, &url);
+                    // system player is about to open. A download that
+                    // failed before (the prefetch, an earlier click) is
+                    // tried again: the click is the ask, and an engine that
+                    // remembers the failure would otherwise ignore it and
+                    // leave the viewer waiting for nothing.
+                    self.status.video_error = None;
+                    self.media.retry_file(&account, &url);
                     self.status.video_pending = Some((id, url));
                     if let Some(viewing) = self.status.viewing.as_mut() {
                         viewing.player.holds.loading = true;
@@ -764,11 +769,36 @@ impl Shell {
         let Some(url) = media.source.as_ref().map(|source| source.to_string()) else {
             return;
         };
-        if self.media.file_state(&url) != super::media::FileState::Ready {
-            self.ask_for_story_gif(&id, &media, &url);
-            return;
+        match self.media.file_state(&url) {
+            super::media::FileState::Ready => self.play_story_video(id, &url, cx),
+            // The file that was being waited for will not come: said, with
+            // the button that tries again, instead of a wait that never
+            // ends.
+            super::media::FileState::Unavailable(_)
+                if self
+                    .status
+                    .video_pending
+                    .as_ref()
+                    .is_some_and(|(pending, _)| pending == &id) =>
+            {
+                tracing::warn!("a story's video could not be downloaded");
+                self.story_video_failed(id);
+            }
+            // Waited for, and no longer in the engine's line (it lets go of
+            // what waits too long behind newer requests): asked for again.
+            super::media::FileState::NotFetched
+                if self
+                    .status
+                    .video_pending
+                    .as_ref()
+                    .is_some_and(|(pending, _)| pending == &id) =>
+            {
+                if let Some(account) = self.account.clone() {
+                    self.media.fetch_file(&account, &url);
+                }
+            }
+            _ => self.ask_for_story_gif(&id, &media, &url),
         }
-        self.play_story_video(id, &url, cx);
     }
 
     /// A GIF the policy fetches by itself: ask for the file and hold the
