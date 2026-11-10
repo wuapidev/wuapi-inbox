@@ -351,13 +351,31 @@ impl Shell {
                     background: self.status.draft.background,
                     font: self.status.draft.font,
                 };
-                match self.engine.post_story_text(&account, &text, style) {
-                    Ok(_) => self.status_posted(window, cx),
-                    Err(error) => {
-                        self.status.draft.note = Some(error.to_string().into());
-                        cx.notify();
-                    }
-                }
+                // Queued off this thread: the writer may be busy.
+                self.status.draft.busy = true;
+                self.status.draft.note = None;
+                let engine = self.engine.clone();
+                let answer = self.writes.ask(move || {
+                    engine
+                        .post_story_text(&account, &text, style)
+                        .map_err(|error| error.to_string())
+                });
+                self.status.draft.work = Some(cx.spawn_in(window, async move |this, cx| {
+                    let outcome = answer.await;
+                    this.update_in(cx, |this, window, cx| {
+                        this.status.draft.busy = false;
+                        match outcome {
+                            Some(Ok(_)) => this.status_posted(window, cx),
+                            Some(Err(reason)) => {
+                                this.status.draft.note = Some(reason.into());
+                                cx.notify();
+                            }
+                            None => {}
+                        }
+                    })
+                    .ok();
+                }));
+                cx.notify();
             }
             PostTab::Media => {
                 let Some(file) = self.status.draft.file.take() else {
@@ -386,18 +404,24 @@ impl Shell {
                 });
                 let work = runtime.spawn(work);
                 let account = account.clone();
+                let writes = self.writes.clone();
                 self.status.draft.work = Some(cx.spawn_in(window, async move |this, cx| {
                     let prepared = work.await;
+                    let outcome = match prepared.ok().and_then(|inner| inner.ok()) {
+                        // Queued off this thread: it writes the whole file.
+                        Some(Ok(prepared)) => writes
+                            .ask(move || {
+                                engine
+                                    .post_story_prepared(&account, prepared)
+                                    .map_err(|error| error.to_string())
+                            })
+                            .await
+                            .unwrap_or_else(|| Err(i18n::t("status.post.not_prepared").to_owned())),
+                        Some(Err(error)) => Err(error.to_string()),
+                        None => Err(i18n::t("status.post.not_prepared").to_owned()),
+                    };
                     this.update_in(cx, |this, window, cx| {
                         this.status.draft.busy = false;
-                        let outcome = match prepared.ok().and_then(|inner| inner.ok()) {
-                            Some(Ok(prepared)) => this
-                                .engine
-                                .post_story_prepared(&account, prepared)
-                                .map_err(|error| error.to_string()),
-                            Some(Err(error)) => Err(error.to_string()),
-                            None => Err(i18n::t("status.post.not_prepared").to_owned()),
-                        };
                         match outcome {
                             Ok(_) => this.status_posted(window, cx),
                             Err(reason) => {
@@ -489,7 +513,9 @@ impl Shell {
         else {
             return;
         };
-        self.engine.set_story_privacy(&account, edit.privacy);
+        let engine = self.engine.clone();
+        self.writes
+            .run(move || engine.set_story_privacy(&account, edit.privacy));
         self.close_status_sheet(window, cx);
     }
 

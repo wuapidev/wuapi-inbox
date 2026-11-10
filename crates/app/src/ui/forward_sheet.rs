@@ -240,65 +240,88 @@ impl Shell {
         subjects.sort_by_key(|message| message.timestamp);
         let mut refused: Vec<(&'static str, &'static str)> =
             std::mem::take(&mut self.acting.forward_skipped);
-        let mut to = Vec::new();
-        let mut made = false;
-        for chat in picked {
-            match people.get(&chat) {
-                Some(contact) => match self.engine.chat_with_contact(contact) {
-                    Ok(chat) => {
-                        made = true;
-                        to.push(chat);
-                    }
-                    Err(error) => {
-                        tracing::error!(%error, "could not make the chat to forward to");
-                        for message in &subjects {
-                            let why = crate::i18n::t("chat.message_actions.forward_save_failed");
-                            if !refused.contains(&(message_kind(message), why)) {
-                                refused.push((message_kind(message), why));
-                            }
+        self.acting.selecting = None;
+        self.acting.forward_names.clear();
+        self.close_overlay(window, cx);
+        // Making chats and queueing the copies write to the store: off this
+        // thread, in one go. What went wrong is said once it is done, in
+        // words made here (the language is this thread's).
+        let engine = self.engine.clone();
+        let done = self.writes.ask(move || {
+            let mut to = Vec::new();
+            let (mut made, mut unmade) = (false, false);
+            for chat in picked {
+                match people.get(&chat) {
+                    Some(contact) => match engine.chat_with_contact(contact) {
+                        Ok(chat) => {
+                            made = true;
+                            to.push(chat);
                         }
-                    }
-                },
-                None => to.push(chat),
+                        Err(error) => {
+                            tracing::error!(%error, "could not make the chat to forward to");
+                            unmade = true;
+                        }
+                    },
+                    None => to.push(chat),
+                }
             }
-        }
-        for message in &subjects {
-            for chat in &to {
-                let queued = match copy_raw_text(message) {
-                    // A text keeps its mentions as they were typed.
-                    Some(text) => self
-                        .engine
-                        .forward_text(&account, chat, text)
-                        .map(drop)
-                        .map_err(client_core::ForwardError::from),
-                    None => self
-                        .engine
-                        .forward_message(&account, message, chat)
-                        .map(drop),
+            let mut failed = Vec::new();
+            for message in &subjects {
+                for chat in &to {
+                    let queued = match copy_raw_text(message) {
+                        // A text keeps its mentions as they were typed.
+                        Some(text) => engine
+                            .forward_text(&account, chat, text)
+                            .map(drop)
+                            .map_err(client_core::ForwardError::from),
+                        None => engine.forward_message(&account, message, chat).map(drop),
+                    };
+                    if let Err(error) = queued {
+                        tracing::error!(%error, "could not queue the forward");
+                        failed.push((message.clone(), error));
+                    }
+                }
+            }
+            (subjects, made, unmade, failed)
+        });
+        cx.spawn(async move |this, cx| {
+            let Some((subjects, made, unmade, failed)) = done.await else {
+                return;
+            };
+            this.update(cx, |this, cx| {
+                let mut refuse = |message: &Message, why: &'static str| {
+                    if !refused.contains(&(message_kind(message), why)) {
+                        refused.push((message_kind(message), why));
+                    }
                 };
-                if let Err(error) = queued {
-                    tracing::error!(%error, "could not queue the forward");
+                if unmade {
+                    for message in &subjects {
+                        refuse(
+                            message,
+                            crate::i18n::t("chat.message_actions.forward_save_failed"),
+                        );
+                    }
+                }
+                for (message, error) in &failed {
                     let why = match error {
                         client_core::ForwardError::Refused(refusal) => refusal.reason(),
                         client_core::ForwardError::Store(_) => {
                             crate::i18n::t("chat.message_actions.forward_save_failed")
                         }
                     };
-                    if !refused.contains(&(message_kind(message), why)) {
-                        refused.push((message_kind(message), why));
-                    }
+                    refuse(message, why);
                 }
-            }
-        }
-        self.acting.selecting = None;
-        self.acting.forward_names.clear();
-        self.close_overlay(window, cx);
-        if made {
-            self.reload_chats(cx);
-        }
-        if !refused.is_empty() {
-            self.show_problem(not_forwarded(&refused), cx);
-        }
+                if made {
+                    this.reload_chats(cx);
+                }
+                if !refused.is_empty() {
+                    this.show_problem(not_forwarded(&refused), cx);
+                }
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
     }
 
     /// The keys of the forward sheet, as the palette's: the arrows and the

@@ -262,21 +262,32 @@ impl Shell {
                     .then(|| message.sender.to_string());
                 bare
             });
-        let chat = match self.engine.chat_with_contact(&known) {
-            Ok(chat) => chat,
-            Err(error) => {
-                tracing::error!(%error, "could not open the chat to answer in");
-                return false;
-            }
-        };
-        // Opening the chat forgets what was being written in the group;
-        // the answer is said after it.
-        self.show_chat(chat.clone(), Some(window), cx);
-        if !self.open.as_ref().is_some_and(|open| open.chat.id == chat) {
-            return false;
-        }
-        self.acting.compose = Compose::Reply(Box::new(message));
-        self.leave_messages(window, cx);
+        // Making the chat writes to the store: off this thread, and the
+        // chat opens once it is there.
+        let engine = self.engine.clone();
+        let made = self.writes.ask(move || engine.chat_with_contact(&known));
+        cx.spawn_in(window, async move |this, cx| {
+            let chat = match made.await {
+                Some(Ok(chat)) => chat,
+                Some(Err(error)) => {
+                    tracing::error!(%error, "could not open the chat to answer in");
+                    return;
+                }
+                None => return,
+            };
+            this.update_in(cx, |this, window, cx| {
+                // Opening the chat forgets what was being written in the
+                // group; the answer is said after it.
+                this.show_chat(chat.clone(), Some(window), cx);
+                if !this.open.as_ref().is_some_and(|open| open.chat.id == chat) {
+                    return;
+                }
+                this.acting.compose = Compose::Reply(Box::new(message));
+                this.leave_messages(window, cx);
+            })
+            .ok();
+        })
+        .detach();
         true
     }
 
@@ -324,12 +335,14 @@ impl Shell {
         if text.is_empty() {
             return;
         }
-        if let Err(error) =
-            self.engine
-                .edit_message(&message.account_id, &message.chat_id, &message.id, text)
-        {
-            tracing::error!(%error, "could not store the edit");
-        }
+        let (engine, message) = (self.engine.clone(), message.clone());
+        self.writes.run(move || {
+            if let Err(error) =
+                engine.edit_message(&message.account_id, &message.chat_id, &message.id, text)
+            {
+                tracing::error!(%error, "could not store the edit");
+            }
+        });
         self.acting.compose = Compose::New;
         self.composer
             .update(cx, |composer, cx| composer.set_value("", window, cx));
@@ -441,14 +454,16 @@ impl Shell {
             return false;
         }
         let star = !subjects.iter().all(|message| message.extras.starred);
-        for message in &subjects {
-            if let Err(error) =
-                self.engine
-                    .star_message(&message.account_id, &message.chat_id, &message.id, star)
-            {
-                tracing::error!(%error, "could not store the star");
+        let engine = self.engine.clone();
+        self.writes.run(move || {
+            for message in &subjects {
+                if let Err(error) =
+                    engine.star_message(&message.account_id, &message.chat_id, &message.id, star)
+                {
+                    tracing::error!(%error, "could not store the star");
+                }
             }
-        }
+        });
         cx.notify();
         true
     }
@@ -690,16 +705,20 @@ impl Shell {
         cx: &mut Context<Self>,
     ) {
         if choice != DeleteChoice::Cancel {
-            for message in std::mem::take(&mut self.acting.subjects) {
-                if let Err(error) = self.engine.delete_message(
-                    &message.account_id,
-                    &message.chat_id,
-                    &message.id,
-                    choice == DeleteChoice::ForEveryone,
-                ) {
-                    tracing::error!(%error, "could not delete the message");
+            let subjects = std::mem::take(&mut self.acting.subjects);
+            let engine = self.engine.clone();
+            self.writes.run(move || {
+                for message in subjects {
+                    if let Err(error) = engine.delete_message(
+                        &message.account_id,
+                        &message.chat_id,
+                        &message.id,
+                        choice == DeleteChoice::ForEveryone,
+                    ) {
+                        tracing::error!(%error, "could not delete the message");
+                    }
                 }
-            }
+            });
             self.acting.selecting = None;
         }
         self.acting.subjects.clear();
@@ -832,12 +851,7 @@ impl Shell {
         if mine.is_none() && send.is_empty() {
             return self.close_overlay(window, cx);
         }
-        if let Err(error) =
-            self.engine
-                .react(&message.account_id, &message.chat_id, &message.id, send)
-        {
-            tracing::error!(%error, "could not queue the reaction");
-        }
+        self.queue_reaction(message, send.to_owned());
         self.acting.subjects.clear();
         self.close_overlay(window, cx);
     }
@@ -854,14 +868,22 @@ impl Shell {
         if !self.caps_here().reactions {
             return;
         }
-        let send = if mine { "" } else { emoji.as_str() };
-        if let Err(error) =
-            self.engine
-                .react(&message.account_id, &message.chat_id, &message.id, send)
-        {
-            tracing::error!(%error, "could not queue the reaction");
-        }
+        let send = if mine { String::new() } else { emoji };
+        self.queue_reaction(message, send);
         cx.notify();
+    }
+
+    /// Queues a reaction (an empty one takes the account's back), off this
+    /// thread: it is written to the store.
+    fn queue_reaction(&self, message: Message, emoji: String) {
+        let engine = self.engine.clone();
+        self.writes.run(move || {
+            if let Err(error) =
+                engine.react(&message.account_id, &message.chat_id, &message.id, &emoji)
+            {
+                tracing::error!(%error, "could not queue the reaction");
+            }
+        });
     }
 
     /// The keys of the reaction sheet while the keyboard is on the six:

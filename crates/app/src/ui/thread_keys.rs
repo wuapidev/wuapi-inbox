@@ -548,7 +548,7 @@ impl Shell {
                     C::PinChat => ChatChange::Pinned(!chat.pinned),
                     _ => ChatChange::MarkedUnread,
                 };
-                self.engine.update_chat(&chat.account_id, &chat.id, change);
+                self.change_chat(&chat.account_id, &chat.id, change);
                 // A chat just marked unread or put away is not one to keep
                 // looking at: looking would read it again.
                 if matches!(

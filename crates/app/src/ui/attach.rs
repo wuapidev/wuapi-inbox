@@ -749,14 +749,25 @@ impl Shell {
         client_id: ClientMessageId,
         cx: &mut Context<Self>,
     ) {
-        match self.engine.cancel_send(&client_id) {
-            Ok(true) => {}
-            Ok(false) => {
-                self.show_problem(crate::i18n::t("chat.attach_sheet.too_late").to_owned(), cx)
-            }
-            Err(error) => tracing::error!(%error, "could not cancel a send"),
-        }
-        cx.notify();
+        // Taking it out of the outbox writes to the store: off this thread.
+        let engine = self.engine.clone();
+        let cancelled = self.writes.ask(move || engine.cancel_send(&client_id));
+        cx.spawn(async move |this, cx| {
+            let Some(cancelled) = cancelled.await else {
+                return;
+            };
+            this.update(cx, |this, cx| {
+                match cancelled {
+                    Ok(true) => {}
+                    Ok(false) => this
+                        .show_problem(crate::i18n::t("chat.attach_sheet.too_late").to_owned(), cx),
+                    Err(error) => tracing::error!(%error, "could not cancel a send"),
+                }
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
     }
 
     /// The sheet: the file on show, its caption, the strip of all the
