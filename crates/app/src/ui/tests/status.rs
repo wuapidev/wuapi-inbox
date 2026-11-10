@@ -657,6 +657,58 @@ fn a_text_story_is_drawn_on_its_colour_in_its_font(cx: &mut TestAppContext) {
     assert_eq!(style.background, 0x0B_6E_4F);
 }
 
+/// A story's video whose download fails: the viewer says so instead of
+/// waiting for ever, and the button asks for the file again although the
+/// engine remembers the failure. Then it plays.
+#[gpui_kit::test]
+fn a_video_whose_download_failed_says_so_and_plays_when_asked_again(cx: &mut TestAppContext) {
+    let _guard = crate::video::install_opener(Arc::new(|_| {
+        Ok(crate::video::clock(Duration::from_secs(12)))
+    }));
+    let harness = open_status(cx);
+    go_to_status(&harness, cx);
+    watch(&harness, cx, 0);
+    // To Ana's third story, the video.
+    press(harness.window, "right", cx);
+    press(harness.window, "right", cx);
+    tick(&harness, cx, Duration::from_millis(40));
+    let url = viewing(&harness, cx, |viewing| {
+        match &viewing.item().unwrap().story.body {
+            StoryBody::Media(media) => media.source.clone().unwrap().to_string(),
+            other => panic!("{other:?}"),
+        }
+    });
+    harness
+        .mock
+        .set_media(&url, b"video-bytes".to_vec(), "video/mp4");
+    harness
+        .mock
+        .fail_next_media([client_provider::ProviderError::Rejected {
+            code: "not_found".into(),
+            message: "This file is not on WhatsApp.".into(),
+        }]);
+    click(harness.window, "story-open-video", cx);
+    harness.settle(cx);
+    tick(&harness, cx, Duration::from_millis(40));
+    assert!(
+        shows(harness.window, "story-video-note", cx),
+        "the failure is said, not a wait that never ends"
+    );
+    assert!(!viewing(&harness, cx, |viewing| viewing
+        .player
+        .holds
+        .loading));
+
+    // Asked again: the file is fetched this time, and plays.
+    let before = harness.mock.media_calls();
+    click(harness.window, "story-open-video", cx);
+    harness.settle(cx);
+    tick(&harness, cx, Duration::from_millis(40));
+    assert_eq!(harness.mock.media_calls(), before + 1, "asked for again");
+    assert!(shows(harness.window, "story-video", cx));
+    assert!(!shows(harness.window, "story-video-note", cx));
+}
+
 #[gpui_kit::test]
 fn a_video_plays_in_the_app_and_counts_when_a_frame_is_shown(cx: &mut TestAppContext) {
     let _guard = crate::video::install_opener(Arc::new(|_| {

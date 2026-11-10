@@ -429,7 +429,7 @@ impl Shell {
                     C::ListMute => ChatChange::Muted(!chat.muted),
                     _ => ChatChange::MarkedUnread,
                 };
-                self.engine.update_chat(&chat.account_id, &chat.id, change);
+                self.change_chat(&chat.account_id, &chat.id, change);
                 true
             }
             C::ListMenu => {

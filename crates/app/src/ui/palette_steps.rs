@@ -810,12 +810,7 @@ impl Shell {
                 crate::i18n::t("commands.diagnostics.none_yet").into(),
             ));
         }
-        let waiting = self
-            .engine
-            .store()
-            .outbox_pending()
-            .map(|pending| pending.len())
-            .unwrap_or(0);
+        let waiting = self.engine.store().outbox_pending_count().unwrap_or(0);
         lines.push((
             crate::i18n::t("commands.diagnostics.waiting").into(),
             match waiting {
@@ -872,7 +867,7 @@ impl Shell {
                     Some(seconds) => ChatChange::MutedFor(seconds),
                     None => ChatChange::Muted(true),
                 };
-                self.engine.update_chat(&chat.account_id, &chat.id, change);
+                self.change_chat(&chat.account_id, &chat.id, change);
             }
             Value::Number(other) if step.command == Command::GroupNumberWith => {
                 let Some(account) = self.account.clone() else {
@@ -925,7 +920,7 @@ impl Shell {
             C::MarkAChat => ChatChange::MarkedUnread,
             _ => return None,
         };
-        self.engine.update_chat(&chat.account_id, &chat.id, change);
+        self.change_chat(&chat.account_id, &chat.id, change);
         None
     }
 

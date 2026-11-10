@@ -933,7 +933,9 @@ impl Shell {
         ) else {
             return false;
         };
-        self.engine.set_story_muted(&account, &author.0, !author.1);
+        let engine = self.engine.clone();
+        self.writes
+            .run(move || engine.set_story_muted(&account, &author.0, !author.1));
         cx.notify();
         true
     }

@@ -415,8 +415,7 @@ impl Shell {
 
     /// Mutes or unmutes a chat from its panel.
     pub(super) fn mute_from_panel(&mut self, account: &AccountId, chat: &ChatId, muted: bool) {
-        self.engine
-            .update_chat(account, chat, ChatChange::Muted(muted));
+        self.change_chat(account, chat, ChatChange::Muted(muted));
     }
 
     /// Opens the conversation `chat` and its search.
@@ -454,14 +453,28 @@ impl Shell {
                     .then(|| contact.to_string());
                 bare
             });
-        match self.engine.chat_with_contact(&known) {
-            Ok(chat) => {
-                self.close_overlay(window, cx);
-                self.show_chat(chat, Some(window), cx);
-            }
-            Err(error) => self.social.error = Some(error.to_string().into()),
-        }
-        cx.notify();
+        // Off this thread: making the chat writes to the store.
+        let engine = self.engine.clone();
+        let answer = self.writes.ask(move || {
+            engine
+                .chat_with_contact(&known)
+                .map_err(|error| error.to_string())
+        });
+        cx.spawn_in(window, async move |this, cx| {
+            let Some(outcome) = answer.await else { return };
+            this.update_in(cx, |this, window, cx| {
+                match outcome {
+                    Ok(chat) => {
+                        this.close_overlay(window, cx);
+                        this.show_chat(chat, Some(window), cx);
+                    }
+                    Err(reason) => this.social.error = Some(reason.into()),
+                }
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
     }
 
     /// Shows a conversation that was just found or made for a contact:
@@ -507,21 +520,23 @@ impl Shell {
         };
         match (confirm, target) {
             (Confirm::Block(blocked), Target::Contact { account, contact }) => {
-                self.engine.set_blocked(&account, &contact, blocked);
+                let engine = self.engine.clone();
+                self.writes
+                    .run(move || engine.set_blocked(&account, &contact, blocked));
                 self.social.confirm = None;
             }
             (Confirm::Remove(contact), Target::Group { account, group }) => {
-                self.engine.change_participant(
-                    &account,
-                    &group,
-                    &contact,
-                    ParticipantChange::Remove,
-                );
+                let engine = self.engine.clone();
+                self.writes.run(move || {
+                    engine.change_participant(&account, &group, &contact, ParticipantChange::Remove)
+                });
                 self.social.confirm = None;
                 self.social.expanded = None;
             }
             (Confirm::RemovePicture, Target::Group { account, group }) => {
-                self.engine.set_group_picture(&account, &group, None);
+                let engine = self.engine.clone();
+                self.writes
+                    .run(move || engine.set_group_picture(&account, &group, None));
                 self.social.confirm = None;
             }
             (Confirm::ResetLink, Target::Group { account, group }) => {
@@ -590,7 +605,9 @@ impl Shell {
     /// Changes one of a group's settings.
     pub(super) fn change_group(&mut self, change: GroupChange, cx: &mut Context<Self>) {
         if let Some(Target::Group { account, group }) = self.social.target().cloned() {
-            self.engine.update_group(&account, &group, change);
+            let engine = self.engine.clone();
+            self.writes
+                .run(move || engine.update_group(&account, &group, change));
         }
         cx.notify();
     }
@@ -603,8 +620,9 @@ impl Shell {
         cx: &mut Context<Self>,
     ) {
         if let Some(Target::Group { account, group }) = self.social.target().cloned() {
-            self.engine
-                .change_participant(&account, &group, &contact, change);
+            let engine = self.engine.clone();
+            self.writes
+                .run(move || engine.change_participant(&account, &group, &contact, change));
         }
         self.social.expanded = None;
         cx.notify();
@@ -618,8 +636,9 @@ impl Shell {
         cx: &mut Context<Self>,
     ) {
         if let Some(Target::Group { account, group }) = self.social.target().cloned() {
-            self.engine
-                .answer_join_request(&account, &group, &request, approve);
+            let engine = self.engine.clone();
+            self.writes
+                .run(move || engine.answer_join_request(&account, &group, &request, approve));
         }
         cx.notify();
     }
@@ -1134,11 +1153,15 @@ impl Shell {
             (_, Err(sentence)) => self.social.error = Some(sentence.into()),
             (PictureFor::Own(account), Ok(jpeg)) => {
                 self.social.error = None;
-                self.engine.set_profile_picture(&account, Some(jpeg));
+                let engine = self.engine.clone();
+                self.writes
+                    .run(move || engine.set_profile_picture(&account, Some(jpeg)));
             }
             (PictureFor::Group(account, group), Ok(jpeg)) => {
                 self.social.error = None;
-                self.engine.set_group_picture(&account, &group, Some(jpeg));
+                let engine = self.engine.clone();
+                self.writes
+                    .run(move || engine.set_group_picture(&account, &group, Some(jpeg)));
             }
         }
     }
@@ -1212,22 +1235,24 @@ impl Shell {
         }
         self.overlay_focus.focus(window, cx);
         let own = self.social.own.as_ref().map(|own| own.account.clone());
+        let engine = self.engine.clone();
         match (what, self.social.target().cloned(), own) {
             (EditWhat::Subject, Some(Target::Group { account, group }), _) => {
-                self.engine
-                    .update_group(&account, &group, GroupChange::Subject(text));
+                self.writes
+                    .run(move || engine.update_group(&account, &group, GroupChange::Subject(text)));
             }
             (EditWhat::Description, Some(Target::Group { account, group }), _) => {
-                self.engine
-                    .update_group(&account, &group, GroupChange::Description(text));
+                self.writes.run(move || {
+                    engine.update_group(&account, &group, GroupChange::Description(text))
+                });
             }
             (EditWhat::OwnName, _, Some(account)) => {
-                self.engine
-                    .update_profile(&account, ProfileChange::Name(text));
+                self.writes
+                    .run(move || engine.update_profile(&account, ProfileChange::Name(text)));
             }
             (EditWhat::OwnAbout, _, Some(account)) => {
-                self.engine
-                    .update_profile(&account, ProfileChange::About(text));
+                self.writes
+                    .run(move || engine.update_profile(&account, ProfileChange::About(text)));
             }
             _ => {}
         }
@@ -1287,7 +1312,9 @@ impl Shell {
     /// "Remove picture", after the question.
     pub(super) fn remove_own_picture(&mut self, cx: &mut Context<Self>) {
         if let Some(own) = &self.social.own {
-            self.engine.set_profile_picture(&own.account, None);
+            let (engine, account) = (self.engine.clone(), own.account.clone());
+            self.writes
+                .run(move || engine.set_profile_picture(&account, None));
         }
         self.social.confirm = None;
         cx.notify();

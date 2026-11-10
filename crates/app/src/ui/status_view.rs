@@ -426,9 +426,14 @@ impl Shell {
             match moment {
                 Moment::Shown(id) => {
                     if let Some(account) = self.account.clone() {
-                        if let Err(error) = self.engine.story_shown(&account, &id) {
-                            tracing::warn!(%error, "could not record that a story was seen");
-                        }
+                        // Off this thread: it is asked for while a story
+                        // plays, and the writer may be busy.
+                        let engine = self.engine.clone();
+                        self.writes.run(move || {
+                            if let Err(error) = engine.story_shown(&account, &id) {
+                                tracing::warn!(%error, "could not record that a story was seen");
+                            }
+                        });
                     }
                 }
                 Moment::Moved => {
@@ -659,8 +664,13 @@ impl Shell {
                     self.present_story_video(cx);
                 } else if let Some(account) = self.account.clone() {
                     // Ask for the file without marking it as something the
-                    // system player is about to open.
-                    self.engine.want_file(&account, &url);
+                    // system player is about to open. A download that
+                    // failed before (the prefetch, an earlier click) is
+                    // tried again: the click is the ask, and an engine that
+                    // remembers the failure would otherwise ignore it and
+                    // leave the viewer waiting for nothing.
+                    self.status.video_error = None;
+                    self.media.retry_file(&account, &url);
                     self.status.video_pending = Some((id, url));
                     if let Some(viewing) = self.status.viewing.as_mut() {
                         viewing.player.holds.loading = true;
@@ -759,11 +769,36 @@ impl Shell {
         let Some(url) = media.source.as_ref().map(|source| source.to_string()) else {
             return;
         };
-        if self.media.file_state(&url) != super::media::FileState::Ready {
-            self.ask_for_story_gif(&id, &media, &url);
-            return;
+        match self.media.file_state(&url) {
+            super::media::FileState::Ready => self.play_story_video(id, &url, cx),
+            // The file that was being waited for will not come: said, with
+            // the button that tries again, instead of a wait that never
+            // ends.
+            super::media::FileState::Unavailable(_)
+                if self
+                    .status
+                    .video_pending
+                    .as_ref()
+                    .is_some_and(|(pending, _)| pending == &id) =>
+            {
+                tracing::warn!("a story's video could not be downloaded");
+                self.story_video_failed(id);
+            }
+            // Waited for, and no longer in the engine's line (it lets go of
+            // what waits too long behind newer requests): asked for again.
+            super::media::FileState::NotFetched
+                if self
+                    .status
+                    .video_pending
+                    .as_ref()
+                    .is_some_and(|(pending, _)| pending == &id) =>
+            {
+                if let Some(account) = self.account.clone() {
+                    self.media.fetch_file(&account, &url);
+                }
+            }
+            _ => self.ask_for_story_gif(&id, &media, &url),
         }
-        self.play_story_video(id, &url, cx);
     }
 
     /// A GIF the policy fetches by itself: ask for the file and hold the
@@ -891,26 +926,39 @@ impl Shell {
         };
         let id = slide.id.clone();
         let text = crate::stories::with_shortcodes(self.status.reply.read(cx).value().as_ref());
-        match self.engine.reply_to_story(&account, &id, &text, Vec::new()) {
-            Ok(_) => {
-                self.status
-                    .reply
-                    .update(cx, |field, cx| field.set_value("", window, cx));
-                if let Some(viewing) = self.status.viewing.as_mut() {
-                    viewing.notice = Some(i18n::t("status.view.reply_sent").into());
-                    viewing.reply_note = None;
-                    viewing.player.holds.typing = false;
+        let engine = self.engine.clone();
+        let answer = self.writes.ask(move || {
+            engine
+                .reply_to_story(&account, &id, &text, Vec::new())
+                .map_err(|error| error.to_string())
+        });
+        cx.spawn_in(window, async move |this, cx| {
+            let Some(outcome) = answer.await else { return };
+            this.update_in(cx, |this, window, cx| {
+                match outcome {
+                    Ok(_) => {
+                        this.status
+                            .reply
+                            .update(cx, |field, cx| field.set_value("", window, cx));
+                        if let Some(viewing) = this.status.viewing.as_mut() {
+                            viewing.notice = Some(i18n::t("status.view.reply_sent").into());
+                            viewing.reply_note = None;
+                            viewing.player.holds.typing = false;
+                        }
+                        // The keyboard goes back to the viewer.
+                        this.focus.focus(window, cx);
+                    }
+                    Err(reason) => {
+                        if let Some(viewing) = this.status.viewing.as_mut() {
+                            viewing.reply_note = Some(reason.into());
+                        }
+                    }
                 }
-                // The keyboard goes back to the viewer.
-                self.focus.focus(window, cx);
-            }
-            Err(error) => {
-                if let Some(viewing) = self.status.viewing.as_mut() {
-                    viewing.reply_note = Some(error.to_string().into());
-                }
-            }
-        }
-        cx.notify();
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
     }
 
     /// Reacts to the story on screen with one emoji; the same again takes
@@ -928,21 +976,44 @@ impl Shell {
         };
         let taking_back = viewing.reacted.get(&id) == Some(&emoji);
         let sent = if taking_back { "" } else { emoji };
-        match self.engine.react_to_story(&account, &id, sent) {
-            Ok(_) => {
-                if taking_back {
-                    viewing.reacted.remove(&id);
-                    viewing.notice = None;
-                } else {
-                    viewing.reacted.insert(id, emoji);
-                    viewing.notice = Some(SharedString::from(i18n::tr(
-                        "status.view.reacted",
-                        &[("emoji", &emoji)],
-                    )));
-                }
-            }
-            Err(error) => viewing.reply_note = Some(error.to_string().into()),
+        // Shown at once and queued off this thread; taken back if it could
+        // not be queued.
+        let before = viewing.reacted.get(&id).copied();
+        if taking_back {
+            viewing.reacted.remove(&id);
+            viewing.notice = None;
+        } else {
+            viewing.reacted.insert(id.clone(), emoji);
+            viewing.notice = Some(SharedString::from(i18n::tr(
+                "status.view.reacted",
+                &[("emoji", &emoji)],
+            )));
         }
+        let engine = self.engine.clone();
+        let story = id.clone();
+        let answer = self.writes.ask(move || {
+            engine
+                .react_to_story(&account, &story, sent)
+                .map_err(|error| error.to_string())
+        });
+        cx.spawn(async move |this, cx| {
+            let Some(Err(reason)) = answer.await else {
+                return;
+            };
+            this.update(cx, |this, cx| {
+                if let Some(viewing) = this.status.viewing.as_mut() {
+                    match before {
+                        Some(emoji) => viewing.reacted.insert(id, emoji),
+                        None => viewing.reacted.remove(&id),
+                    };
+                    viewing.notice = None;
+                    viewing.reply_note = Some(reason.into());
+                }
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
         cx.notify();
     }
 

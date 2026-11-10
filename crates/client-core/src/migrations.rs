@@ -597,6 +597,52 @@ const MIGRATIONS: &[&str] = &[
     CREATE INDEX library_by_origin ON library_items (origin_url)
         WHERE origin_url IS NOT NULL;
     "#,
+    // v17: what is known about a cached file, apart from the file. In
+    // `media_cache` the small columns came after the blob, so reading one
+    // (a size, a time) walked every page of the file, and updating
+    // `last_used` wrote the whole file again. Summing the cache's sizes,
+    // inside every write of a download, read the entire cache with the
+    // writer held.
+    //
+    // `media_meta` holds those columns, one row per entry, kept by
+    // triggers so that every writer of `media_cache` stays as it was. The
+    // cache's rows are not copied (it can be gigabytes), only read once;
+    // their own `size` and `last_used` are no longer read.
+    r#"
+    CREATE TABLE media_meta (
+        key        TEXT PRIMARY KEY,
+        mime       TEXT,
+        width      INTEGER,
+        height     INTEGER,
+        size       INTEGER NOT NULL,
+        last_used  INTEGER NOT NULL
+    ) WITHOUT ROWID;
+    INSERT INTO media_meta (key, mime, width, height, size, last_used)
+        SELECT key, mime, width, height, size, last_used FROM media_cache;
+    CREATE INDEX media_meta_by_use ON media_meta (last_used);
+    DROP INDEX media_cache_by_use;
+    -- No conflict clauses in the triggers: the statement that fires one
+    -- (an upsert, an INSERT OR REPLACE) would override them.
+    CREATE TRIGGER media_meta_added AFTER INSERT ON media_cache BEGIN
+        DELETE FROM media_meta WHERE key = new.key;
+        INSERT INTO media_meta (key, mime, width, height, size, last_used)
+        VALUES (new.key, new.mime, new.width, new.height, new.size, new.last_used);
+    END;
+    CREATE TRIGGER media_meta_rewritten
+        AFTER UPDATE OF bytes, mime, width, height, size ON media_cache BEGIN
+        DELETE FROM media_meta WHERE key IN (old.key, new.key);
+        INSERT INTO media_meta (key, mime, width, height, size, last_used)
+        VALUES (new.key, new.mime, new.width, new.height, new.size, new.last_used);
+    END;
+    CREATE TRIGGER media_meta_moved AFTER UPDATE OF key ON media_cache
+        WHEN old.key <> new.key BEGIN
+        DELETE FROM media_meta WHERE key = new.key;
+        UPDATE media_meta SET key = new.key WHERE key = old.key;
+    END;
+    CREATE TRIGGER media_meta_gone AFTER DELETE ON media_cache BEGIN
+        DELETE FROM media_meta WHERE key = old.key;
+    END;
+    "#,
 ];
 
 /// The schema version this build expects.

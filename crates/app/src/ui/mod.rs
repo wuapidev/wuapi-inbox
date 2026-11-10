@@ -83,6 +83,7 @@ mod voice_record;
 mod wallpaper;
 mod welcome;
 mod widgets;
+mod writes;
 
 pub use app::AppView;
 pub use links::receive_link;

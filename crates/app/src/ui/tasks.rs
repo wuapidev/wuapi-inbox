@@ -261,7 +261,7 @@ impl Shell {
         let subscription = cx.subscribe_in(&field, window, |this, field, event, window, cx| {
             if let InputEvent::PressEnter { .. } = event {
                 let title = field.read(cx).value().to_string();
-                if this.add_task(title, None, None, cx).is_some() {
+                if this.add_task(title, None, None, cx) {
                     field.update(cx, |field, cx| field.set_value("", window, cx));
                 }
             }
@@ -276,13 +276,14 @@ impl Shell {
     }
 
     /// Keeps a new task, lights it, and makes sure the pane shows it.
+    /// Answers whether there was a task to keep (a blank title is none).
     fn add_task(
         &mut self,
         title: String,
         due: Option<NaiveDate>,
         source: Option<TaskSource>,
         cx: &mut Context<Self>,
-    ) -> Option<Task> {
+    ) -> bool {
         let draft = TaskDraft {
             title,
             notes: None,
@@ -291,30 +292,44 @@ impl Shell {
         self.keep_task(draft, source, cx)
     }
 
+    /// Written off this thread (see [`super::writes`]); the pane shows
+    /// and lights the task once it is in the store. Answers whether there
+    /// was a task to keep: a blank title is none.
     fn keep_task(
         &mut self,
         draft: TaskDraft,
         source: Option<TaskSource>,
         cx: &mut Context<Self>,
-    ) -> Option<Task> {
-        let task = match self
-            .store
-            .add_task(&draft, source.as_ref(), Timestamp::now())
-        {
-            Ok(task) => task?,
-            Err(error) => {
-                tracing::error!(%error, "could not keep the task");
-                return None;
-            }
-        };
+    ) -> bool {
+        if draft.title.trim().is_empty() {
+            return false;
+        }
         settings::update(cx, |settings| settings.tasks_open = true);
         // Done ones are folded and the filter may hide it: it is shown.
-        if self.tasks.this_chat && task.source.is_none() {
+        if self.tasks.this_chat && source.is_none() {
             self.tasks.this_chat = false;
         }
-        self.reload_tasks();
-        self.flash_task(task.id.clone(), cx);
-        Some(task)
+        let store = self.store.clone();
+        let kept = self
+            .writes
+            .ask(move || store.add_task(&draft, source.as_ref(), Timestamp::now()));
+        cx.spawn(async move |this, cx| {
+            let task: Task = match kept.await {
+                Some(Ok(Some(task))) => task,
+                Some(Ok(None)) | None => return,
+                Some(Err(error)) => {
+                    tracing::error!(%error, "could not keep the task");
+                    return;
+                }
+            };
+            this.update(cx, |this, cx| {
+                this.reload_tasks();
+                this.flash_task(task.id.clone(), cx);
+            })
+            .ok();
+        })
+        .detach();
+        true
     }
 
     fn flash_task(&mut self, id: String, cx: &mut Context<Self>) {
@@ -337,18 +352,23 @@ impl Shell {
             .iter()
             .find(|task| task.id == id)
             .is_some_and(|task| task.done_at.is_none());
-        if let Err(error) = self.store.set_task_done(id, done, Timestamp::now()) {
-            tracing::error!(%error, "could not mark the task");
-        }
-        self.reload_tasks();
+        // The pane follows once it is written: the store says so.
+        let (store, id) = (self.store.clone(), id.to_owned());
+        self.writes.run(move || {
+            if let Err(error) = store.set_task_done(&id, done, Timestamp::now()) {
+                tracing::error!(%error, "could not mark the task");
+            }
+        });
         cx.notify();
     }
 
     fn delete_task(&mut self, id: &str, cx: &mut Context<Self>) {
-        if let Err(error) = self.store.delete_task(id) {
-            tracing::error!(%error, "could not delete the task");
-        }
-        self.reload_tasks();
+        let (store, id) = (self.store.clone(), id.to_owned());
+        self.writes.run(move || {
+            if let Err(error) = store.delete_task(&id) {
+                tracing::error!(%error, "could not delete the task");
+            }
+        });
         cx.notify();
     }
 
@@ -509,10 +529,12 @@ impl Shell {
         }
         match sheet.editing.clone() {
             Some(id) => {
-                if let Err(error) = self.store.edit_task(&id, &draft, Timestamp::now()) {
-                    tracing::error!(%error, "could not change the task");
-                }
-                self.reload_tasks();
+                let store = self.store.clone();
+                self.writes.run(move || {
+                    if let Err(error) = store.edit_task(&id, &draft, Timestamp::now()) {
+                        tracing::error!(%error, "could not change the task");
+                    }
+                });
             }
             None => {
                 let source = sheet.source.clone();

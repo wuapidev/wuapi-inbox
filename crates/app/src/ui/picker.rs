@@ -1497,9 +1497,13 @@ impl Shell {
             (Action::Send, _) => return self.picker_send(index, false, window, cx),
             (Action::Favorite, TileKind::Sticker(item)) => {
                 let now = !item.favorite;
-                if let Err(error) = engine.set_library_favorite(&item.id, now) {
-                    tracing::warn!(%error, "could not star a sticker");
-                }
+                // Off this thread: the store's change reloads the picker.
+                let id = item.id.clone();
+                self.writes.run(move || {
+                    if let Err(error) = engine.set_library_favorite(&id, now) {
+                        tracing::warn!(%error, "could not star a sticker");
+                    }
+                });
                 let text = if now {
                     crate::i18n::t("chat.picker.added_favorite")
                 } else {
@@ -1518,20 +1522,52 @@ impl Shell {
                     } else {
                         at + 1
                     };
-                    let _ = engine.move_library_favorite(&item.id, to);
+                    // Off this thread; once it is written, the keyboard
+                    // goes with the sticker if it is on it.
+                    let id = item.id.clone();
+                    let moved = {
+                        let id = id.clone();
+                        self.writes
+                            .ask(move || engine.move_library_favorite(&id, to))
+                    };
+                    cx.spawn(async move |this, cx| {
+                        if moved.await.is_none() {
+                            return;
+                        }
+                        this.update(cx, |this, cx| {
+                            // The grid is read again off this thread; the
+                            // keyboard follows once it is.
+                            if this.picker.current().is_some_and(|tile| tile.key() == id) {
+                                this.picker_follow(&id);
+                            }
+                            this.picker_load(cx);
+                            cx.notify();
+                        })
+                        .ok();
+                    })
+                    .detach();
                 }
             }
             (Action::Remove, _) => {
                 if let Some(item) = tile.item() {
                     // Through the engine: a favorite's star on the phone
                     // goes with it, or the next sync would bring it back.
-                    match engine.remove_library_item(&item.id) {
-                        Ok(_) => self.picker_say(crate::i18n::t("chat.picker.removed"), cx),
-                        Err(error) => {
-                            tracing::warn!(%error, "could not remove a library item");
-                            self.picker_say(crate::i18n::t("chat.picker.remove_failed"), cx);
-                        }
-                    }
+                    let id = item.id.clone();
+                    let removed = self
+                        .writes
+                        .ask(move || engine.remove_library_item(&id).map(|_| ()));
+                    cx.spawn(async move |this, cx| {
+                        let said = match removed.await {
+                            Some(Ok(())) => crate::i18n::t("chat.picker.removed"),
+                            Some(Err(error)) => {
+                                tracing::warn!(%error, "could not remove a library item");
+                                crate::i18n::t("chat.picker.remove_failed")
+                            }
+                            None => return,
+                        };
+                        this.update(cx, |this, cx| this.picker_say(said, cx)).ok();
+                    })
+                    .detach();
                 }
             }
             (Action::Keep, TileKind::Gif(GifEntry::Online(hit))) => {

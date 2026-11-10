@@ -690,14 +690,26 @@ impl Shell {
             return cx.notify();
         }
         self.library.confirm_clear = None;
-        match self.store.library_clear(!everything) {
-            Ok(removed) => {
-                self.library.said =
-                    Some(i18n::tr("accounts.library.removed", &[("removed", &removed)]).into())
-            }
-            Err(error) => self.show_problem(error.to_string(), cx),
-        }
-        self.picker_library_changed(cx);
+        // Off this thread: the library can be large, and the writer busy.
+        let store = self.store.clone();
+        let cleared = self.writes.ask(move || store.library_clear(!everything));
+        cx.spawn(async move |this, cx| {
+            let Some(cleared) = cleared.await else { return };
+            this.update(cx, |this, cx| {
+                match cleared {
+                    Ok(removed) => {
+                        this.library.said = Some(
+                            i18n::tr("accounts.library.removed", &[("removed", &removed)]).into(),
+                        )
+                    }
+                    Err(error) => this.show_problem(error.to_string(), cx),
+                }
+                this.picker_library_changed(cx);
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
         cx.notify();
     }
 
