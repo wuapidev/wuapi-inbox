@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+## [0.15.1]
+
+* A vertical video from a phone no longer closes the application: libmpv 0.40 ended the whole program on a video stored on its side with a note to turn it, as phones record them (fixed in mpv 0.42). mpv is now told to leave the turn alone, and the frame is turned by the application, so the video plays upright with any libmpv. Opening a status with such a video closed the window.
+* What arrives in chats that are not open is downloaded in the background, so its photos and videos are already there when the chat is opened: up to ten of the newest per chat, behind whatever the chat on screen needs, under the same media policy and the same 25 MB limit as the bubbles. Nothing is fetched ahead under "Never".
+
 ## [0.15.0]
 
 * The window no longer stops while the application is busy writing: starring or sending a sticker, editing, reacting, starring, pinning or deleting a message, voting, muting or archiving a chat, a task, a group or profile change, and moving from one status to the next are written in the background, in the order they were made, and the window goes on at once. Moving between statuses while their videos downloaded froze it for seconds.
