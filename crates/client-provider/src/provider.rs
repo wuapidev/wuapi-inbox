@@ -1253,6 +1253,14 @@ pub trait Provider: Send + Sync + 'static {
         let _ = devices;
     }
 
+    /// Whether the calls that come in ring here (`true`, the start) or are
+    /// left to the account's phone. Off, the provider still says where
+    /// they stand, but opens nothing for them: no camera to show the user
+    /// while one rings. It never declines them. The default ignores it.
+    fn set_incoming_calls(&self, on: bool) {
+        let _ = on;
+    }
+
     /// The cameras a call with video can use here. The default is none.
     fn call_cameras(&self) -> Vec<CallCamera> {
         Vec::new()

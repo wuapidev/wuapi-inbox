@@ -534,3 +534,111 @@ fn the_people_of_a_call_share_its_pictures() {
     assert_eq!(grid_of(5), (3, 2, 1.0));
     assert_eq!(grid_of(7), (3, 3, 1.0));
 }
+
+/// The provider says where a call with the open chat's contact stands,
+/// under an id of the test's.
+fn signal_call(harness: &Harness, cx: &mut TestAppContext, id: &str, state: CallState) {
+    let (account, chat) = open_ids(harness, cx);
+    harness
+        .engine
+        .apply_event(ProviderEvent::Call(CallEvent {
+            account_id: account,
+            call_id: id.into(),
+            peer: ContactId::new(chat.as_str()),
+            chat_id: chat,
+            video: false,
+            state,
+            at: Timestamp::now(),
+        }))
+        .unwrap();
+    cx.run_until_parked();
+}
+
+#[gpui_kit::test]
+fn calls_left_to_the_phone_neither_show_nor_ring_here(cx: &mut TestAppContext) {
+    use crate::ring::Ringing;
+    let harness = open_chat_one(cx);
+    let rings =
+        |cx: &mut TestAppContext| cx.update(|cx| harness.shell.read(cx).call_deck.ringer.ringing());
+    signal_call(&harness, cx, "call-1", ringing());
+    assert!(shows(harness.window, "call-card", cx));
+
+    // Turned off in Settings > Audio and video while it rings: it goes
+    // quiet here, and is not declined.
+    press(harness.window, "ctrl-,", cx);
+    click(harness.window, "settings-audio", cx);
+    assert!(shows(harness.window, "incoming-calls", cx));
+    click(harness.window, "incoming-calls", cx);
+    assert!(!cx.update(|cx| settings::get(cx).incoming_calls));
+    assert!(harness.engine.calls().is_empty());
+    assert_eq!(rings(cx), None);
+    assert_eq!(harness.mock.ended_calls(), 0, "the phone goes on ringing");
+    assert!(
+        !harness.mock.incoming_calls(),
+        "the provider opens no camera"
+    );
+    // Nothing said of it later brings it back, not even that it is on
+    // (answered on the phone).
+    signal_call(&harness, cx, "call-1", CallState::Connected);
+    assert!(harness.engine.calls().is_empty());
+    signal_call(
+        &harness,
+        cx,
+        "call-1",
+        CallState::Ended {
+            missed: false,
+            reason: None,
+        },
+    );
+
+    // The next one does not ring here at all.
+    press(harness.window, "escape", cx);
+    signal_call(&harness, cx, "call-2", ringing());
+    assert!(harness.engine.calls().is_empty());
+    assert!(!shows(harness.window, "call-card", cx));
+    assert_eq!(rings(cx), None);
+    // A call the account places still shows.
+    let calling = CallState::Ringing {
+        incoming: false,
+        group: false,
+    };
+    signal_call(&harness, cx, "call-3", calling);
+    assert!(shows(harness.window, "call-card", cx));
+    signal_call(
+        &harness,
+        cx,
+        "call-3",
+        CallState::Ended {
+            missed: true,
+            reason: None,
+        },
+    );
+
+    // On again: calls ring here again.
+    cx.update(|cx| settings::update(cx, |settings| settings.incoming_calls = true));
+    cx.run_until_parked();
+    assert!(harness.mock.incoming_calls());
+    signal_call(&harness, cx, "call-4", ringing());
+    assert!(shows(harness.window, "call-card", cx));
+    assert_eq!(rings(cx), Some(Ringing::Incoming));
+}
+
+#[gpui_kit::test]
+fn calls_left_to_the_phone_stay_there_after_a_restart(cx: &mut TestAppContext) {
+    cx.update(|cx| {
+        prepare(cx, None);
+        settings::update(cx, |settings| settings.incoming_calls = false);
+    });
+    let harness = open_prepared(
+        cx,
+        ShellOptions {
+            open_chat: Some(1),
+            ..Default::default()
+        },
+    );
+    assert!(!harness.engine.incoming_calls());
+    assert!(!harness.mock.incoming_calls());
+    signal_call(&harness, cx, "call-1", ringing());
+    assert!(harness.engine.calls().is_empty());
+    assert!(!shows(harness.window, "call-card", cx));
+}

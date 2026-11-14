@@ -29,6 +29,20 @@ static CHOSEN: RwLock<CallDevices> = RwLock::new(CallDevices {
     camera: None,
 });
 
+/// Calls that come in ring here. Off, they are the phone's: no camera
+/// is opened for one that rings. The machine's choice, like the devices.
+static RINGS_HERE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
+
+/// Lets the calls that come in ring here, or leaves them to the phone.
+pub fn let_ring(on: bool) {
+    RINGS_HERE.store(on, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// Whether calls that come in ring here.
+pub fn rings_here() -> bool {
+    RINGS_HERE.load(std::sync::atomic::Ordering::Relaxed)
+}
+
 /// Calls use these devices from the next one on.
 pub fn choose(devices: CallDevices) {
     *CHOSEN

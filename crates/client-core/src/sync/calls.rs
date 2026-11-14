@@ -14,7 +14,8 @@ use client_provider::{
     AccountId, CallCamera, CallDevices, CallEvent, CallState, CallVideo, ChatId, ContactId,
     Timestamp,
 };
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 
 /// A call that rings or is on.
@@ -38,10 +39,25 @@ impl LiveCall {
 }
 
 /// The calls that are not over, and what last went wrong with one.
-#[derive(Default)]
 pub(super) struct Calls {
     live: Mutex<HashMap<String, LiveCall>>,
     problem: Mutex<Option<String>>,
+    /// Calls that come in ring here. Off: they ring on the phone only.
+    incoming: AtomicBool,
+    /// The calls that came in while they were not to ring here: nothing
+    /// said about them later shows them, until they are over.
+    unheard: Mutex<HashSet<String>>,
+}
+
+impl Default for Calls {
+    fn default() -> Self {
+        Self {
+            live: Mutex::default(),
+            problem: Mutex::default(),
+            incoming: AtomicBool::new(true),
+            unheard: Mutex::default(),
+        }
+    }
 }
 
 impl SyncEngine {
@@ -59,11 +75,57 @@ impl SyncEngine {
         self.inner.calls.problem.lock().expect("calls lock").clone()
     }
 
+    /// Whether calls that come in ring here, or only on the phone.
+    pub fn incoming_calls(&self) -> bool {
+        self.inner.calls.incoming.load(Ordering::Relaxed)
+    }
+
+    /// Lets the calls that come in ring here, or leaves them to the
+    /// phone. Off, nothing of them shows or is heard here, and the one
+    /// ringing now goes quiet; it is not declined, so it goes on ringing
+    /// on the phone. A call that ends is still written in its chat.
+    pub fn set_incoming_calls(&self, on: bool) {
+        self.inner.calls.incoming.store(on, Ordering::Relaxed);
+        self.inner.provider.set_incoming_calls(on);
+        if on {
+            return;
+        }
+        // In the order `apply_call` takes them.
+        let quieted: Vec<LiveCall> = {
+            let mut unheard = self.inner.calls.unheard.lock().expect("calls lock");
+            let mut live = self.inner.calls.live.lock().expect("calls lock");
+            let waiting: Vec<String> = live
+                .values()
+                .filter(|call| call.waits_for_answer())
+                .map(|call| call.event.call_id.clone())
+                .collect();
+            unheard.extend(waiting.iter().cloned());
+            waiting.iter().filter_map(|id| live.remove(id)).collect()
+        };
+        for call in quieted {
+            self.inner.store.notify(StoreChange::Calls {
+                account_id: call.event.account_id,
+            });
+        }
+    }
+
     /// Takes the provider's word on a call.
     pub(super) fn apply_call(&self, event: CallEvent) {
         let account = event.account_id.clone();
         {
+            let mut unheard = self.inner.calls.unheard.lock().expect("calls lock");
+            if event.state.is_over() {
+                unheard.remove(&event.call_id);
+            } else if unheard.contains(&event.call_id) {
+                return;
+            }
             let mut live = self.inner.calls.live.lock().expect("calls lock");
+            let comes_in = matches!(event.state, CallState::Ringing { incoming: true, .. });
+            if comes_in && !self.incoming_calls() && !live.contains_key(&event.call_id) {
+                unheard.insert(event.call_id.clone());
+                return;
+            }
+            drop(unheard);
             if event.state.is_over() {
                 live.remove(&event.call_id);
             } else {

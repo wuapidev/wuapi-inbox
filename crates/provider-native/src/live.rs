@@ -430,6 +430,20 @@ impl Calls {
     /// the sound at once, the camera off the caller's thread, as one takes
     /// a moment to let go.
     fn follow_devices(self: &Arc<Self>) {
+        // Calls that no longer ring here let their camera go, off this
+        // thread, as one takes a moment to let go.
+        if !call_audio::rings_here() {
+            let previews: Vec<_> = self
+                .ringing()
+                .values_mut()
+                .filter_map(|held| held.preview.take())
+                .collect();
+            if !previews.is_empty() {
+                let _ = std::thread::Builder::new()
+                    .name("call-camera".into())
+                    .spawn(move || drop(previews));
+            }
+        }
         let mut links: Vec<Arc<VideoLink>> = Vec::new();
         for call in self.active().values() {
             call.audio.follow_chosen();
@@ -751,7 +765,7 @@ impl Hearing {
                 let heard = self.calls.ringing().remove(call_id);
                 let preview = match heard {
                     Some(held) => held.preview,
-                    None if *is_video => self.calls.preview_camera(),
+                    None if *is_video && call_audio::rings_here() => self.calls.preview_camera(),
                     None => None,
                 };
                 self.calls.ringing().insert(

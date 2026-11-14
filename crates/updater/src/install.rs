@@ -140,13 +140,16 @@ pub fn detect_in(
     let text = exe.to_string_lossy();
     let names = parts(&text);
     // `target/debug`, `target/release`, `target/<triple>/release/deps`…
-    let from_cargo = names.contains(&"target")
-        && names
-            .iter()
-            .rev()
-            .skip(1)
-            .take(2)
-            .any(|name| matches!(*name, "debug" | "release"));
+    // and, since cargo 1.100 builds tests apart, deeper:
+    // `target/debug/build/<crate>/<hash>/out/<crate>-<hash>`.
+    let folders = &names[..names.len().saturating_sub(1)];
+    let from_cargo = folders.iter().enumerate().any(|(at, name)| {
+        *name == "target"
+            && folders[at + 1..]
+                .iter()
+                .take(2)
+                .any(|name| matches!(*name, "debug" | "release"))
+    });
     if from_cargo {
         return Install::NotifyOnly(WhyNot::Development);
     }
@@ -1007,6 +1010,8 @@ mod tests {
             "/home/ana/code/inbox/target/debug/wuapi-inbox",
             "/home/ana/code/inbox/target/release/wuapi-inbox",
             "/home/ana/code/inbox/target/debug/deps/updater-0123456789abcdef",
+            "/home/ana/code/inbox/target/debug/build/updater/0123456789abcdef/out/updater-0123456789abcdef",
+            r"C:\src\inbox\target\debug\build\updater\0123456789abcdef\out\updater-0123456789abcdef.exe",
             "/home/ana/code/inbox/target/x86_64-pc-windows-gnu/release/wuapi-inbox.exe",
             r"C:\src\inbox\target\release\wuapi-inbox.exe",
         ] {

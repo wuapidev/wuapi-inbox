@@ -439,6 +439,8 @@
   "chat.voice_record.camera_text": "Lo que muestra una videollamada. Un cambio se aplica desde la próxima llamada.",
   "chat.voice_record.discard": "Descartarla",
   "chat.voice_record.heading": "[ AUDIO Y VIDEO ]",
+  "chat.voice_record.incoming_calls": "Las llamadas suenan aquí",
+  "chat.voice_record.incoming_calls_text": "Las llamadas entrantes suenan en esta computadora además de en tu teléfono. Apagado, solo suenan en el teléfono, y igual quedan anotadas en el chat.",
   "chat.voice_record.listen": "Escucharla",
   "chat.voice_record.microphone": "Micrófono",
   "chat.voice_record.microphone_calls": "Con qué se graban los mensajes de voz y qué oye una llamada.",

@@ -2504,6 +2504,12 @@ impl Provider for NativeProvider {
         self.inner.session(account).ok()?.call_video(call)
     }
 
+    fn set_incoming_calls(&self, on: bool) {
+        crate::call_audio::let_ring(on);
+        // A call that rings now lets its camera go.
+        self.set_call_devices(crate::call_audio::chosen());
+    }
+
     fn set_call_devices(&self, devices: client_provider::CallDevices) {
         crate::call_audio::choose(devices);
         let sessions: Vec<Arc<dyn Session>> = self

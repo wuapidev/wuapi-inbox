@@ -439,6 +439,8 @@
   "chat.voice_record.camera_text": "What a call with video shows. A change applies from the next call.",
   "chat.voice_record.discard": "Throw it away",
   "chat.voice_record.heading": "[ AUDIO AND VIDEO ]",
+  "chat.voice_record.incoming_calls": "Calls ring here",
+  "chat.voice_record.incoming_calls_text": "Calls that come in ring on this computer as well as on your phone. Off, they ring on your phone only, and they are still written in the chat.",
   "chat.voice_record.listen": "Listen to it",
   "chat.voice_record.microphone": "Microphone",
   "chat.voice_record.microphone_calls": "What voice notes are recorded with, and what a call hears.",
