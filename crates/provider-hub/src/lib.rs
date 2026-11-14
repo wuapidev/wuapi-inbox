@@ -1091,6 +1091,13 @@ impl Provider for HubProvider {
         }
     }
 
+    /// Every member is told: it is this computer's choice, not a number's.
+    fn set_incoming_calls(&self, on: bool) {
+        for member in self.inner.members() {
+            member.provider.set_incoming_calls(on);
+        }
+    }
+
     fn call_cameras(&self) -> Vec<CallCamera> {
         let mut cameras: Vec<CallCamera> = Vec::new();
         for member in self.inner.members() {

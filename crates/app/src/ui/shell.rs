@@ -1096,6 +1096,7 @@ impl Shell {
         store.reserve_reader();
         let picker_store = store.clone();
         engine.set_read_receipts(settings::get(cx).read_receipts);
+        engine.set_incoming_calls(settings::get(cx).incoming_calls);
         // Whether files can be sent is asked now, so the answer is there
         // before anyone picks one.
         let _ = engine.uploads_available();
@@ -4288,6 +4289,9 @@ impl Render for Shell {
         self.read_ahead(window, cx);
         self.engine.set_read_receipts(chosen.read_receipts);
         self.engine.set_story_receipts(chosen.story_receipts);
+        if self.engine.incoming_calls() != chosen.incoming_calls {
+            self.engine.set_incoming_calls(chosen.incoming_calls);
+        }
         // A new interface size: what was measured at the old one is
         // measured again.
         let scale = crate::theme::scale();

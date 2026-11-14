@@ -187,6 +187,10 @@ pub struct Settings {
     pub story_strip: bool,
     /// The tasks are open beside the conversation.
     pub tasks_open: bool,
+    /// Calls that come in ring here as well as on the phone. Off, they
+    /// ring on the phone only: no card, no ringing, no camera here, and
+    /// the call is still written in its chat.
+    pub incoming_calls: bool,
 }
 
 impl Default for Settings {
@@ -217,6 +221,7 @@ impl Default for Settings {
             auto_update: true,
             story_strip: true,
             tasks_open: false,
+            incoming_calls: true,
         }
     }
 }
@@ -480,6 +485,7 @@ mod tests {
             auto_update: false,
             story_strip: false,
             tasks_open: true,
+            incoming_calls: false,
         };
         chosen.save(&path).unwrap();
         assert_eq!(Settings::load(&path), chosen);
@@ -499,6 +505,7 @@ mod tests {
         assert_eq!(loaded.theme, ThemeChoice::Dark);
         assert_eq!(loaded.motion, MotionChoice::System);
         assert!(loaded.desktop_notifications && loaded.message_previews);
+        assert!(loaded.incoming_calls, "calls ring here unless turned off");
         assert!(!loaded.welcome_done);
         // What it never heard of is as a new install has it.
         assert_eq!(loaded.bubbles, BubbleStyle::Brand);

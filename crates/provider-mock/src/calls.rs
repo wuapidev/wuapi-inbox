@@ -221,6 +221,16 @@ impl MockProvider {
         self.state().call_devices.clone()
     }
 
+    /// How many times a call was declined or hung up from the window.
+    pub fn ended_calls(&self) -> usize {
+        self.state().calls_ended
+    }
+
+    /// Whether calls that come in were last said to ring here.
+    pub fn incoming_calls(&self) -> bool {
+        self.state().incoming_calls
+    }
+
     /// Somebody is asked into a call: in a call with video they show up
     /// beside the others, with a pattern of their own.
     pub(crate) fn call_invite(&self, call: &str, contact: &ContactId) {

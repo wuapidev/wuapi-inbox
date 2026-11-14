@@ -14,7 +14,7 @@
 //! through drops, like any attachment.
 
 use super::shell::Shell;
-use super::widgets::{icon_button, mono};
+use super::widgets::{icon_button, mono, switch};
 use crate::audio::{Playback, Shape};
 use crate::icons::{icon, IconName};
 use crate::keys::{self, Command};
@@ -1121,6 +1121,18 @@ impl Shell {
             let name = self.camera_name();
             stepper("audio-camera", name.as_deref(), Pick::Camera, cx)
         });
+        // Whether the calls that come in ring here, or on the phone only.
+        let rings_here = calls.then(|| {
+            let on = crate::settings::get(cx).incoming_calls;
+            div()
+                .flex_none()
+                .child(switch("incoming-calls", on, palette).on_click(|_, _, cx| {
+                    cx.stop_propagation();
+                    crate::settings::update(cx, |settings| {
+                        settings.incoming_calls = !settings.incoming_calls;
+                    });
+                }))
+        });
         div()
             .px_4()
             .pt_4()
@@ -1130,6 +1142,13 @@ impl Shell {
             .child(div().pb_2().child(
                 mono(crate::i18n::t("chat.voice_record.heading")).text_color(palette.text_muted),
             ))
+            .children(rings_here.map(|control| {
+                row(
+                    crate::i18n::t("chat.voice_record.incoming_calls"),
+                    crate::i18n::t("chat.voice_record.incoming_calls_text"),
+                    control,
+                )
+            }))
             .child(row(
                 crate::i18n::t("chat.voice_record.microphone"),
                 if calls {

@@ -120,6 +120,10 @@ struct State {
     call_devices: client_provider::CallDevices,
     /// Who was asked into which call.
     call_invites: Vec<(String, ContactId)>,
+    /// How many times a call was declined or hung up from here.
+    calls_ended: usize,
+    /// Whether calls that come in were last said to ring here.
+    incoming_calls: bool,
     /// Receipts by client id: the idempotency table of `send`.
     sent: HashMap<ClientMessageId, SendReceipt>,
     /// Failures to return from upcoming `send` calls, in order.
@@ -331,6 +335,8 @@ impl MockProvider {
                     next_call: 0,
                     call_devices: Default::default(),
                     call_invites: Vec::new(),
+                    calls_ended: 0,
+                    incoming_calls: true,
                     sent: HashMap::new(),
                     send_failures: VecDeque::new(),
                     send_calls: 0,
@@ -2679,6 +2685,7 @@ impl Provider for MockProvider {
     }
 
     async fn end_call(&self, _account: &AccountId, call: &str) -> ProviderResult<()> {
+        self.state().calls_ended += 1;
         self.call_end(call).await
     }
 
@@ -2717,6 +2724,10 @@ impl Provider for MockProvider {
 
     fn set_call_devices(&self, devices: client_provider::CallDevices) {
         self.state().call_devices = devices;
+    }
+
+    fn set_incoming_calls(&self, on: bool) {
+        self.state().incoming_calls = on;
     }
 
     fn call_cameras(&self) -> Vec<client_provider::CallCamera> {
