@@ -255,10 +255,9 @@ pub fn context(
     if quoted.is_none() && mentions.is_empty() && !forwarded {
         return None;
     }
-    let mut context = wa::ContextInfo {
+    let mut context = proto!(wa::ContextInfo {
         mentioned_jid: mentions.iter().map(wire).collect(),
-        ..Default::default()
-    };
+    });
     if forwarded {
         context.is_forwarded = Some(true);
         context.forwarding_score = Some(1);
@@ -290,18 +289,15 @@ fn quotable(message: &wa::Message) -> wa::Message {
 /// A text, plain when nothing rides along.
 pub fn text_message(body: &str, context: Option<wa::ContextInfo>) -> wa::Message {
     match context {
-        None => wa::Message {
+        None => proto!(wa::Message {
             conversation: Some(body.to_owned()),
-            ..Default::default()
-        },
-        Some(context) => wa::Message {
-            extended_text_message: MessageField::some(wa::message::ExtendedTextMessage {
+        }),
+        Some(context) => proto!(wa::Message {
+            extended_text_message: MessageField::some(proto!(wa::message::ExtendedTextMessage {
                 text: Some(body.to_owned()),
                 context_info: MessageField::some(context),
-                ..Default::default()
-            }),
-            ..Default::default()
-        },
+            })),
+        }),
     }
 }
 
@@ -328,8 +324,8 @@ pub fn media_message(
     );
     let (length, stamp) = (Some(pointer.file_length), pointer.key_timestamp);
     match kind {
-        MediaKind::Image => wa::Message {
-            image_message: MessageField::some(wa::message::ImageMessage {
+        MediaKind::Image => proto!(wa::Message {
+            image_message: MessageField::some(proto!(wa::message::ImageMessage {
                 url,
                 mimetype: mime,
                 caption,
@@ -340,12 +336,10 @@ pub fn media_message(
                 direct_path: path,
                 media_key_timestamp: stamp,
                 context_info: context,
-                ..Default::default()
-            }),
-            ..Default::default()
-        },
-        MediaKind::Video => wa::Message {
-            video_message: MessageField::some(wa::message::VideoMessage {
+            })),
+        }),
+        MediaKind::Video => proto!(wa::Message {
+            video_message: MessageField::some(proto!(wa::message::VideoMessage {
                 url,
                 mimetype: mime,
                 caption,
@@ -357,12 +351,10 @@ pub fn media_message(
                 media_key_timestamp: stamp,
                 gif_playback: gif.then_some(true),
                 context_info: context,
-                ..Default::default()
-            }),
-            ..Default::default()
-        },
-        MediaKind::Audio | MediaKind::Voice => wa::Message {
-            audio_message: MessageField::some(wa::message::AudioMessage {
+            })),
+        }),
+        MediaKind::Audio | MediaKind::Voice => proto!(wa::Message {
+            audio_message: MessageField::some(proto!(wa::message::AudioMessage {
                 url,
                 mimetype: mime,
                 file_sha256: sha,
@@ -373,12 +365,10 @@ pub fn media_message(
                 media_key_timestamp: stamp,
                 ptt: Some(kind == MediaKind::Voice),
                 context_info: context,
-                ..Default::default()
-            }),
-            ..Default::default()
-        },
-        MediaKind::Sticker => wa::Message {
-            sticker_message: MessageField::some(wa::message::StickerMessage {
+            })),
+        }),
+        MediaKind::Sticker => proto!(wa::Message {
+            sticker_message: MessageField::some(proto!(wa::message::StickerMessage {
                 url,
                 mimetype: mime,
                 file_sha256: sha,
@@ -388,12 +378,10 @@ pub fn media_message(
                 direct_path: path,
                 media_key_timestamp: stamp,
                 context_info: context,
-                ..Default::default()
-            }),
-            ..Default::default()
-        },
-        MediaKind::Document => wa::Message {
-            document_message: MessageField::some(wa::message::DocumentMessage {
+            })),
+        }),
+        MediaKind::Document => proto!(wa::Message {
+            document_message: MessageField::some(proto!(wa::message::DocumentMessage {
                 url,
                 mimetype: mime,
                 title: file_name.map(str::to_owned),
@@ -406,10 +394,8 @@ pub fn media_message(
                 direct_path: path,
                 media_key_timestamp: stamp,
                 context_info: context,
-                ..Default::default()
-            }),
-            ..Default::default()
-        },
+            })),
+        }),
     }
 }
 
@@ -453,25 +439,21 @@ pub fn poll_message(
     hasher.update(b"wuapi-inbox poll secret\0");
     hasher.update(client_id.as_str().as_bytes());
     let secret = hasher.finalize().to_vec();
-    let poll = wa::message::PollCreationMessage {
+    let poll = proto!(wa::message::PollCreationMessage {
         name: Some(question.to_owned()),
         options: options
             .iter()
-            .map(|name| wa::message::poll_creation_message::Option {
+            .map(|name| proto!(wa::message::poll_creation_message::Option {
                 option_name: Some(name.clone()),
-                ..Default::default()
-            })
+            }))
             .collect(),
         selectable_options_count: Some(max_choices),
-        ..Default::default()
-    };
-    let mut message = wa::Message {
-        message_context_info: MessageField::some(wa::MessageContextInfo {
+    });
+    let mut message = proto!(wa::Message {
+        message_context_info: MessageField::some(proto!(wa::MessageContextInfo {
             message_secret: Some(secret),
-            ..Default::default()
-        }),
-        ..Default::default()
-    };
+        })),
+    });
     // WhatsApp names a poll by how many answers it takes: one, or any.
     if max_choices == 1 {
         message.poll_creation_message_v3 = MessageField::some(poll);
@@ -506,18 +488,17 @@ pub fn event_message(
         let address = text(&place.address);
         let point = place.point;
         (name.is_some() || address.is_some() || point.is_some()).then(|| {
-            wa::message::LocationMessage {
+            proto!(wa::message::LocationMessage {
                 name,
                 address,
                 degrees_latitude: point.map(|point| point.latitude()),
                 degrees_longitude: point.map(|point| point.longitude()),
-                ..Default::default()
-            }
+            })
         })
     });
     let join_link = text(&event.join_url);
-    wa::Message {
-        event_message: MessageField::some(wa::message::EventMessage {
+    proto!(wa::Message {
+        event_message: MessageField::some(proto!(wa::message::EventMessage {
             context_info: context.map(MessageField::some).unwrap_or_default(),
             is_canceled: Some(false),
             name: Some(event.title.trim().to_owned()),
@@ -528,14 +509,11 @@ pub fn event_message(
             start_time: seconds(event.starts_at),
             end_time: seconds(event.ends_at),
             extra_guests_allowed: Some(false),
-            ..Default::default()
-        }),
-        message_context_info: MessageField::some(wa::MessageContextInfo {
+        })),
+        message_context_info: MessageField::some(proto!(wa::MessageContextInfo {
             message_secret: Some(secret),
-            ..Default::default()
-        }),
-        ..Default::default()
-    }
+        })),
+    })
 }
 
 /// The secret a poll's votes are encrypted under.
@@ -556,16 +534,14 @@ pub fn poll_secret(message: &wa::Message) -> Option<Vec<u8>> {
 /// A text story: words on a colour.
 pub fn story_text(text: &str, style: StoryStyle) -> wa::Message {
     use whatsapp_rust::buffa::Enumeration as _;
-    wa::Message {
-        extended_text_message: MessageField::some(wa::message::ExtendedTextMessage {
+    proto!(wa::Message {
+        extended_text_message: MessageField::some(proto!(wa::message::ExtendedTextMessage {
             text: Some(text.to_owned()),
             background_argb: Some(0xFF00_0000 | (style.background & 0xFF_FF_FF)),
             text_argb: Some(0xFFFF_FFFF),
             font: wa::message::extended_text_message::FontType::from_i32(i32::from(style.font.0)),
-            ..Default::default()
-        }),
-        ..Default::default()
-    }
+        })),
+    })
 }
 
 /// The id of a row that is a notice about a call.
@@ -688,11 +664,10 @@ mod tests {
     fn an_answer_to_a_status_says_whose_status_it_was() {
         let answer = text_message(
             "nice",
-            Some(wa::ContextInfo {
+            Some(proto!(wa::ContextInfo {
                 stanza_id: Some("3EB0DDDD".into()),
                 remote_jid: Some(STATUS_CHAT.into()),
-                ..Default::default()
-            }),
+            })),
         );
         let theirs = to_message(&account(), &stored(encode(&answer)), None).unwrap();
         let story = theirs.extras.story_reply.expect("it answers a status");

@@ -18,8 +18,8 @@ members = [
 version = "0.15.1"
 edition = "2021"
 license = "Apache-2.0"
-# whatsapp-rust (provider-native) needs 1.94.
-rust-version = "1.94"
+# whatsapp-rust (provider-native) needs 1.95.
+rust-version = "1.95"
 publish = false
 
 [workspace.dependencies]
@@ -41,7 +41,7 @@ reqwest = { version = "0.13", default-features = false, features = ["json", "rus
 # SQLite with SQLCipher: the database on disk is encrypted. The vendored
 # OpenSSL supplies the cipher, so nothing has to be installed on Linux,
 # macOS or Windows (building it needs perl and make).
-rusqlite = { version = "0.40", features = ["bundled-sqlcipher-vendored-openssl", "cache", "functions"] }
+rusqlite = { version = "0.43", features = ["bundled-sqlcipher-vendored-openssl", "cache", "functions"] }
 getrandom = "0.3"
 # Audio: containers and codecs in pure Rust (symphonia), Opus for voice
 # notes in pure Rust (opus-decoder), and the system's audio output (cpal;
@@ -78,15 +78,15 @@ base64 = "0.22"
 
 # The WhatsApp Web protocol itself, spoken from this machine (provider-native).
 # Pinned to a commit: the crates.io release (0.7.0) links libsqlite3-sys 0.37,
-# which cannot be in one binary with rusqlite 0.40's 0.38. Go back to a
+# which cannot be in one binary with rusqlite 0.43's 0.40. Go back to a
 # version number when a release has caught up.
 # Source: https://github.com/oxidezap/whatsapp-rust
 # Calls: the pure-Rust MLOW codec and the native relay transport. `voip-libopus`
 # (the C codec) is left out on purpose: nothing to build in C for a call.
-whatsapp-rust = { git = "https://github.com/oxidezap/whatsapp-rust", rev = "94c53e833805c58c9f5966b08d08c990650a651e", features = ["voip-mlow", "voip-relay-native"] }
+whatsapp-rust = { git = "https://github.com/oxidezap/whatsapp-rust", rev = "14661bb400be0b1d68a1b92064f847894ecf6c41", features = ["voip-mlow", "voip-relay-native"] }
 # The key of the sessions' store is given through whatsapp-rust's own
 # connection hook, which hands over a Diesel connection.
-diesel = { version = "2.3", default-features = false, features = ["sqlite"] }
+diesel = { version = "2.4", default-features = false, features = ["sqlite"] }
 # The QR code a number is linked with, drawn here.
 qrcode = { version = "0.14", default-features = false }
 

@@ -301,10 +301,9 @@ fn jid(address: &str) -> Jid {
 }
 
 fn text_proto(body: &str) -> wa::Message {
-    wa::Message {
+    proto!(wa::Message {
         conversation: Some(body.into()),
-        ..Default::default()
-    }
+    })
 }
 
 fn incoming(chat: &str, id: &str, at_ms: i64, message: wa::Message) -> Incoming {
@@ -903,17 +902,16 @@ async fn a_message_taken_back_or_edited_changes_in_place() {
         incoming(ANA, "A1", 1_000, text_proto("typo")),
         incoming(ANA, "A2", 2_000, text_proto("oops")),
     ]));
-    let protocol = |target: &str, kind, edited: Option<wa::Message>| wa::Message {
-        protocol_message: MessageField::some(wa::message::ProtocolMessage {
-            key: MessageField::some(wa::MessageKey {
-                id: Some(target.into()),
-                ..Default::default()
-            }),
-            r#type: Some(kind),
-            edited_message: edited.map(MessageField::some).unwrap_or_default(),
-            ..Default::default()
-        }),
-        ..Default::default()
+    let protocol = |target: &str, kind, edited: Option<wa::Message>| {
+        proto!(wa::Message {
+            protocol_message: MessageField::some(proto!(wa::message::ProtocolMessage {
+                key: MessageField::some(proto!(wa::MessageKey {
+                    id: Some(target.into()),
+                })),
+                r#type: Some(kind),
+                edited_message: edited.map(MessageField::some).unwrap_or_default(),
+            })),
+        })
     };
     world.hear(Inbound::Messages(vec![
         incoming(
@@ -1282,15 +1280,13 @@ async fn a_file_is_uploaded_once_and_sent_by_its_pointer() {
 #[tokio::test]
 async fn a_forward_names_the_original_and_refuses_what_cannot_go() {
     let world = world().await;
-    let once = wa::Message {
-        view_once_message_v2: MessageField::some(wa::message::FutureProofMessage {
-            message: MessageField::some(wa::Message {
+    let once = proto!(wa::Message {
+        view_once_message_v2: MessageField::some(proto!(wa::message::FutureProofMessage {
+            message: MessageField::some(proto!(wa::Message {
                 image_message: MessageField::some(Default::default()),
-                ..Default::default()
-            }),
-        }),
-        ..Default::default()
-    };
+            })),
+        })),
+    });
     world.hear(Inbound::Messages(vec![
         incoming(ANA, "A1", 1_000, text_proto("pass this on")),
         incoming(ANA, "A2", 2_000, once),
@@ -1884,20 +1880,17 @@ async fn a_vote_cast_on_a_phone_is_opened_with_the_polls_secret() {
         ANA,
     )
     .unwrap();
-    let vote = wa::Message {
-        poll_update_message: MessageField::some(wa::message::PollUpdateMessage {
-            poll_creation_message_key: MessageField::some(wa::MessageKey {
+    let vote = proto!(wa::Message {
+        poll_update_message: MessageField::some(proto!(wa::message::PollUpdateMessage {
+            poll_creation_message_key: MessageField::some(proto!(wa::MessageKey {
                 id: Some(receipt.message_id.to_string()),
-                ..Default::default()
-            }),
-            vote: MessageField::some(wa::message::PollEncValue {
+            })),
+            vote: MessageField::some(proto!(wa::message::PollEncValue {
                 enc_payload: Some(payload),
                 enc_iv: Some(iv.to_vec()),
-            }),
-            ..Default::default()
-        }),
-        ..Default::default()
-    };
+            })),
+        })),
+    });
     world.hear(Inbound::Messages(vec![incoming(ANA, "V1", 9_000, vote)]));
 
     let stored = history(&world).await;

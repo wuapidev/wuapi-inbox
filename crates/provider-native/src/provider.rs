@@ -670,11 +670,10 @@ fn forwardable(stored: &StoredMessage) -> Result<wa::Message, &'static str> {
         return Err(refusal::FORWARD_VIEW_ONCE);
     }
     let score = if mapped.extras.forwarded_many { 5 } else { 1 };
-    let context = wa::ContextInfo {
+    let context = proto!(wa::ContextInfo {
         is_forwarded: Some(true),
         forwarding_score: Some(score),
-        ..Default::default()
-    };
+    });
     use client_provider::MessageContent as Content;
     match &mapped.content {
         Content::Text { body } => Ok(convert::text_message(body, Some(context))),
@@ -1075,21 +1074,19 @@ impl Provider for NativeProvider {
                 let (_, target) = inner.target(account, Some(&message.chat_id), target)?;
                 let session = inner.online(account)?;
                 let id = session.react(&target, emoji).await.map_err(fail)?;
-                let reaction = wa::Message {
-                    reaction_message: whatsapp_rust::buffa::MessageField::some(
+                let reaction = proto!(wa::Message {
+                    reaction_message: whatsapp_rust::buffa::MessageField::some(proto!(
                         wa::message::ReactionMessage {
-                            key: whatsapp_rust::buffa::MessageField::some(wa::MessageKey {
+                            key: whatsapp_rust::buffa::MessageField::some(proto!(wa::MessageKey {
                                 remote_jid: Some(convert::wire(&target.chat)),
                                 from_me: Some(target.from_me),
                                 id: Some(target.id.clone()),
                                 participant: target.sender.as_ref().map(convert::wire),
-                            }),
+                            })),
                             text: Some(emoji.clone()),
-                            ..Default::default()
-                        },
-                    ),
-                    ..Default::default()
-                };
+                        }
+                    ),),
+                });
                 let at_ms = now_ms();
                 inner.keep_sent(account, chat, &id, &message.client_id, &reaction, at_ms)?;
                 return Ok(SendReceipt {

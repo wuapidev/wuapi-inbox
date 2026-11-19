@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+* The numbers of this computer speak the WhatsApp of today: whatsapp-rust is moved up to its latest commit, which knows WhatsApp Web 2.3000.1054751086 and brings two months of fixes to sending, receiving, groups and calls. The sessions' store takes one small migration at the first start. Building needs Rust 1.95.
+
 ## [0.15.1]
 
 * A vertical video from a phone no longer closes the application: libmpv 0.40 ended the whole program on a video stored on its side with a note to turn it, as phones record them (fixed in mpv 0.42). mpv is now told to leave the turn alone, and the frame is turned by the application, so the video plays upright with any libmpv. Opening a status with such a video closed the window.

@@ -280,10 +280,13 @@ impl SessionKind {
     /// media straight from WhatsApp.
     pub fn is_direct(self) -> bool {
         #[cfg(feature = "provider-native")]
-        if self == Self::Local {
-            return true;
+        {
+            self == Self::Local
         }
-        false
+        #[cfg(not(feature = "provider-native"))]
+        {
+            false
+        }
     }
 }
 

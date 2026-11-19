@@ -922,20 +922,19 @@ mod tests {
     #[test]
     fn a_picture_of_an_album_names_it_and_the_album_itself_shows_nothing() {
         use wa::message_association::AssociationType;
-        let in_album = |kind: AssociationType| wa::Message {
-            image_message: MessageField::some(image()),
-            message_context_info: MessageField::some(wa::MessageContextInfo {
-                message_association: MessageField::some(wa::MessageAssociation {
-                    association_type: Some(kind),
-                    parent_message_key: MessageField::some(wa::MessageKey {
-                        id: Some("3EB0ALBUM".into()),
-                        ..Default::default()
-                    }),
-                    message_index: Some(1),
-                }),
-                ..Default::default()
-            }),
-            ..Default::default()
+        let in_album = |kind: AssociationType| {
+            proto!(wa::Message {
+                image_message: MessageField::some(image()),
+                message_context_info: MessageField::some(proto!(wa::MessageContextInfo {
+                    message_association: MessageField::some(proto!(wa::MessageAssociation {
+                        association_type: Some(kind),
+                        parent_message_key: MessageField::some(proto!(wa::MessageKey {
+                            id: Some("3EB0ALBUM".into()),
+                        })),
+                        message_index: Some(1),
+                    })),
+                })),
+            })
         };
         assert_eq!(
             content_of(&in_album(AssociationType::MEDIA_ALBUM))
@@ -951,19 +950,16 @@ mod tests {
             None
         );
         // A picture sent alone has none.
-        let alone = wa::Message {
+        let alone = proto!(wa::Message {
             image_message: MessageField::some(image()),
-            ..Default::default()
-        };
+        });
         assert_eq!(content_of(&alone).extras.album, None);
         // The message that opens the album is not a bubble of its own.
-        let opening = wa::Message {
-            album_message: MessageField::some(wa::message::AlbumMessage {
+        let opening = proto!(wa::Message {
+            album_message: MessageField::some(proto!(wa::message::AlbumMessage {
                 expected_image_count: Some(3),
-                ..Default::default()
-            }),
-            ..Default::default()
-        };
+            })),
+        });
         assert_eq!(effect(&opening, None), Effect::Nothing);
     }
 
@@ -975,7 +971,7 @@ mod tests {
     }
 
     fn image() -> wa::message::ImageMessage {
-        wa::message::ImageMessage {
+        proto!(wa::message::ImageMessage {
             mimetype: Some("image/jpeg".into()),
             caption: Some("the beach".into()),
             direct_path: Some("/v/t62/abc".into()),
@@ -985,37 +981,32 @@ mod tests {
             file_length: Some(4096),
             width: Some(800),
             height: Some(600),
-            ..Default::default()
-        }
+        })
     }
 
     #[test]
     fn a_text_is_a_text_plain_or_extended() {
-        let plain = wa::Message {
+        let plain = proto!(wa::Message {
             conversation: Some("hello".into()),
-            ..Default::default()
-        };
+        });
         assert_eq!(content_of(&plain).content, MessageContent::text("hello"));
 
-        let extended = wa::Message {
-            extended_text_message: MessageField::some(wa::message::ExtendedTextMessage {
+        let extended = proto!(wa::Message {
+            extended_text_message: MessageField::some(proto!(wa::message::ExtendedTextMessage {
                 text: Some("see https://example.com".into()),
                 matched_text: Some("https://example.com".into()),
                 title: Some("Example".into()),
                 jpeg_thumbnail: Some(vec![9, 9, 9]),
-                context_info: MessageField::some(wa::ContextInfo {
+                context_info: MessageField::some(proto!(wa::ContextInfo {
                     stanza_id: Some("3EB0AAAA".into()),
                     participant: Some("584245550199@s.whatsapp.net".into()),
                     quoted_message: MessageField::some(plain.clone()),
                     mentioned_jid: vec!["584125550100@s.whatsapp.net".into()],
                     is_forwarded: Some(true),
                     forwarding_score: Some(7),
-                    ..Default::default()
-                }),
-                ..Default::default()
-            }),
-            ..Default::default()
-        };
+                })),
+            })),
+        });
         let mapped = content_of(&extended);
         assert_eq!(
             mapped.content,
@@ -1037,29 +1028,23 @@ mod tests {
 
     #[test]
     fn a_quote_carries_who_the_quoted_text_mentions() {
-        let quoted = wa::Message {
-            extended_text_message: MessageField::some(wa::message::ExtendedTextMessage {
+        let quoted = proto!(wa::Message {
+            extended_text_message: MessageField::some(proto!(wa::message::ExtendedTextMessage {
                 text: Some("@200055501000001 the version for the event".into()),
-                context_info: MessageField::some(wa::ContextInfo {
+                context_info: MessageField::some(proto!(wa::ContextInfo {
                     mentioned_jid: vec!["200055501000001@lid".into()],
-                    ..Default::default()
-                }),
-                ..Default::default()
-            }),
-            ..Default::default()
-        };
-        let answer = wa::Message {
-            extended_text_message: MessageField::some(wa::message::ExtendedTextMessage {
+                })),
+            })),
+        });
+        let answer = proto!(wa::Message {
+            extended_text_message: MessageField::some(proto!(wa::message::ExtendedTextMessage {
                 text: Some("easier".into()),
-                context_info: MessageField::some(wa::ContextInfo {
+                context_info: MessageField::some(proto!(wa::ContextInfo {
                     stanza_id: Some("3EB0BBBB".into()),
                     quoted_message: MessageField::some(quoted),
-                    ..Default::default()
-                }),
-                ..Default::default()
-            }),
-            ..Default::default()
-        };
+                })),
+            })),
+        });
         let reply = content_of(&answer).reply_to.expect("it quotes");
         assert_eq!(reply.mentions.len(), 1);
         assert_eq!(reply.mentions[0].handle, "200055501000001");
@@ -1067,18 +1052,16 @@ mod tests {
 
     #[test]
     fn a_document_carries_its_first_page_and_how_many_pages() {
-        let message = wa::Message {
-            document_message: MessageField::some(wa::message::DocumentMessage {
+        let message = proto!(wa::Message {
+            document_message: MessageField::some(proto!(wa::message::DocumentMessage {
                 mimetype: Some("application/pdf".into()),
                 file_name: Some("menu.pdf".into()),
                 direct_path: Some("/v/t62/doc".into()),
                 media_key: Some(vec![7; 32]),
                 jpeg_thumbnail: Some(vec![4, 2]),
                 page_count: Some(3),
-                ..Default::default()
-            }),
-            ..Default::default()
-        };
+            })),
+        });
         let MessageContent::Media(media) = content_of(&message).content else {
             panic!("a document");
         };
@@ -1088,14 +1071,12 @@ mod tests {
 
     #[test]
     fn a_video_carries_its_first_frame() {
-        let message = wa::Message {
-            video_message: MessageField::some(wa::message::VideoMessage {
+        let message = proto!(wa::Message {
+            video_message: MessageField::some(proto!(wa::message::VideoMessage {
                 seconds: Some(40),
                 jpeg_thumbnail: Some(vec![7, 7, 7]),
-                ..Default::default()
-            }),
-            ..Default::default()
-        };
+            })),
+        });
         let MessageContent::Media(media) = content_of(&message).content else {
             panic!("a video");
         };
@@ -1108,10 +1089,9 @@ mod tests {
 
     #[test]
     fn a_picture_keeps_the_pointer_that_downloads_it() {
-        let message = wa::Message {
+        let message = proto!(wa::Message {
             image_message: MessageField::some(image()),
-            ..Default::default()
-        };
+        });
         let MessageContent::Media(media) = content_of(&message).content else {
             panic!("a picture");
         };
@@ -1126,13 +1106,12 @@ mod tests {
 
     #[test]
     fn a_file_whatsapp_no_longer_points_to_has_no_source() {
-        let message = wa::Message {
-            image_message: MessageField::some(wa::message::ImageMessage {
+        let message = proto!(wa::Message {
+            image_message: MessageField::some(proto!(wa::message::ImageMessage {
                 direct_path: None,
                 ..image()
-            }),
-            ..Default::default()
-        };
+            })),
+        });
         let MessageContent::Media(media) = content_of(&message).content else {
             panic!("a picture");
         };
@@ -1141,21 +1120,20 @@ mod tests {
 
     #[test]
     fn wrappers_come_off_and_view_once_is_kept() {
-        let inner = wa::Message {
+        let inner = proto!(wa::Message {
             image_message: MessageField::some(image()),
-            ..Default::default()
-        };
-        let wrapped = wa::Message {
-            ephemeral_message: MessageField::some(wa::message::FutureProofMessage {
-                message: MessageField::some(wa::Message {
-                    view_once_message_v2: MessageField::some(wa::message::FutureProofMessage {
-                        message: MessageField::some(inner),
-                    }),
-                    ..Default::default()
-                }),
-            }),
-            ..Default::default()
-        };
+        });
+        let wrapped = proto!(wa::Message {
+            ephemeral_message: MessageField::some(proto!(wa::message::FutureProofMessage {
+                message: MessageField::some(proto!(wa::Message {
+                    view_once_message_v2: MessageField::some(proto!(
+                        wa::message::FutureProofMessage {
+                            message: MessageField::some(inner),
+                        }
+                    )),
+                })),
+            })),
+        });
         let mapped = content_of(&wrapped);
         assert!(matches!(mapped.content, MessageContent::Media(_)));
         assert!(mapped.extras.view_once);
@@ -1163,14 +1141,12 @@ mod tests {
 
     #[test]
     fn a_voice_note_is_not_an_audio_file() {
-        let message = wa::Message {
-            audio_message: MessageField::some(wa::message::AudioMessage {
+        let message = proto!(wa::Message {
+            audio_message: MessageField::some(proto!(wa::message::AudioMessage {
                 ptt: Some(true),
                 seconds: Some(12),
-                ..Default::default()
-            }),
-            ..Default::default()
-        };
+            })),
+        });
         let MessageContent::Media(media) = content_of(&message).content else {
             panic!("a voice note");
         };
@@ -1180,17 +1156,14 @@ mod tests {
 
     #[test]
     fn a_reaction_names_its_target_and_an_empty_one_takes_it_back() {
-        let message = wa::Message {
-            reaction_message: MessageField::some(wa::message::ReactionMessage {
-                key: MessageField::some(wa::MessageKey {
+        let message = proto!(wa::Message {
+            reaction_message: MessageField::some(proto!(wa::message::ReactionMessage {
+                key: MessageField::some(proto!(wa::MessageKey {
                     id: Some("3EB0BBBB".into()),
-                    ..Default::default()
-                }),
+                })),
                 text: Some(String::new()),
-                ..Default::default()
-            }),
-            ..Default::default()
-        };
+            })),
+        });
         assert_eq!(
             content_of(&message).content,
             MessageContent::Reaction {
@@ -1203,20 +1176,19 @@ mod tests {
     #[test]
     fn a_pin_names_its_message_its_length_and_an_unpin_ends_it() {
         use wa::message::pin_in_chat_message::Type;
-        let pin = |kind: Type, seconds: Option<u32>| wa::Message {
-            pin_in_chat_message: MessageField::some(wa::message::PinInChatMessage {
-                key: MessageField::some(wa::MessageKey {
-                    id: Some("3EB0DDDD".into()),
-                    ..Default::default()
-                }),
-                r#type: Some(kind),
-                sender_timestamp_ms: Some(1_700_000_000_000),
-            }),
-            message_context_info: MessageField::some(wa::MessageContextInfo {
-                message_add_on_duration_in_secs: seconds,
-                ..Default::default()
-            }),
-            ..Default::default()
+        let pin = |kind: Type, seconds: Option<u32>| {
+            proto!(wa::Message {
+                pin_in_chat_message: MessageField::some(proto!(wa::message::PinInChatMessage {
+                    key: MessageField::some(proto!(wa::MessageKey {
+                        id: Some("3EB0DDDD".into()),
+                    })),
+                    r#type: Some(kind),
+                    sender_timestamp_ms: Some(1_700_000_000_000),
+                })),
+                message_context_info: MessageField::some(proto!(wa::MessageContextInfo {
+                    message_add_on_duration_in_secs: seconds,
+                })),
+            })
         };
         assert_eq!(
             effect(&pin(Type::PIN_FOR_ALL, Some(86_400)), None),
@@ -1236,18 +1208,15 @@ mod tests {
     #[test]
     fn a_revoke_and_an_edit_name_what_they_change() {
         use wa::message::protocol_message::Type;
-        let key = MessageField::some(wa::MessageKey {
+        let key = MessageField::some(proto!(wa::MessageKey {
             id: Some("3EB0CCCC".into()),
-            ..Default::default()
-        });
-        let revoke = wa::Message {
-            protocol_message: MessageField::some(wa::message::ProtocolMessage {
+        }));
+        let revoke = proto!(wa::Message {
+            protocol_message: MessageField::some(proto!(wa::message::ProtocolMessage {
                 key: key.clone(),
                 r#type: Some(Type::REVOKE),
-                ..Default::default()
-            }),
-            ..Default::default()
-        };
+            })),
+        });
         assert_eq!(
             effect(&revoke, None),
             Effect::Revoke {
@@ -1255,18 +1224,15 @@ mod tests {
             }
         );
 
-        let edit = wa::Message {
-            protocol_message: MessageField::some(wa::message::ProtocolMessage {
+        let edit = proto!(wa::Message {
+            protocol_message: MessageField::some(proto!(wa::message::ProtocolMessage {
                 key,
                 r#type: Some(Type::MESSAGE_EDIT),
-                edited_message: MessageField::some(wa::Message {
+                edited_message: MessageField::some(proto!(wa::Message {
                     conversation: Some("fixed".into()),
-                    ..Default::default()
-                }),
-                ..Default::default()
-            }),
-            ..Default::default()
-        };
+                })),
+            })),
+        });
         let Effect::Edit {
             target,
             replacement,
@@ -1280,18 +1246,15 @@ mod tests {
 
     #[test]
     fn an_edited_caption_keeps_its_picture() {
-        let original = wa::Message {
+        let original = proto!(wa::Message {
             image_message: MessageField::some(image()),
-            ..Default::default()
-        };
+        });
         // What the phone sends: the new caption, and no file.
-        let replacement = wa::Message {
-            image_message: MessageField::some(wa::message::ImageMessage {
+        let replacement = proto!(wa::Message {
+            image_message: MessageField::some(proto!(wa::message::ImageMessage {
                 caption: Some("cheese or avocado".into()),
-                ..Default::default()
-            }),
-            ..Default::default()
-        };
+            })),
+        });
         let merged = content_of(&edited(&original, &replacement));
         let MessageContent::Media(media) = merged.content else {
             panic!("still a picture");
@@ -1300,29 +1263,26 @@ mod tests {
         assert_eq!(media.caption.as_deref(), Some("cheese or avocado"));
 
         // A text is the edit, whole.
-        let text = wa::Message {
+        let text = proto!(wa::Message {
             conversation: Some("fixed".into()),
-            ..Default::default()
-        };
+        });
         assert_eq!(edited(&text, &text), text);
     }
 
     #[test]
     fn keys_between_devices_show_nothing() {
-        let keys = wa::Message {
+        let keys = proto!(wa::Message {
             sender_key_distribution_message: MessageField::some(Default::default()),
-            ..Default::default()
-        };
+        });
         assert_eq!(effect(&keys, None), Effect::Nothing);
         assert_eq!(effect(&wa::Message::default(), None), Effect::Nothing);
     }
 
     #[test]
     fn what_is_not_drawn_is_named_and_not_dropped() {
-        let message = wa::Message {
+        let message = proto!(wa::Message {
             order_message: MessageField::some(Default::default()),
-            ..Default::default()
-        };
+        });
         assert_eq!(
             content_of(&message).content,
             MessageContent::Unsupported {
@@ -1333,21 +1293,20 @@ mod tests {
 
     #[test]
     fn a_poll_counts_the_votes_it_was_given() {
-        let poll = wa::Message {
-            poll_creation_message_v3: MessageField::some(wa::message::PollCreationMessage {
-                name: Some("Where?".into()),
-                options: ["Beach", "City"]
-                    .into_iter()
-                    .map(|name| wa::message::poll_creation_message::Option {
-                        option_name: Some(name.into()),
-                        ..Default::default()
-                    })
-                    .collect(),
-                selectable_options_count: Some(1),
-                ..Default::default()
-            }),
-            ..Default::default()
-        };
+        let poll = proto!(wa::Message {
+            poll_creation_message_v3: MessageField::some(proto!(
+                wa::message::PollCreationMessage {
+                    name: Some("Where?".into()),
+                    options: ["Beach", "City"]
+                        .into_iter()
+                        .map(|name| proto!(wa::message::poll_creation_message::Option {
+                            option_name: Some(name.into()),
+                        }))
+                        .collect(),
+                    selectable_options_count: Some(1),
+                }
+            )),
+        });
         let votes = PollVotes {
             voters: vec![
                 (false, vec![option_hash("Beach")]),
@@ -1379,22 +1338,18 @@ mod tests {
 
     #[test]
     fn a_reply_to_a_story_is_marked_and_is_not_a_quote() {
-        let message = wa::Message {
-            extended_text_message: MessageField::some(wa::message::ExtendedTextMessage {
+        let message = proto!(wa::Message {
+            extended_text_message: MessageField::some(proto!(wa::message::ExtendedTextMessage {
                 text: Some("nice".into()),
-                context_info: MessageField::some(wa::ContextInfo {
+                context_info: MessageField::some(proto!(wa::ContextInfo {
                     stanza_id: Some("3EB0DDDD".into()),
                     remote_jid: Some(STATUS_CHAT.into()),
-                    quoted_message: MessageField::some(wa::Message {
+                    quoted_message: MessageField::some(proto!(wa::Message {
                         image_message: MessageField::some(image()),
-                        ..Default::default()
-                    }),
-                    ..Default::default()
-                }),
-                ..Default::default()
-            }),
-            ..Default::default()
-        };
+                    })),
+                })),
+            })),
+        });
         let mapped = content_of(&message);
         assert!(mapped.reply_to.is_none());
         let story = mapped.extras.story_reply.expect("it answers a story");
