@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.15.2]
+
 * The numbers of this computer speak the WhatsApp of today: whatsapp-rust is moved up to its latest commit, which knows WhatsApp Web 2.3000.1054751086 and brings two months of fixes to sending, receiving, groups and calls. The sessions' store takes one small migration at the first start. Building needs Rust 1.95.
 
 ## [0.15.1]
