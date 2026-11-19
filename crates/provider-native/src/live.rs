@@ -29,7 +29,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use whatsapp_rust::bot::{Bot, BotHandle};
 use whatsapp_rust::client::Client;
-use whatsapp_rust::download::{DownloadParams, MediaType};
+use whatsapp_rust::download::{DownloadLimits, DownloadParams, MediaType};
 use whatsapp_rust::pair_code::PairCodeOptions;
 use whatsapp_rust::request::IqError;
 use whatsapp_rust::send::{EditRequest, SendError, SendOptions, SendRequest};
@@ -477,8 +477,8 @@ struct Hearing {
     calls: Arc<Calls>,
 }
 
-fn millis(at: whatsapp_rust::chrono::DateTime<whatsapp_rust::chrono::Utc>) -> i64 {
-    at.timestamp_millis()
+fn millis(at: whatsapp_rust::Timestamp) -> i64 {
+    at.as_millis()
 }
 
 fn parse(address: &Option<String>) -> Option<Jid> {
@@ -538,7 +538,7 @@ impl Hearing {
             ))),
             Event::TemporaryBan(ban) => self.tell(Inbound::Disconnected(Some(format!(
                 "WhatsApp restricted this number for {} minutes.",
-                ban.expire.num_minutes().max(1)
+                (ban.expire.as_secs() / 60).max(1)
             )))),
             Event::ClientOutdated(_) => self.tell(Inbound::Disconnected(Some(
                 "This version is too old for WhatsApp. Update the application.".into(),
@@ -816,7 +816,7 @@ impl Hearing {
             // A group just made, here, on the phone or by whoever added the
             // account: its chat is listed before anybody writes in it. A
             // community has no chat; the groups made with it do.
-            GroupNotificationAction::Create { raw } => {
+            GroupNotificationAction::Create { raw, .. } => {
                 if let Some(group) = raw
                     .get_optional_child("group")
                     .filter(|group| group.get_optional_child("parent").is_none())
@@ -863,10 +863,10 @@ impl Hearing {
                     None,
                 ))
             }
-            GroupNotificationAction::Promote { participants } => {
+            GroupNotificationAction::Promote { participants, .. } => {
                 Some((SystemKind::Promoted, people(participants), None))
             }
-            GroupNotificationAction::Demote { participants } => {
+            GroupNotificationAction::Demote { participants, .. } => {
                 Some((SystemKind::Demoted, people(participants), None))
             }
             GroupNotificationAction::Subject { subject: new, .. } => {
@@ -1104,17 +1104,15 @@ fn history_messages(chat: &Jid, info: &wa::WebMessageInfo) -> Vec<Incoming> {
         let Some(reaction_id) = reaction_key.id.clone() else {
             continue;
         };
-        let reacted = wa::Message {
-            reaction_message: whatsapp_rust::buffa::MessageField::some(
+        let reacted = proto!(wa::Message {
+            reaction_message: whatsapp_rust::buffa::MessageField::some(proto!(
                 wa::message::ReactionMessage {
                     key: info.key.clone(),
                     text: reaction.text.clone(),
                     sender_timestamp_ms: reaction.sender_timestamp_ms,
-                    ..Default::default()
-                },
-            ),
-            ..Default::default()
-        };
+                }
+            ),),
+        });
         messages.push(Incoming {
             chat: chat.clone(),
             chat_alt: None,
@@ -1418,7 +1416,9 @@ impl Session for LiveSession {
         // write, once `_stop` is dropped with the request.
         let into = Received::new(progress);
         let (received, _stop) = (into.received.clone(), StopOnDrop(into.stop.clone()));
-        let download = self.client.download_to_writer(&params, into);
+        let download = self
+            .client
+            .download_to_writer(&params, into, DownloadLimits::default());
         tokio::pin!(download);
         let (mut heard, mut quiet_since) = (0, tokio::time::Instant::now());
         loop {
