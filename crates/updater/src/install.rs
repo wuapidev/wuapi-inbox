@@ -140,13 +140,15 @@ pub fn detect_in(
     let text = exe.to_string_lossy();
     let names = parts(&text);
     // `target/debug`, `target/release`, `target/<triple>/release/deps`…
+    // and the build directory Cargo runs tests from when it lays a new
+    // target out: `target/debug/build/<package>/<hash>/out`.
+    let profile = |name: &&str| matches!(*name, "debug" | "release");
     let from_cargo = names.contains(&"target")
-        && names
-            .iter()
-            .rev()
-            .skip(1)
-            .take(2)
-            .any(|name| matches!(*name, "debug" | "release"));
+        && (names.iter().rev().skip(1).take(2).any(profile)
+            || matches!(
+                names.as_slice(),
+                [.., profile_dir, "build", _, _, "out", _] if profile(profile_dir)
+            ));
     if from_cargo {
         return Install::NotifyOnly(WhyNot::Development);
     }
@@ -1007,6 +1009,8 @@ mod tests {
             "/home/ana/code/inbox/target/debug/wuapi-inbox",
             "/home/ana/code/inbox/target/release/wuapi-inbox",
             "/home/ana/code/inbox/target/debug/deps/updater-0123456789abcdef",
+            "/home/ana/code/inbox/target/debug/build/updater/0123456789abcdef/out/updater-0123456789abcdef",
+            r"C:\src\inbox\target\release\build\wuapi-inbox\0123456789abcdef\out\wuapi_inbox-0123456789abcdef.exe",
             "/home/ana/code/inbox/target/x86_64-pc-windows-gnu/release/wuapi-inbox.exe",
             r"C:\src\inbox\target\release\wuapi-inbox.exe",
         ] {
